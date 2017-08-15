@@ -1,0 +1,4 @@
+git+https://github.com/nathants/py-util@58d8839
+git+https://github.com/nathants/py-pool@dbfcda8
+git+https://github.com/nathants/py-schema@23ac78c
+git+https://github.com/nathants/py-web@92c74c
