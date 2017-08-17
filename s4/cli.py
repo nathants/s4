@@ -126,7 +126,7 @@ def cp(src, dst, recursive=False):
             assert resp.status_code == 200, resp
             uuid, nc_port = resp.json()
             # resp = shell.run('cat', src, ' | nc', server, nc_port, warn=True, echo=True)
-            cmd = f'cat {src} | xxhsum | nc {server} {nc_port}'
+            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {nc_port}"'
             print('cmd:', cmd)
             checksum = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE).stderr.read().decode('utf-8').strip()
             print('checksum:', checksum)

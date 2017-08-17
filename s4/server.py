@@ -28,16 +28,13 @@ tcp_client = tornado.tcpclient.TCPClient()
 
 _ports_in_use = set()
 
-_futures = {}
-
-pool_slow = concurrent.futures.ThreadPoolExecutor(10)
-pool_fast = concurrent.futures.ThreadPoolExecutor(10)
+_procs = {} # TODO need to cleanup entries here created by /prepare_put left dangling by never calling /confirm_put
 
 def new_uuid():
     for _ in range(10):
         val = str(uuid.uuid4())
-        if val not in _futures:
-            _futures[val] = '::taken'
+        if val not in _procs:
+            _procs[val] = '::taken'
             return val
     assert False
 
@@ -54,6 +51,7 @@ def return_port(port):
 
 @tornado.gen.coroutine
 def prepare_put_handler(req):
+    # TODO if too many procs already open, send a backoff signal to the client, ie sleep and retry
     key = req['query']['key']
     assert key.startswith('s3://')
     assert not key.endswith('/')
@@ -61,23 +59,23 @@ def prepare_put_handler(req):
     path = key.split('s3://')[-1]
     parent = os.path.dirname(path)
     port = new_port()
-    yield pool_fast.submit(shell.run, 'mkdir -p', parent)
-    cmd = f'nc -q 0 -l {port} | xxhsum > {path}'
-    print('cmd:', cmd)
+    yield pool.thread.submit(shell.run, 'mkdir -p', parent)
+    cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {path}"'
+    shell.run(f'timeout 120 bash -c "while netstat -ln|grep {port}; do sleep .1; done"')
     uuid = new_uuid()
-    _futures[uuid] = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
+    _procs[uuid] = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
     return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
 def confirm_put_handler(req):
     uuid = req['query']['uuid']
     checksum = req['query']['checksum']
-    proc = _futures[uuid]
-    proc.wait()
+    proc = _procs.pop(uuid)
+    while proc.poll() is None:
+        yield tornado.gen.sleep(.05)
     assert proc.returncode == 0
     local_checksum = proc.stderr.read().decode('utf-8').strip()
     assert checksum == local_checksum, [checksum, local_checksum]
-    # print([checksum, resp['stderr']])
     return {'status': 200}
 
 @tornado.gen.coroutine
