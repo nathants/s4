@@ -11,4 +11,5 @@ setuptools.setup(
     packages=['s4'],
     install_requires=['argh==0.26.1'],
     description='stupid simple storage service',
+    entry_points={'console_scripts': ['s4-server = s4.server:main']},
 )

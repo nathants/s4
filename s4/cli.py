@@ -1,10 +1,14 @@
 import sys
+import subprocess
+import argh
 import shell
 import s4
 import os
 import hashlib
 import requests
 import mmh3
+
+http_port = os.environ.get('http_port', 8000)
 
 # tmpdir = None
 
@@ -121,9 +125,11 @@ def cp(src, dst, recursive=False):
             resp = requests.post(f'http://{server}:{http_port}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
             uuid, nc_port = resp.json()
-            resp = shell.run('timeout 120 cat', src, '| xxhsum | nc', server, nc_port, warn=True) # TODO timeout is a bit crude, do something else?
-            assert resp['exitcode'] == 0, resp
-            checksum = resp['stderr']
+            # resp = shell.run('cat', src, ' | nc', server, nc_port, warn=True, echo=True)
+            cmd = f'cat {src} | xxhsum | nc {server} {nc_port}'
+            print('cmd:', cmd)
+            checksum = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE).stderr.read().decode('utf-8').strip()
+            print('checksum:', checksum)
             resp = requests.post(f'http://{server}:{http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
     else:
@@ -139,29 +145,4 @@ def pick_server(dst):
 #     assert os.system('rm -rf %s' % tmpdir) == 0
 
 def main():
-    if len(sys.argv) < 2:
-        print('usage: aws s3 cp|ls|rm')
-        sys.exit(1)
-    else:
-        cmd = sys.argv[1]
-        if cmd == 'cp':
-            if len(sys.argv) < 4:
-                print('usage: aws s3 cp SRC DST [--recursive]')
-                sys.exit(1)
-            else:
-                cp(sys.argv[2], sys.argv[3], len(sys.argv) > 4 and sys.argv[4] == '--recursive')
-        # elif cmd == 'ls':
-        #     if len(sys.argv) < 3:
-        #         print('usage: aws s3 ls URL [--recursive]')
-        #         sys.exit(1)
-        #     else:
-        #         for x in ls(sys.argv[2], len(sys.argv) > 3 and sys.argv[3] == '--recursive'):
-        #             print(x)
-        # elif cmd == 'rm':
-        #     if len(sys.argv) < 3:
-        #         print('usage: aws s3 rm URL [--recursive]')
-        #         sys.exit(1)
-        #     else:
-        #         rm(sys.argv[2], len(sys.argv) > 3 and sys.argv[3] == '--recursive')
-        else:
-            sys.exit(1)
+    argh.dispatch_commands([cp])

@@ -1,4 +1,8 @@
 import s4
+import subprocess
+import concurrent.futures
+import time
+import tornado.tcpclient
 import s4.cli
 import datetime
 import json
@@ -20,9 +24,14 @@ recv: nc -l -p 1234 -w 3 -q 0 | ./xxHash/xxhsum > output
 send: cat input | ./xxHash/xxhsum | nc 10.0.5.53 1234
 """
 
+tcp_client = tornado.tcpclient.TCPClient()
+
 _ports_in_use = set()
 
 _futures = {}
+
+pool_slow = concurrent.futures.ThreadPoolExecutor(10)
+pool_fast = concurrent.futures.ThreadPoolExecutor(10)
 
 def new_uuid():
     for _ in range(10):
@@ -52,19 +61,23 @@ def prepare_put_handler(req):
     path = key.split('s3://')[-1]
     parent = os.path.dirname(path)
     port = new_port()
-    yield pool.thread.submit(shell.run, 'mkdir -p', parent)
-    future = pool.thread.submit(shell.run, 'timeout 120 nc -w 0 -q 0 -l', port, '| xxhsum >', path, warn=True) # TODO timeout is a bit crude, do something else?
+    yield pool_fast.submit(shell.run, 'mkdir -p', parent)
+    cmd = f'nc -q 0 -l {port} | xxhsum > {path}'
+    print('cmd:', cmd)
     uuid = new_uuid()
-    _futures[uuid] = future
+    _futures[uuid] = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
     return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
 def confirm_put_handler(req):
     uuid = req['query']['uuid']
     checksum = req['query']['checksum']
-    resp = yield tornado.gen.with_timeout(datetime.timedelta(seconds=120), _futures[uuid])
-    assert resp['exitcode'] == 0, resp
-    assert checksum == resp['stderr'], [checksum, resp['stderr']]
+    proc = _futures[uuid]
+    proc.wait()
+    assert proc.returncode == 0
+    local_checksum = proc.stderr.read().decode('utf-8').strip()
+    assert checksum == local_checksum, [checksum, local_checksum]
+    # print([checksum, resp['stderr']])
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -99,6 +112,6 @@ def server(port=8000, debug=False):
     web.app(routes, debug=debug).listen(port)
     tornado.ioloop.IOLoop.current().start()
 
-if __name__ == '__main__':
+def main():
     util.log.setup()
-    argh.dispatch_commands([server])
+    argh.dispatch_command(server)
