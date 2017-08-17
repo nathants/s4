@@ -61,7 +61,7 @@ def prepare_put_handler(req):
     port = new_port()
     yield pool.thread.submit(shell.run, 'mkdir -p', parent)
     cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {path}"'
-    shell.run(f'timeout 120 bash -c "while netstat -ln|grep {port}; do sleep .1; done"')
+    yield pool.thread.submit(shell.run, f'timeout 120 bash -c "while netstat -ln|grep {port}; do sleep .1; done"')
     uuid = new_uuid()
     _procs[uuid] = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
     return {'status': 200, 'body': json.dumps([uuid, port])}
