@@ -55,7 +55,7 @@ def prepare_put_handler(req):
     key = req['query']['key']
     assert key.startswith('s3://')
     assert not key.endswith('/')
-    assert '0.0.0.0' == s4.cli.pick_server(key) # make sure the key is meant to live on this server
+    assert '0.0.0.0' == s4.cli.pick_server(key) # make sure the key is meant to live on this server before accepting it
     path = key.split('s3://')[-1]
     parent = os.path.dirname(path)
     port = new_port()
