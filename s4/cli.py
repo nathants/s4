@@ -117,22 +117,15 @@ def cp(src, dst, recursive=False):
             pass
             # x = sys.stdin.buffer.read()
         else:
-            addr = pick_server(dst)
-            resp = requests.post('http://{addr}:{port}/prepare_put?key={dst}')
+            server = pick_server(dst)
+            resp = requests.post(f'http://{server}:{http_port}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
-            port = resp.text
-            resp = shell.run('cat', src, '| xxhsum | nc', addr, port, warn=True)
+            uuid, nc_port = resp.json()
+            resp = shell.run('timeout 120 cat', src, '| xxhsum | nc', server, nc_port, warn=True) # TODO timeout is a bit crude, do something else?
             assert resp['exitcode'] == 0, resp
             checksum = resp['stderr']
-x x
-            # with open(src, 'rb') as f:
-                # x = f.read()
-        dst = dst.split('s3://')[1]
-        with open(_cache_path(dst), 'wb') as f:
-            f.write(x)
-        for prefix in _prefixes(dst):
-            with open(_cache_path_prefix(prefix), 'a') as f:
-                f.write(dst + '\n')
+            resp = requests.post(f'http://{server}:{http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
+            assert resp.status_code == 200, resp
     else:
         print('something needs s3://')
         sys.exit(1)

@@ -1,0 +1,9 @@
+dist/
+build/
+*flymake*
+.coverage*
+*.pyc
+__pycache__
+*egg*
+.tox/
+.cache/
