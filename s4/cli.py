@@ -1,14 +1,11 @@
 import sys
-import subprocess
-import argh
-import shell
-import s4
-import os
-import hashlib
-import requests
-import mmh3
+import time
 
-http_port = os.environ.get('http_port', 8000)
+import s4
+
+import argh
+import requests
+
 
 # tmpdir = None
 
@@ -121,22 +118,28 @@ def cp(src, dst, recursive=False):
             pass
             # x = sys.stdin.buffer.read()
         else:
-            server = pick_server(dst)
-            resp = requests.post(f'http://{server}:{http_port}/prepare_put?key={dst}')
+            server = s4.pick_server(dst)
+            for _ in range(30):
+                resp = requests.post(f'http://{server}:{s4.http_port}/prepare_put?key={dst}')
+                if resp.status_code != 429:
+                    break
+                print('server busy, waiting')
+                time.sleep(1)
+            else:
+                print('server still busy, aborting')
+                sys.exit(1)
             assert resp.status_code == 200, resp
             uuid, nc_port = resp.json()
             cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {nc_port}"'
             print('cmd:', cmd)
-            checksum = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE).stderr.read().decode('utf-8').strip()
+            checksum = s4.check_output(cmd)
             print('checksum:', checksum)
-            resp = requests.post(f'http://{server}:{http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
+            resp = requests.post(f'http://{server}:{s4.http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
     else:
         print('something needs s3://')
         sys.exit(1)
 
-def pick_server(dst):
-    return s4.servers[mmh3.hash(dst) % s4.num_servers]
 
 # def clear_storage():
 #     assert tmpdir and tmpdir.startswith('/tmp/')

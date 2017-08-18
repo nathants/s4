@@ -1,30 +1,28 @@
-import s4
-import traceback
-import subprocess
-import time
-import tornado.tcpclient
-import s4.cli
 import json
-import uuid
-import argh
 import os
+import random
+import time
+import traceback
+
+import s4
+
+import argh
+import pool.thread
 import tornado.gen
 import tornado.ioloop
 import util.log
-import pool.thread
-import shell
+import uuid
 import web
-import random
 
 ports_in_use = set()
 
-procs = {} # TODO need to cleanup entries here created by /prepare_put left dangling by never calling /confirm_put
+jobs = {}
 
 def new_uuid():
     for _ in range(10):
         val = str(uuid.uuid4())
-        if val not in procs:
-            procs[val] = '::taken'
+        if val not in jobs:
+            jobs[val] = '::taken'
             return val
     assert False
 
@@ -41,36 +39,35 @@ def return_port(port):
 
 @tornado.gen.coroutine
 def prepare_put_handler(req):
-    # TODO if too many procs already open, send a backoff signal to the client, ie sleep and retry
-    key = req['query']['key']
-    assert key.startswith('s3://')
-    assert not key.endswith('/')
-    assert '0.0.0.0' == s4.cli.pick_server(key) # make sure the key is meant to live on this server before accepting it
-    path = key.split('s3://')[-1]
-    parent = os.path.dirname(path)
-    temp_path = yield pool.thread.submit(shell.run, 'mktemp -p .')
-    port = new_port()
-    yield pool.thread.submit(shell.run, 'mkdir -p', parent)
-    cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
-    yield pool.thread.submit(shell.run, f'timeout 120 bash -c "while netstat -ln|grep {port}; do sleep .1; done"')
-    uuid = new_uuid()
-    procs[uuid] = {'time': time.monotonic(),
-                   'proc': subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE),
-                   'temp_path': temp_path,
-                   'path': path}
-    return {'status': 200, 'body': json.dumps([uuid, port])}
+    if len(jobs) > s4.max_jobs:
+        return {'status': 429}
+    else:
+        key = req['query']['key']
+        assert key.startswith('s3://')
+        assert not key.endswith('/')
+        assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
+        path = key.split('s3://')[-1]
+        parent = os.path.dirname(path)
+        temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
+        port = new_port()
+        yield pool.thread.submit(s4.check_output, 'mkdir -p', parent)
+        cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
+        uuid = new_uuid()
+        jobs[uuid] = {'time': time.monotonic(),
+                      'future': pool.thread.submit(s4.check_output, cmd),
+                      'temp_path': temp_path,
+                      'path': path}
+        yield pool.thread.submit(s4.check_output, f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+        return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
 def confirm_put_handler(req):
     uuid = req['query']['uuid']
     checksum = req['query']['checksum']
-    proc = procs.pop(uuid)
-    while proc['proc'].poll() is None:
-        yield tornado.gen.sleep(.05)
-    assert proc['proc'].returncode == 0
-    local_checksum = proc['proc'].stderr.read().decode('utf-8').strip()
+    job = jobs.pop(uuid)
+    local_checksum = yield job['future']
     assert checksum == local_checksum, [checksum, local_checksum]
-    yield pool.thread.submit(shell.run, 'mv', proc['temp_path'], proc['path'])
+    yield pool.thread.submit(s4.check_output, 'mv', job['temp_path'], job['path'])
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -97,9 +94,9 @@ def delete_handler(req):
 def proc_garbage_collector():
     try:
         while True:
-            for k, v in procs.items():
+            for k, v in jobs.items():
                 if time.monotonic() - v['time'] > 120:
-                    del procs[k]
+                    del jobs[k]
             yield tornado.gen.sleep(10)
     except:
         traceback.print_exc() # because if you never call result() on a coroutine, you never see its error message
