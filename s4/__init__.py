@@ -5,11 +5,13 @@ import os
 
 import mmh3
 
+http_port = os.environ.get('http_port', 8000)
+
+max_jobs = 10
+
 def check_output(*a):
     cmd = ' '.join(map(str, a))
     return subprocess.check_output(cmd, shell=True, executable='/bin/bash', stderr=subprocess.STDOUT).decode('utf-8').strip()
-
-http_port = os.environ.get('http_port', 8000)
 
 _local_address = check_output("ifconfig|grep Ethernet -A1|tail -n+2|awk '{print $2}'|cut -d: -f2")
 
