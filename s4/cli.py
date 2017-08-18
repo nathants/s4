@@ -135,11 +135,5 @@ def cp(src, dst, recursive=False):
         print('something needs s3://')
         sys.exit(1)
 
-
-# def clear_storage():
-#     assert tmpdir and tmpdir.startswith('/tmp/')
-#     print('$ rm -rf', tmpdir)
-#     assert os.system('rm -rf %s' % tmpdir) == 0
-
 def main():
     argh.dispatch_commands([cp])

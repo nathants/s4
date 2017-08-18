@@ -30,4 +30,10 @@ except:
 _num_servers = len(servers)
 
 def pick_server(dst):
+    # when path is like s3://bucket/job/worker/001, hash only the last
+    # component of the path. this naming scheme is commonly used for
+    # partitioning data, and we want all of the partitions for the same
+    # numbered slot to be on the same server. otherwise hash the whole string.
+    if dst.split('/')[-1].isdigit():
+        dst = dst.split('/')[-1]
     return servers[mmh3.hash(dst) % _num_servers]
