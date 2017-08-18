@@ -3,6 +3,7 @@ import time
 
 import s4
 
+import pool.thread
 import argh
 import requests
 
@@ -98,42 +99,36 @@ def cp(src, dst, recursive=False):
             # with open(_cache_path_prefix(prefix), 'a') as f:
                 # f.write(dst + '\n')
     elif src.startswith('s3://'):
-        pass
-        # src = src.split('s3://')[1]
-        # try:
-            # with open(_cache_path(src), 'rb') as f:
-                # x = f.read()
-        # except FileNotFoundError:
-            # sys.exit(1)
-        # if dst == '-':
-            # sys.stdout.buffer.write(x)
-        # elif os.path.isdir(dst):
-            # with open(os.path.join(dst, os.path.basename(src)), 'wb') as f:
-                # f.write(x)
-        # else:
-            # with open(dst, 'wb') as f:
-                # f.write(x)
+        if dst == '-':
+            print('dont use stdout, python is too slow. use a file path instead.')
+        else:
+            resp = requests.post(f'http://localhost:{s4.http_port}/new_port')
+            assert resp.status_code == 200, resp
+            port = int(resp.text)
+            temp_path = s4.check_output('mktemp -p .')
+            cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
+            future = pool.thread.submit(s4.check_output, cmd)
+            s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+            server = s4.pick_server(src)
+            resp = requests.post(f'http://{server}:{s4.http_port}/prepare_get?key={src}&port={port}&server={s4.local_address}')
+            assert resp.status_code == 200, resp
+            uuid = resp.text
+            checksum = future.result()
+            resp = requests.post(f'http://{server}:{s4.http_port}/confirm_get?&uuid={uuid}&checksum={checksum}')
+            assert resp.status_code == 200, resp
+            s4.check_output('mv', temp_path, dst)
+
     elif dst.startswith('s3://'):
         if src == '-':
-            pass
-            # x = sys.stdin.buffer.read()
+            print('dont use stdin, python is too slow. use a file path instead.')
+            sys.exit(1)
         else:
             server = s4.pick_server(dst)
-            for _ in range(30):
-                resp = requests.post(f'http://{server}:{s4.http_port}/prepare_put?key={dst}')
-                if resp.status_code != 429:
-                    break
-                print('server busy, waiting')
-                time.sleep(1)
-            else:
-                print('server still busy, aborting')
-                sys.exit(1)
+            resp = requests.post(f'http://{server}:{s4.http_port}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
-            uuid, nc_port = resp.json()
-            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {nc_port}"'
-            print('cmd:', cmd)
+            uuid, port = resp.json()
+            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
             checksum = s4.check_output(cmd)
-            print('checksum:', checksum)
             resp = requests.post(f'http://{server}:{s4.http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
     else:

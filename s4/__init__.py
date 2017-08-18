@@ -13,13 +13,13 @@ def check_output(*a):
     cmd = ' '.join(map(str, a))
     return subprocess.check_output(cmd, shell=True, executable='/bin/bash', stderr=subprocess.STDOUT).decode('utf-8').strip()
 
-_local_address = check_output("ifconfig|grep Ethernet -A1|tail -n+2|awk '{print $2}'|cut -d: -f2")
+local_address = check_output("ifconfig|grep Ethernet -A1|tail -n+2|awk '{print $2}'|cut -d: -f2")
 
 try:
     with open(os.path.expanduser('~/.s4.conf')) as f:
         servers = [
             x
-            if x != _local_address
+            if x != local_address
             else '0.0.0.0'
             for x in f.read().strip().splitlines()
         ]

@@ -13,10 +13,13 @@ import tornado.ioloop
 import util.log
 import uuid
 import web
+import concurrent.futures
 
 ports_in_use = set()
 
 jobs = {}
+
+nc_pool = concurrent.futures.ThreadPoolExecutor(s4.max_jobs)
 
 def new_uuid():
     for _ in range(10):
@@ -43,8 +46,6 @@ def prepare_put_handler(req):
         return {'status': 429}
     else:
         key = req['query']['key']
-        assert key.startswith('s3://')
-        assert not key.endswith('/')
         assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
         path = key.split('s3://')[-1]
         parent = os.path.dirname(path)
@@ -54,7 +55,7 @@ def prepare_put_handler(req):
         cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': pool.thread.submit(s4.check_output, cmd),
+                      'future': nc_pool.submit(s4.check_output, cmd),
                       'temp_path': temp_path,
                       'path': path}
         yield pool.thread.submit(s4.check_output, f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
@@ -73,11 +74,24 @@ def confirm_put_handler(req):
 @tornado.gen.coroutine
 def prepare_get_handler(req):
     yield None
-    return {'status': 200}
+    key = req['query']['key']
+    port = req['query']['port']
+    server = req['query']['server']
+    assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
+    src = key.split('s3://')[-1]
+    cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
+    uuid = new_uuid()
+    jobs[uuid] = {'time': time.monotonic(),
+                  'future': nc_pool.submit(s4.check_output, cmd)}
+    return {'status': 200, 'body': uuid}
 
 @tornado.gen.coroutine
 def confirm_get_handler(req):
-    yield None
+    uuid = req['query']['uuid']
+    checksum = req['query']['checksum']
+    job = jobs.pop(uuid)
+    local_checksum = yield job['future']
+    assert checksum == local_checksum, [checksum, local_checksum]
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -89,6 +103,20 @@ def list_handler(req):
 def delete_handler(req):
     yield None
     return {'status': 200}
+
+@tornado.gen.coroutine
+def return_port_handler(req):
+    yield None
+    return_port(int(req['body']))
+    return {'status': 200}
+
+@tornado.gen.coroutine
+def new_port_handler(req):
+    yield None
+    if len(jobs) > s4.max_jobs:
+        return {'status': 429}
+    else:
+        return {'status': 200, 'body': str(new_port())}
 
 @tornado.gen.coroutine
 def proc_garbage_collector():
@@ -109,7 +137,9 @@ def server(port=8000, debug=False):
               ('/prepare_get', {'post': prepare_get_handler}),
               ('/confirm_get', {'post': confirm_get_handler}),
               ('/delete',      {'post': delete_handler}),
-              ('/list',        {'get':  list_handler})]
+              ('/list',        {'get':  list_handler}),
+              ('/new_port',    {'post': new_port_handler}),
+              ('/return_port', {'post': return_port_handler})]
     web.app(routes, debug=debug).listen(port)
     tornado.ioloop.IOLoop.current().start()
 
