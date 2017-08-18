@@ -47,7 +47,7 @@ def prepare_put_handler(req):
     else:
         key = req['query']['key']
         assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
-        path = key.split('s3://')[-1]
+        path = os.path.join('_s4_data', key.split('s3://')[-1])
         parent = os.path.dirname(path)
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
@@ -78,7 +78,7 @@ def prepare_get_handler(req):
     port = req['query']['port']
     server = req['query']['server']
     assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
-    src = key.split('s3://')[-1]
+    src = os.path.join('_s4_data', key.split('s3://')[-1])
     cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),

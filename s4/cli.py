@@ -51,27 +51,27 @@ import requests
 #                 with open(_cache_path_prefix(prefix), 'w') as f:
 #                     f.write(val)
 
-# def ls(url, recursive=False):
-#     orig_url = url = url.split('s3://')[-1]
-#     try:
-#         with open(_cache_path_prefix(url)) as f:
-#             xs = f.read().splitlines()
-#     except FileNotFoundError:
-#         try:
-#             url = os.path.dirname(url) + '/'
-#             with open(_cache_path_prefix(url)) as f:
-#                 xs = [x for x in f.read().splitlines() if x.startswith(orig_url)]
-#         except FileNotFoundError:
-#             sys.exit(1)
-#     if recursive:
-#         xs = ['_ _ _ %s' % '/'.join(x.split('/')[1:]) for x in xs]
-#     else:
-#         xs = [x.split(url)[-1].lstrip('/') for x in xs]
-#         xs = {'  PRE %s/' % x.split('/')[0]
-#               if '/' in x else
-#               '_ _ _ %s' % x
-#               for x in xs}
-#     return sorted(xs)
+def ls(url, recursive=False):
+    orig_url = url = url.split('s3://')[-1]
+    try:
+        with open(_cache_path_prefix(url)) as f:
+            xs = f.read().splitlines()
+    except FileNotFoundError:
+        try:
+            url = os.path.dirname(url) + '/'
+            with open(_cache_path_prefix(url)) as f:
+                xs = [x for x in f.read().splitlines() if x.startswith(orig_url)]
+        except FileNotFoundError:
+            sys.exit(1)
+    if recursive:
+        xs = ['_ _ _ %s' % '/'.join(x.split('/')[1:]) for x in xs]
+    else:
+        xs = [x.split(url)[-1].lstrip('/') for x in xs]
+        xs = {'  PRE %s/' % x.split('/')[0]
+              if '/' in x else
+              '_ _ _ %s' % x
+              for x in xs}
+    return sorted(xs)
 
 def cp(src, dst, recursive=False):
     if recursive:
@@ -91,13 +91,8 @@ def cp(src, dst, recursive=False):
         #         for file in files:
         #             cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
     elif src.startswith('s3://') and dst.startswith('s3://'):
-        pass
-        # src = src.split('s3://')[1]
-        # dst = dst.split('s3://')[1]
-        # assert os.system('cp %s %s' % (_cache_path(src), _cache_path(dst))) == 0
-        # for prefix in _prefixes(dst):
-            # with open(_cache_path_prefix(prefix), 'a') as f:
-                # f.write(dst + '\n')
+        print('mv not implmented yet')
+        sys.exit(1)
     elif src.startswith('s3://'):
         if dst == '-':
             print('dont use stdout, python is too slow. use a file path instead.')
@@ -136,4 +131,5 @@ def cp(src, dst, recursive=False):
         sys.exit(1)
 
 def main():
-    argh.dispatch_commands([cp])
+    argh.dispatch_commands([cp,
+                            ls])
