@@ -1,8 +1,7 @@
 import sys
 import time
-
+import os
 import s4
-
 import pool.thread
 import argh
 import requests
@@ -51,27 +50,15 @@ import requests
 #                 with open(_cache_path_prefix(prefix), 'w') as f:
 #                     f.write(val)
 
-def ls(url, recursive=False):
-    orig_url = url = url.split('s3://')[-1]
-    try:
-        with open(_cache_path_prefix(url)) as f:
-            xs = f.read().splitlines()
-    except FileNotFoundError:
-        try:
-            url = os.path.dirname(url) + '/'
-            with open(_cache_path_prefix(url)) as f:
-                xs = [x for x in f.read().splitlines() if x.startswith(orig_url)]
-        except FileNotFoundError:
-            sys.exit(1)
-    if recursive:
-        xs = ['_ _ _ %s' % '/'.join(x.split('/')[1:]) for x in xs]
-    else:
-        xs = [x.split(url)[-1].lstrip('/') for x in xs]
-        xs = {'  PRE %s/' % x.split('/')[0]
-              if '/' in x else
-              '_ _ _ %s' % x
-              for x in xs}
-    return sorted(xs)
+def ls(prefix, recursive=False):
+    urls = [f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}' for address, port in s4.servers]
+    vals = []
+    for url in urls:
+        resp = requests.get(url)
+        assert resp.status_code == 200
+        vals.extend(resp.json())
+    vals = [f'_ _ _ {"/".join(x.split("/")[2:])}' for x in sorted(vals)]
+    return vals
 
 def cp(src, dst, recursive=False):
     if recursive:
@@ -105,12 +92,15 @@ def cp(src, dst, recursive=False):
             future = pool.thread.submit(s4.check_output, cmd)
             s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
             server = s4.pick_server(src)
-            resp = requests.post(f'http://{server}:{s4.http_port}/prepare_get?key={src}&port={port}&server={s4.local_address}')
+            resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}&server={s4.local_address}')
             assert resp.status_code == 200, resp
             uuid = resp.text
             checksum = future.result()
-            resp = requests.post(f'http://{server}:{s4.http_port}/confirm_get?&uuid={uuid}&checksum={checksum}')
+            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
+            if dst.endswith('/'):
+                s4.check_output('mkdir -p', dst)
+                dst = os.path.join(dst, os.path.basename(src))
             s4.check_output('mv', temp_path, dst)
 
     elif dst.startswith('s3://'):
@@ -118,13 +108,15 @@ def cp(src, dst, recursive=False):
             print('dont use stdin, python is too slow. use a file path instead.')
             sys.exit(1)
         else:
+            if dst.endswith('/'):
+                dst = os.path.join(dst, os.path.basename(src))
             server = s4.pick_server(dst)
-            resp = requests.post(f'http://{server}:{s4.http_port}/prepare_put?key={dst}')
+            resp = requests.post(f'http://{server}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
             uuid, port = resp.json()
-            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
+            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server.split(":")[0]} {port}"'
             checksum = s4.check_output(cmd)
-            resp = requests.post(f'http://{server}:{s4.http_port}/confirm_put?uuid={uuid}&checksum={checksum}')
+            resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
     else:
         print('something needs s3://')

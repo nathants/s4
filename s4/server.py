@@ -1,4 +1,5 @@
 import json
+import subprocess
 import os
 import random
 import time
@@ -46,7 +47,7 @@ def prepare_put_handler(req):
         return {'status': 429}
     else:
         key = req['query']['key']
-        assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
+        assert '0.0.0.0' == s4.pick_server(key).split(':')[0] # make sure the key is meant to live on this server before accepting it
         path = os.path.join('_s4_data', key.split('s3://')[-1])
         parent = os.path.dirname(path)
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
@@ -77,7 +78,7 @@ def prepare_get_handler(req):
     key = req['query']['key']
     port = req['query']['port']
     server = req['query']['server']
-    assert '0.0.0.0' == s4.pick_server(key) # make sure the key is meant to live on this server before accepting it
+    assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     src = os.path.join('_s4_data', key.split('s3://')[-1])
     cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
     uuid = new_uuid()
@@ -97,7 +98,21 @@ def confirm_get_handler(req):
 @tornado.gen.coroutine
 def list_handler(req):
     yield None
-    return {'status': 200}
+    prefix = os.path.join('_s4_data', req['query'].get('prefix', '').split('s3://')[-1])
+    recursive = req['query'].get('recursive') == 'true'
+    try:
+        if recursive:
+            val = s4.check_output(f'find {prefix}* -type f')
+        else:
+            if prefix.endswith('/'):
+                val = s4.check_output(f'ls {prefix}')
+            else:
+                val = s4.check_output('ls', os.path.dirname(prefix), '| grep', os.path.basename(prefix) or '.')
+        val = val.splitlines()
+    except subprocess.CalledProcessError:
+        val = []
+    return {'status': 200,
+            'body': json.dumps(val)}
 
 @tornado.gen.coroutine
 def delete_handler(req):
@@ -130,7 +145,7 @@ def proc_garbage_collector():
         traceback.print_exc() # because if you never call result() on a coroutine, you never see its error message
         raise
 
-def server(port=8000, debug=False):
+def start(port=8000, debug=False):
     proc_garbage_collector()
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
@@ -145,4 +160,4 @@ def server(port=8000, debug=False):
 
 def main():
     util.log.setup()
-    argh.dispatch_command(server)
+    argh.dispatch_command(start)
