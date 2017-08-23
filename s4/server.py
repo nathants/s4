@@ -1,20 +1,19 @@
-import json
-import subprocess
-import os
-import random
-import time
-import traceback
-
-import s4
-
 import argh
+import concurrent.futures
+import json
+import os
 import pool.thread
+import random
+import s4
+import subprocess
+import sys
+import time
 import tornado.gen
 import tornado.ioloop
+import traceback
 import util.log
 import uuid
 import web
-import concurrent.futures
 
 ports_in_use = set()
 
@@ -53,7 +52,7 @@ def prepare_put_handler(req):
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
         yield pool.thread.submit(s4.check_output, 'mkdir -p', parent)
-        cmd = f'timeout 120 bash -c "set -euo pipefail; nc -q 0 -l {port} | xxhsum > {temp_path}"'
+        cmd = f'timeout 120 bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': nc_pool.submit(s4.check_output, cmd),
@@ -139,13 +138,17 @@ def proc_garbage_collector():
         while True:
             for k, v in jobs.items():
                 if time.monotonic() - v['time'] > 120:
+                    if v.get('temp_path'):
+                        s4.check_output('rm -f', v['temp_path'])
                     del jobs[k]
             yield tornado.gen.sleep(10)
     except:
         traceback.print_exc() # because if you never call result() on a coroutine, you never see its error message
-        raise
+        sys.stdout.flush()
+        time.sleep(1)
+        os._exit(1)
 
-def start(port=8000, debug=False):
+def start(port=s4.http_port, debug=False):
     util.log.setup()
     proc_garbage_collector()
     routes = [('/prepare_put', {'post': prepare_put_handler}),

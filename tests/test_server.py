@@ -1,19 +1,13 @@
 import uuid
-
+import util.time
 import sys
 import time
 import requests
 import pool.proc
 import s4.server
-import pytest
 import shell
 import os
 import contextlib
-import mock
-os.environ['s3_stubbed_session'] = str(uuid.uuid4())
-
-import aws.s3_stubbed as s3
-from shell import run
 import s4.cli
 
 
@@ -29,41 +23,42 @@ def start(port):
 
 @contextlib.contextmanager
 def servers():
-    with shell.tempdir():
-        ports = [8000, 8001, 8002]
-        # ports = [8000]
-        s4.servers = [('0.0.0.0', str(port)) for port in ports]
-        s4._num_servers = len(s4.servers)
-        s4.http_port = ports[0]
-        procs = [pool.proc.new(start, port) for port in ports]
-        watch = True
-        def watcher():
-            while watch:
-                for proc in procs:
-                    if not proc.is_alive():
-                        sys.stdout.write('proc died!\n')
-                        sys.stdout.flush()
-                        import time
-                        time.sleep(1)
-                        os._exit(1)
-        pool.thread.new(watcher)
-        for _ in range(30):
+    with util.time.timeout(5):
+        with shell.tempdir():
+            ports = [8000, 8001, 8002]
+            # ports = [8000]
+            s4.servers = [('0.0.0.0', str(port)) for port in ports]
+            s4._num_servers = len(s4.servers)
+            s4.http_port = ports[0]
+            procs = [pool.proc.new(start, port) for port in ports]
+            watch = True
+            def watcher():
+                while watch:
+                    for proc in procs:
+                        if not proc.is_alive():
+                            sys.stdout.write('proc died!\n')
+                            sys.stdout.flush()
+                            import time
+                            time.sleep(1)
+                            os._exit(1)
+            pool.thread.new(watcher)
+            for _ in range(30):
+                try:
+                    for port in ports:
+                        requests.get(f'http://0.0.0.0:{port}')
+                    break
+                except:
+                    time.sleep(.1)
+            else:
+                assert False
             try:
-                for port in ports:
-                    requests.get(f'http://0.0.0.0:{port}')
-                break
-            except:
-                time.sleep(.1)
-        else:
-            assert False
-        try:
-            yield
-        finally:
-            watch = False
-            for proc in procs:
-                proc.terminate()
+                yield
+            finally:
+                watch = False
+                for proc in procs:
+                    proc.terminate()
 
-import util.time
+
 
 def test_basic():
     with servers():

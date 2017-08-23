@@ -61,6 +61,7 @@ def ls(prefix, recursive=False):
     print(vals)
     return vals
 
+@s4.retry
 def cp(src, dst, recursive=False):
     if recursive:
         if src.startswith('s3://'):
@@ -90,20 +91,23 @@ def cp(src, dst, recursive=False):
             assert resp.status_code == 200, resp
             port = int(resp.text)
             temp_path = s4.check_output('mktemp -p .')
-            cmd = f'timeout 120 bash -c "set -euo pipefail; nc -q 0 -l {port} | xxhsum > {temp_path}"'
-            future = pool.thread.submit(s4.check_output, cmd)
-            s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
-            server = s4.pick_server(src)
-            resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}&server={s4.local_address}')
-            assert resp.status_code == 200, resp
-            uuid = resp.text
-            checksum = future.result()
-            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={checksum}')
-            assert resp.status_code == 200, resp
-            if dst.endswith('/'):
-                s4.check_output('mkdir -p', dst)
-                dst = os.path.join(dst, os.path.basename(src))
-            s4.check_output('mv', temp_path, dst)
+            try:
+                cmd = f'timeout 120 bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
+                future = pool.thread.submit(s4.check_output, cmd)
+                s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+                server = s4.pick_server(src)
+                resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}&server={s4.local_address}')
+                assert resp.status_code == 200, resp
+                uuid = resp.text
+                checksum = future.result()
+                resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={checksum}')
+                assert resp.status_code == 200, resp
+                if dst.endswith('/'):
+                    s4.check_output('mkdir -p', dst)
+                    dst = os.path.join(dst, os.path.basename(src))
+                s4.check_output('mv', temp_path, dst)
+            finally:
+                s4.check_output('rm -f', temp_path)
 
     elif dst.startswith('s3://'):
         if src == '-':

@@ -1,20 +1,31 @@
 import sys
+import itertools
 import subprocess
-
 import os
-
 import mmh3
+import logging
 
 max_jobs = 10
 
+def retry(f):
+    def fn(*a, **kw):
+        for i in itertools.count():
+            try:
+                return f(*a, **kw)
+            except Exception as e:
+                if i == 6:
+                    raise
+                logging.info('retrying: %s.%s, because of: %s', f.__module__, f.__name__, e)
+    return fn
+
 def check_output(*a):
     cmd = ' '.join(map(str, a))
-    print(cmd)
+    # print(cmd)
     return subprocess.check_output(cmd, shell=True, executable='/bin/bash', stderr=subprocess.STDOUT).decode('utf-8').strip()
 
 def check_call(*a):
     cmd = ' '.join(map(str, a))
-    print(cmd)
+    # print(cmd)
     return subprocess.check_call(cmd, shell=True, executable='/bin/bash')
 
 local_address = check_output("ifconfig|grep Ethernet -A1|grep addr:|head -n1|awk '{print $2}'|cut -d: -f2")
