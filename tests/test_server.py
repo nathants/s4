@@ -1,4 +1,6 @@
 import uuid
+from shell import run
+import pytest
 import util.time
 import sys
 import time
@@ -58,8 +60,6 @@ def servers():
                 for proc in procs:
                     proc.terminate()
 
-
-
 def test_basic():
     with servers():
         with open('file.txt', 'w') as f:
@@ -68,18 +68,18 @@ def test_basic():
         with open('file2.txt', 'w') as f:
             f.write('345\n')
         s4.cli.cp('file2.txt', 's3://bucket/basic/dir/')
-        # assert s4.cli.ls('s3://bucket/', recursive=True) == [
-        #     '_ _ _ basic/dir/file.txt',
-        #     '_ _ _ basic/dir/file2.txt',
-        # ]
-        # s4.cli.cp('s3://bucket/basic/dir/file.txt', 'out.txt')
-        # shell.run('cat out.txt') == "123"
-        # s4.cli.cp('s3://bucket/basic/dir/file2.txt', 'out2.txt')
-        # shell.run('cat out.txt') == "345\n"
-        # shell.run('mkdir foo/')
-        # s4.cli.cp('s3://bucket/basic/dir/file.txt', 'foo/')
-        # with open('foo/file.txt') as f:
-        #     assert f.read() == "123"
+        assert s4.cli.ls('s3://bucket/', recursive=True) == [
+            '_ _ _ basic/dir/file.txt',
+            '_ _ _ basic/dir/file2.txt',
+        ]
+        s4.cli.cp('s3://bucket/basic/dir/file.txt', 'out.txt')
+        shell.run('cat out.txt') == "123"
+        s4.cli.cp('s3://bucket/basic/dir/file2.txt', 'out2.txt')
+        shell.run('cat out.txt') == "345\n"
+        shell.run('mkdir foo/')
+        s4.cli.cp('s3://bucket/basic/dir/file.txt', 'foo/')
+        with open('foo/file.txt') as f:
+            assert f.read() == "123"
 
 # def test_cp_s3_to_s3():
 #     run('echo asdf |', preamble, 'cp - s3://bucket/s3_to_s3/a.txt')
@@ -91,58 +91,55 @@ def test_basic():
 #     ]
 
 def test_cp():
-    pass
-
-    # with servers():
-    #     run('mkdir -p foo/3')
-    #     with open('foo/1.txt', 'w') as f:
-    #         f.write('123')
-    #     with open('foo/2.txt', 'w') as f:
-    #         f.write('234')
-    #     with open('foo/3/4.txt', 'w') as f:
-    #         f.write('456')
-    #     s4.cli.cp('foo/', 's3://bucket/cp/dst/', recursive=True)
-    #     assert '\n'.join(s4.cli.ls('bucket/cp/dst/')) == rm_whitespace("""
-    #           PRE 3/
-    #         _ _ _ 1.txt
-    #         _ _ _ 2.txt
-    #     """)
-
-        # assert rm_whitespace(s4.cli.ls('bucket/cp/dst/', recursive=True)) == rm_whitespace("""
-        #     _ _ _ cp/dst/1.txt
-        #     _ _ _ cp/dst/2.txt
-        #     _ _ _ cp/dst/3/4.txt
-        # """)
-        # s4.cli.cp('s3://bucket/cp/dst/', 'dst1/', recursive=True)
-        # assert run('grep ".*" $(find dst1/ -type f|LC_ALL=C sort)') == rm_whitespace("""
-        #     dst1/1.txt:123
-        #     dst1/2.txt:234
-        #     dst1/3/4.txt:456
-        # """)
-        # s4.cli.cp('s3://bucket/cp/dst/', '.', recursive=True)
-        # assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
-        #     dst/1.txt:123
-        #     dst/2.txt:234
-        #     dst/3/4.txt:456
-        # """)
-        # run('rm -rf dst')
-        # s4.cli.cp('foo', 's3://bucket/cp/dst2', recursive=True)
-        # assert rm_whitespace(s4.cli.ls('bucket/cp/dst2/')) == rm_whitespace("""
-        #       PRE 3/
-        #     _ _ _ 1.txt
-        #     _ _ _ 2.txt
-        # """)
-        # assert rm_whitespace(s4.cli.ls('bucket/cp/dst2/', recursive=True)) == rm_whitespace("""
-        #     _ _ _ cp/dst2/1.txt
-        #     _ _ _ cp/dst2/2.txt
-        #     _ _ _ cp/dst2/3/4.txt
-        # """)
-        # s4.cli.cp('s3://bucket/cp/dst', '.', recursive=True)
-        # assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
-        #     dst/1.txt:123
-        #     dst/2.txt:234
-        #     dst/3/4.txt:456
-        # """)
+    with servers():
+        s4.check_output('mkdir -p foo/3')
+        with open('foo/1.txt', 'w') as f:
+            f.write('123')
+        with open('foo/2.txt', 'w') as f:
+            f.write('234')
+        with open('foo/3/4.txt', 'w') as f:
+            f.write('456')
+        s4.cli.cp('foo/', 's3://bucket/cp/dst/', recursive=True)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst/'))) == rm_whitespace("""
+              PRE 3/
+            _ _ _ 1.txt
+            _ _ _ 2.txt
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst/', recursive=True))) == rm_whitespace("""
+            _ _ _ cp/dst/1.txt
+            _ _ _ cp/dst/2.txt
+            _ _ _ cp/dst/3/4.txt
+        """)
+        s4.cli.cp('s3://bucket/cp/dst/', 'dst1/', recursive=True)
+        assert run('grep ".*" $(find dst1/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+            dst1/1.txt:123
+            dst1/2.txt:234
+            dst1/3/4.txt:456
+        """)
+        s4.cli.cp('s3://bucket/cp/dst/', '.', recursive=True)
+        assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+            dst/1.txt:123
+            dst/2.txt:234
+            dst/3/4.txt:456
+        """)
+        run('rm -rf dst')
+        s4.cli.cp('foo', 's3://bucket/cp/dst2', recursive=True)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst2/'))) == rm_whitespace("""
+              PRE 3/
+            _ _ _ 1.txt
+            _ _ _ 2.txt
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst2/', recursive=True))) == rm_whitespace("""
+            _ _ _ cp/dst2/1.txt
+            _ _ _ cp/dst2/2.txt
+            _ _ _ cp/dst2/3/4.txt
+        """)
+        s4.cli.cp('s3://bucket/cp/dst', '.', recursive=True)
+        assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+            dst/1.txt:123
+            dst/2.txt:234
+            dst/3/4.txt:456
+        """)
 
 # def test_listing():
 #     run('echo |', preamble, 'cp - s3://bucket/listing/dir1/key1.txt')

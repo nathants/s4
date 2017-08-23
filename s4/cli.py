@@ -55,10 +55,12 @@ def ls(prefix, recursive=False):
     vals = []
     for url in urls:
         resp = requests.get(url)
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp
         vals.extend(resp.json())
-    vals = [f'_ _ _ {x}' for x in sorted(vals)]
-    print(vals)
+    vals = sorted({f'  PRE {x}'
+                   if x.endswith('/') else
+                   f'_ _ _ {x}'
+                   for x in vals})
     return vals
 
 @s4.retry

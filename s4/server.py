@@ -97,21 +97,24 @@ def confirm_get_handler(req):
 @tornado.gen.coroutine
 def list_handler(req):
     yield None
-    prefix = os.path.join('_s4_data', req['query'].get('prefix', '').split('s3://')[-1])
+    _prefix = prefix = req['query'].get('prefix', '').split('s3://')[-1]
+    prefix = os.path.join('_s4_data', prefix)
     recursive = req['query'].get('recursive') == 'true'
     try:
         if recursive:
-            val = s4.check_output(f'find {prefix}* -type f')
+            xs = s4.check_output(f'find {prefix}* -type f').splitlines()
+            xs = ['/'.join(x.split('/')[2:]) for x in xs]
         else:
-            if prefix.endswith('/'):
-                val = s4.check_output(f'find {prefix} -maxdepth 1')
-            else:
-                val = s4.check_output(f"find -name '{prefix}*' -maxdepth 1")
-        val = ['/'.join(x.split('/')[2:]) for x in val.splitlines()]
+            if not prefix.endswith('/'):
+                prefix += '*'
+            files = s4.check_output(f"find '{prefix}' -maxdepth 1 -type f")
+            dirs  = s4.check_output(f"find '{prefix}' -mindepth 1 -maxdepth 1 -type d")
+            xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
+            xs = [x.split(_prefix)[-1] for x in xs]
     except subprocess.CalledProcessError:
-        val = []
+        xs = []
     return {'status': 200,
-            'body': json.dumps(val)}
+            'body': json.dumps(xs)}
 
 @tornado.gen.coroutine
 def delete_handler(req):
