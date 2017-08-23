@@ -1,4 +1,7 @@
+# use: boxed
+
 import uuid
+import itertools
 from shell import run
 import pytest
 import util.time
@@ -11,7 +14,7 @@ import shell
 import os
 import contextlib
 import s4.cli
-
+import util.log
 
 
 def rm_whitespace(x):
@@ -23,12 +26,13 @@ def start(port):
     with shell.cd(f'_{port}'):
         s4.server.start(port)
 
+all_ports = itertools.count(8000)
+
 @contextlib.contextmanager
 def servers():
-    with util.time.timeout(5):
+    with util.time.timeout(3):
         with shell.tempdir():
-            ports = [8000, 8001, 8002]
-            # ports = [8000]
+            ports = [next(all_ports), next(all_ports), next(all_ports)]
             s4.servers = [('0.0.0.0', str(port)) for port in ports]
             s4._num_servers = len(s4.servers)
             s4.http_port = ports[0]
@@ -38,10 +42,9 @@ def servers():
                 while watch:
                     for proc in procs:
                         if not proc.is_alive():
-                            sys.stdout.write('proc died!\n')
-                            sys.stdout.flush()
-                            import time
                             time.sleep(1)
+                            sys.stdout.write('proc died! exiting...\n')
+                            sys.stdout.flush()
                             os._exit(1)
             pool.thread.new(watcher)
             for _ in range(30):
@@ -141,25 +144,33 @@ def test_cp():
             dst/3/4.txt:456
         """)
 
-# def test_listing():
-#     run('echo |', preamble, 'cp - s3://bucket/listing/dir1/key1.txt')
-#     run('echo |', preamble, 'cp - s3://bucket/listing/dir1/dir2/key2.txt')
-#     assert s4.cli.ls('bucket/listing/dir1/ke') == rm_whitespace("""
-#         _ _ _ key1.txt
-#     """)
-#     assert rm_whitespace(s4.cli.ls('bucket/listing/dir1/')) == rm_whitespace("""
-#           PRE dir2/
-#         _ _ _ key1.txt
-#     """)
-#     assert rm_whitespace(s4.cli.ls('bucket/listing/d')) == rm_whitespace("""
-#           PRE dir1/
-#     """)
-#     assert rm_whitespace(s4.cli.ls('bucket/listing/d --recursive')) == rm_whitespace("""
-#         _ _ _ listing/dir1/dir2/key2.txt
-#         _ _ _ listing/dir1/key1.txt
-#     """)
-#     with pytest.raises(AssertionError):
-#         s4.cli.ls('bucket/fake/')
+def test_listing():
+    with servers():
+        s4.cli.cp('/dev/null', 's3://bucket/listing/dir1/key1.txt')
+        s4.cli.cp('/dev/null', 's3://bucket/listing/dir1/dir2/key2.txt')
+        assert '\n'.join(s4.cli.ls('bucket/listing/dir1/ke')) == rm_whitespace("""
+            _ _ _ key1.txt
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/dir1/'))) == rm_whitespace("""
+              PRE dir2/
+            _ _ _ key1.txt
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/d'))) == rm_whitespace("""
+              PRE dir1/
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/'))) == rm_whitespace("""
+              PRE dir1/
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/', recursive=True))) == rm_whitespace("""
+            _ _ _ listing/dir1/dir2/key2.txt
+            _ _ _ listing/dir1/key1.txt
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/d', recursive=True))) == rm_whitespace("""
+            _ _ _ listing/dir1/dir2/key2.txt
+            _ _ _ listing/dir1/key1.txt
+        """)
+        with pytest.raises(AssertionError):
+            s4.cli.ls('bucket/fake/')
 
 # def test_rm():
 #     s4.cli.rm('s3://bucket/rm/di --recursive')
@@ -175,13 +186,3 @@ def test_cp():
 #     """)
 #     s4.cli.rm('s3://bucket/rm/di --recursive')
 #     assert rm_whitespace(s4.cli.ls('bucket/rm/ --recursive')) == ''
-
-# def test_prefixes():
-#     assert ["", "a/", "a/b/", "a/b/c/"] == s3._prefixes('a/b/c/d.csv')
-
-# def test_binary():
-#     with shell.tempdir():
-#         with open('1.txt', 'w') as f:
-#             f.write('123')
-#         run('cat 1.txt | lz4 -1 |', preamble, 'cp - s3://bucket/binary/1.txt')
-#         assert '123' == s4.cli.cp('s3://bucket/binary/1.txt - | lz4 -d -c')

@@ -61,6 +61,7 @@ def ls(prefix, recursive=False):
                    if x.endswith('/') else
                    f'_ _ _ {x}'
                    for x in vals})
+    assert vals
     return vals
 
 @s4.retry
@@ -79,7 +80,6 @@ def cp(src, dst, recursive=False):
             for dirpath, dirs, files in os.walk(src):
                 path = dirpath.split(src)[-1].lstrip('/')
                 for file in files:
-                    print(os.path.join(dirpath, file), os.path.join(dst, path, file))
                     cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
 
     elif src.startswith('s3://') and dst.startswith('s3://'):

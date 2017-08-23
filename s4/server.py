@@ -102,14 +102,23 @@ def list_handler(req):
     recursive = req['query'].get('recursive') == 'true'
     try:
         if recursive:
-            xs = s4.check_output(f'find {prefix}* -type f').splitlines()
+            path = ''
+            if not prefix.endswith('/'):
+                path = f"-path '{path}*'"
+                prefix = os.path.dirname(prefix)
+            xs = s4.check_output(f'find {prefix} -type f {path}').splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]
         else:
+            name = ''
             if not prefix.endswith('/'):
-                prefix += '*'
-            files = s4.check_output(f"find '{prefix}' -maxdepth 1 -type f")
-            dirs  = s4.check_output(f"find '{prefix}' -mindepth 1 -maxdepth 1 -type d")
+                name = os.path.basename(prefix)
+                name = f"-name '{name}*'"
+                prefix = os.path.dirname(prefix)
+            files = s4.check_output(f"find {prefix} -maxdepth 1 -type f {name}")
+            dirs  = s4.check_output(f"find {prefix} -mindepth 1 -maxdepth 1 -type d {name}")
             xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
+            if not _prefix.endswith('/'):
+                _prefix = os.path.dirname(_prefix) + '/'
             xs = [x.split(_prefix)[-1] for x in xs]
     except subprocess.CalledProcessError:
         xs = []
