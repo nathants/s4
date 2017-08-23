@@ -53,7 +53,7 @@ def prepare_put_handler(req):
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
         yield pool.thread.submit(s4.check_output, 'mkdir -p', parent)
-        cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
+        cmd = f'timeout 120 bash -c "set -euo pipefail; nc -q 0 -l {port} | xxhsum > {temp_path}"'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': nc_pool.submit(s4.check_output, cmd),
@@ -80,7 +80,7 @@ def prepare_get_handler(req):
     server = req['query']['server']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     src = os.path.join('_s4_data', key.split('s3://')[-1])
-    cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server} {port}"'
+    cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc {server} {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
                   'future': nc_pool.submit(s4.check_output, cmd)}
@@ -105,10 +105,10 @@ def list_handler(req):
             val = s4.check_output(f'find {prefix}* -type f')
         else:
             if prefix.endswith('/'):
-                val = s4.check_output(f'ls {prefix}')
+                val = s4.check_output(f'find {prefix} -maxdepth 1')
             else:
-                val = s4.check_output('ls', os.path.dirname(prefix), '| grep', os.path.basename(prefix) or '.')
-        val = val.splitlines()
+                val = s4.check_output(f"find -name '{prefix}*' -maxdepth 1")
+        val = ['/'.join(x.split('/')[2:]) for x in val.splitlines()]
     except subprocess.CalledProcessError:
         val = []
     return {'status': 200,
@@ -146,6 +146,7 @@ def proc_garbage_collector():
         raise
 
 def start(port=8000, debug=False):
+    util.log.setup()
     proc_garbage_collector()
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
@@ -159,5 +160,4 @@ def start(port=8000, debug=False):
     tornado.ioloop.IOLoop.current().start()
 
 def main():
-    util.log.setup()
     argh.dispatch_command(start)

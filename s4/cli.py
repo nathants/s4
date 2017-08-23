@@ -57,26 +57,28 @@ def ls(prefix, recursive=False):
         resp = requests.get(url)
         assert resp.status_code == 200
         vals.extend(resp.json())
-    vals = [f'_ _ _ {"/".join(x.split("/")[2:])}' for x in sorted(vals)]
+    vals = [f'_ _ _ {x}' for x in sorted(vals)]
+    print(vals)
     return vals
 
 def cp(src, dst, recursive=False):
     if recursive:
-        pass
-        # if src.startswith('s3://'):
-        #     bucket, *parts = src.split('s3://')[-1].rstrip('/').split('/')
-        #     prefix = '/'.join(parts)
-        #     for x in ls(src, recursive=True):
-        #         key = x.split()[-1]
-        #         token = os.path.dirname(prefix) if dst == '.' else prefix
-        #         path = os.path.join(dst, key.split(token)[-1].lstrip(' /'))
-        #         os.makedirs(os.path.dirname(path), 0o777, True)
-        #         cp('s3://' + os.path.join(bucket, key), path)
-        # elif dst.startswith('s3://'):
-        #     for dirpath, dirs, files in os.walk(src):
-        #         path = dirpath.split(src)[-1].lstrip('/')
-        #         for file in files:
-        #             cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
+        if src.startswith('s3://'):
+            bucket, *parts = src.split('s3://')[-1].rstrip('/').split('/')
+            prefix = '/'.join(parts)
+            for x in ls(src, recursive=True):
+                key = x.split()[-1]
+                token = os.path.dirname(prefix) if dst == '.' else prefix
+                path = os.path.join(dst, key.split(token)[-1].lstrip(' /'))
+                os.makedirs(os.path.dirname(path), 0o777, True)
+                cp('s3://' + os.path.join(bucket, key), path)
+        elif dst.startswith('s3://'):
+            for dirpath, dirs, files in os.walk(src):
+                path = dirpath.split(src)[-1].lstrip('/')
+                for file in files:
+                    print(os.path.join(dirpath, file), os.path.join(dst, path, file))
+                    cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
+
     elif src.startswith('s3://') and dst.startswith('s3://'):
         print('mv not implmented yet')
         sys.exit(1)
@@ -88,7 +90,7 @@ def cp(src, dst, recursive=False):
             assert resp.status_code == 200, resp
             port = int(resp.text)
             temp_path = s4.check_output('mktemp -p .')
-            cmd = f'timeout 120 bash -c "nc -q 0 -l {port} | xxhsum > {temp_path}"'
+            cmd = f'timeout 120 bash -c "set -euo pipefail; nc -q 0 -l {port} | xxhsum > {temp_path}"'
             future = pool.thread.submit(s4.check_output, cmd)
             s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
             server = s4.pick_server(src)
@@ -114,7 +116,7 @@ def cp(src, dst, recursive=False):
             resp = requests.post(f'http://{server}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
             uuid, port = resp.json()
-            cmd = f'timeout 120 bash -c "cat {src} | xxhsum | nc {server.split(":")[0]} {port}"'
+            cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc {server.split(":")[0]} {port}"'
             checksum = s4.check_output(cmd)
             resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp

@@ -9,11 +9,15 @@ max_jobs = 10
 
 def check_output(*a):
     cmd = ' '.join(map(str, a))
-    # print(cmd)
+    print(cmd)
     return subprocess.check_output(cmd, shell=True, executable='/bin/bash', stderr=subprocess.STDOUT).decode('utf-8').strip()
-    # return subprocess.check_call(cmd, shell=True, executable='/bin/bash')
 
-local_address = check_output("ifconfig|grep Ethernet -A1|tail -n+2|awk '{print $2}'|cut -d: -f2")
+def check_call(*a):
+    cmd = ' '.join(map(str, a))
+    print(cmd)
+    return subprocess.check_call(cmd, shell=True, executable='/bin/bash')
+
+local_address = check_output("ifconfig|grep Ethernet -A1|grep addr:|head -n1|awk '{print $2}'|cut -d: -f2")
 
 local_addresses = {
     local_address,
