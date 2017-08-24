@@ -56,11 +56,11 @@ except IndexError:
     http_port = None
 
 def pick_server(s3_url):
-    # when path is like s3://bucket/job/worker/001, hash only the last
+    # when path is like s4://bucket/job/worker/001, hash only the last
     # component of the path. this naming scheme is commonly used for
     # partitioning data, and we want all of the partitions for the same
     # numbered slot to be on the same server. otherwise hash the whole string.
-    s3_url = s3_url.split('s3://')[-1]
+    s3_url = s3_url.split('s4://')[-1]
     if s3_url.split('/')[-1].isdigit():
         s3_url = s3_url.split('/')[-1]
     return ':'.join(servers[mmh3.hash(s3_url) % _num_servers])

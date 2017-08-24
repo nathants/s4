@@ -47,7 +47,7 @@ def prepare_put_handler(req):
     else:
         key = req['query']['key']
         assert '0.0.0.0' == s4.pick_server(key).split(':')[0] # make sure the key is meant to live on this server before accepting it
-        path = os.path.join('_s4_data', key.split('s3://')[-1])
+        path = os.path.join('_s4_data', key.split('s4://')[-1])
         parent = os.path.dirname(path)
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
@@ -78,7 +78,7 @@ def prepare_get_handler(req):
     port = req['query']['port']
     server = req['query']['server']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
-    src = os.path.join('_s4_data', key.split('s3://')[-1])
+    src = os.path.join('_s4_data', key.split('s4://')[-1])
     cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc {server} {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
@@ -97,7 +97,7 @@ def confirm_get_handler(req):
 @tornado.gen.coroutine
 def list_handler(req):
     yield None
-    _prefix = prefix = req['query'].get('prefix', '').split('s3://')[-1]
+    _prefix = prefix = req['query'].get('prefix', '').split('s4://')[-1]
     prefix = os.path.join('_s4_data', prefix)
     recursive = req['query'].get('recursive') == 'true'
     try:
@@ -127,7 +127,7 @@ def list_handler(req):
 
 @tornado.gen.coroutine
 def delete_handler(req):
-    prefix = req['query']['prefix'].split('s3://')[-1]
+    prefix = req['query']['prefix'].split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
     prefix = os.path.join('_s4_data', prefix)
     if recursive:

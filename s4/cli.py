@@ -7,7 +7,8 @@ import sys
 
 @s4.retry
 def rm(prefix, recursive=False):
-    assert prefix.startswith('s3://')
+    assert 's3:' not in prefix
+    assert prefix.startswith('s4://')
     if recursive:
         for address, port in s4.servers:
             resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
@@ -19,6 +20,7 @@ def rm(prefix, recursive=False):
 
 @s4.retry
 def ls(prefix, recursive=False):
+    assert 's3:' not in prefix
     vals = []
     for address, port in s4.servers:
         url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
@@ -34,25 +36,26 @@ def ls(prefix, recursive=False):
 
 @s4.retry
 def cp(src, dst, recursive=False):
+    assert 's3:' not in src + dst
     if recursive:
-        if src.startswith('s3://'):
-            bucket, *parts = src.split('s3://')[-1].rstrip('/').split('/')
+        if src.startswith('s4://'):
+            bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
             prefix = '/'.join(parts)
             for x in ls(src, recursive=True):
                 key = x.split()[-1]
                 token = os.path.dirname(prefix) if dst == '.' else prefix
                 path = os.path.join(dst, key.split(token)[-1].lstrip(' /'))
                 os.makedirs(os.path.dirname(path), 0o777, True)
-                cp('s3://' + os.path.join(bucket, key), path)
-        elif dst.startswith('s3://'):
+                cp('s4://' + os.path.join(bucket, key), path)
+        elif dst.startswith('s4://'):
             for dirpath, dirs, files in os.walk(src):
                 path = dirpath.split(src)[-1].lstrip('/')
                 for file in files:
                     cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
-    elif src.startswith('s3://') and dst.startswith('s3://'):
+    elif src.startswith('s4://') and dst.startswith('s4://'):
         print('mv not implmented yet')
         sys.exit(1)
-    elif src.startswith('s3://'):
+    elif src.startswith('s4://'):
         if dst == '-':
             print('dont use stdout, python is too slow. use a file path instead.')
         else:
@@ -77,7 +80,7 @@ def cp(src, dst, recursive=False):
                 s4.check_output('mv', temp_path, dst)
             finally:
                 s4.check_output('rm -f', temp_path)
-    elif dst.startswith('s3://'):
+    elif dst.startswith('s4://'):
         if src == '-':
             print('dont use stdin, python is too slow. use a file path instead.')
             sys.exit(1)
@@ -93,7 +96,7 @@ def cp(src, dst, recursive=False):
             resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
     else:
-        print('something needs s3://')
+        print('something needs s4://')
         sys.exit(1)
 
 def main():
