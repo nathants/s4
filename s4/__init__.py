@@ -4,10 +4,12 @@ import subprocess
 import os
 import mmh3
 import logging
+import functools
 
 max_jobs = 10
 
 def retry(f):
+    @functools.wraps(f)
     def fn(*a, **kw):
         for i in itertools.count():
             try:
