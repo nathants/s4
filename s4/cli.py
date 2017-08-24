@@ -1,59 +1,27 @@
-import sys
-import time
-import os
-import s4
-import pool.thread
 import argh
+import os
+import pool.thread
 import requests
+import s4
+import sys
 
+@s4.retry
+def rm(prefix, recursive=False):
+    assert prefix.startswith('s3://')
+    if recursive:
+        for address, port in s4.servers:
+            resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
+            assert resp.status_code == 200, resp
+    else:
+        server = s4.pick_server(prefix)
+        resp = requests.post(f'http://{server}/delete?prefix={prefix}')
+        assert resp.status_code == 200, resp
 
-# tmpdir = None
-
-# def _hash(x):
-#     return hashlib.sha1(bytes(x, 'utf-8')).hexdigest()
-
-# def _cache_path(key):
-#     return '%s/%s' % (tmpdir, _hash(key))
-
-# def _cache_path_prefix(key):
-#     return '%s/s3_stubbed_cache.%s.index' % (tmpdir, _hash(key))
-
-# def _prefixes(key):
-#     xs = key.split('/')
-#     xs = xs[:-1]
-#     xs = ['/'.join(xs[:i]) + '/' for i, _ in enumerate(xs, 1)]
-#     return [""] + xs
-
-# def rm(url, recursive=False):
-#     url = url.split('s3://')[-1]
-#     if recursive:
-#         try:
-#             with open(_cache_path_prefix(url)) as f:
-#                 xs = f.read().splitlines()
-#         except FileNotFoundError:
-#             try:
-#                 url = os.path.dirname(url) + '/'
-#                 with open(_cache_path_prefix(url)) as f:
-#                     xs = [x for x in f.read().splitlines() if x.startswith(url)]
-#             except FileNotFoundError:
-#                 sys.exit(0)
-#         for x in set(xs):
-#             rm(x)
-#     else:
-#         if not os.path.isfile(_cache_path(url)):
-#             sys.exit(1)
-#         else:
-#             os.remove(_cache_path(url))
-#             for prefix in _prefixes(url):
-#                 with open(_cache_path_prefix(prefix)) as f:
-#                     val = '\n'.join([x for x in f.read().splitlines() if x != url])
-#                 with open(_cache_path_prefix(prefix), 'w') as f:
-#                     f.write(val)
-
+@s4.retry
 def ls(prefix, recursive=False):
-    urls = [f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}' for address, port in s4.servers]
     vals = []
-    for url in urls:
+    for address, port in s4.servers:
+        url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
         resp = requests.get(url)
         assert resp.status_code == 200, resp
         vals.extend(resp.json())
@@ -81,7 +49,6 @@ def cp(src, dst, recursive=False):
                 path = dirpath.split(src)[-1].lstrip('/')
                 for file in files:
                     cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
-
     elif src.startswith('s3://') and dst.startswith('s3://'):
         print('mv not implmented yet')
         sys.exit(1)
@@ -110,7 +77,6 @@ def cp(src, dst, recursive=False):
                 s4.check_output('mv', temp_path, dst)
             finally:
                 s4.check_output('rm -f', temp_path)
-
     elif dst.startswith('s3://'):
         if src == '-':
             print('dont use stdin, python is too slow. use a file path instead.')
@@ -131,5 +97,4 @@ def cp(src, dst, recursive=False):
         sys.exit(1)
 
 def main():
-    argh.dispatch_commands([cp,
-                            ls])
+    argh.dispatch_commands([cp, ls, rm])

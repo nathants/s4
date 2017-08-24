@@ -1,21 +1,18 @@
-# use: boxed
-
-import uuid
+# use: boxed, for py.test --boxed
+import contextlib
 import itertools
-from shell import run
-import pytest
-import util.time
-import sys
-import time
-import requests
+import os
 import pool.proc
+import pytest
+import requests
+import s4.cli
 import s4.server
 import shell
-import os
-import contextlib
-import s4.cli
+import sys
+import time
 import util.log
-
+import util.time
+from shell import run
 
 def rm_whitespace(x):
     return '\n'.join([y.strip()
@@ -30,6 +27,7 @@ all_ports = itertools.count(8000)
 
 @contextlib.contextmanager
 def servers():
+    util.log.setup()
     with util.time.timeout(3):
         with shell.tempdir():
             ports = [next(all_ports), next(all_ports), next(all_ports)]
@@ -83,15 +81,6 @@ def test_basic():
         s4.cli.cp('s3://bucket/basic/dir/file.txt', 'foo/')
         with open('foo/file.txt') as f:
             assert f.read() == "123"
-
-# def test_cp_s3_to_s3():
-#     run('echo asdf |', preamble, 'cp - s3://bucket/s3_to_s3/a.txt')
-#     run(preamble, 'cp s3://bucket/s3_to_s3/a.txt s3://bucket/s3_to_s3/b.txt')
-#     assert run(preamble, 'cp s3://bucket/s3_to_s3/b.txt -') == "asdf"
-#     assert run(preamble, 'ls s3://bucket/s3_to_s3/').splitlines() == [
-#         '_ _ _ a.txt',
-#         '_ _ _ b.txt',
-#     ]
 
 def test_cp():
     with servers():
@@ -172,17 +161,19 @@ def test_listing():
         with pytest.raises(AssertionError):
             s4.cli.ls('bucket/fake/')
 
-# def test_rm():
-#     s4.cli.rm('s3://bucket/rm/di --recursive')
-#     run('echo |', preamble, 'cp - s3://bucket/rm/dir1/key1.txt')
-#     run('echo |', preamble, 'cp - s3://bucket/rm/dir1/dir2/key2.txt')
-#     assert rm_whitespace(s4.cli.ls('bucket/rm/ --recursive')) == rm_whitespace("""
-#         _ _ _ rm/dir1/dir2/key2.txt
-#         _ _ _ rm/dir1/key1.txt
-#     """)
-#     s4.cli.rm('s3://bucket/rm/dir1/key1.txt')
-#     assert rm_whitespace(s4.cli.ls('bucket/rm/ --recursive')) == rm_whitespace("""
-#         _ _ _ rm/dir1/dir2/key2.txt
-#     """)
-#     s4.cli.rm('s3://bucket/rm/di --recursive')
-#     assert rm_whitespace(s4.cli.ls('bucket/rm/ --recursive')) == ''
+def test_rm():
+    with servers():
+        s4.cli.rm('s3://bucket/rm/di', recursive=True)
+        s4.cli.cp('/dev/null', 's3://bucket/rm/dir1/key1.txt')
+        s4.cli.cp('/dev/null', 's3://bucket/rm/dir1/dir2/key2.txt')
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/rm/', recursive=True))) == rm_whitespace("""
+            _ _ _ rm/dir1/dir2/key2.txt
+            _ _ _ rm/dir1/key1.txt
+        """)
+        s4.cli.rm('s3://bucket/rm/dir1/key1.txt')
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/rm/', recursive=True))) == rm_whitespace("""
+            _ _ _ rm/dir1/dir2/key2.txt
+        """)
+        s4.cli.rm('s3://bucket/rm/di', recursive=True)
+        with pytest.raises(AssertionError):
+            s4.cli.ls('bucket/rm/', recursive=True)

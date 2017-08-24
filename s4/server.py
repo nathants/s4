@@ -127,7 +127,12 @@ def list_handler(req):
 
 @tornado.gen.coroutine
 def delete_handler(req):
-    yield None
+    prefix = req['query']['prefix'].split('s3://')[-1]
+    recursive = req['query'].get('recursive') == 'true'
+    prefix = os.path.join('_s4_data', prefix)
+    if recursive:
+        prefix += '*'
+    s4.check_call('rm -rf', prefix)
     return {'status': 200}
 
 @tornado.gen.coroutine
