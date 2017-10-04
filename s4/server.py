@@ -165,7 +165,7 @@ def proc_garbage_collector():
         time.sleep(1)
         os._exit(1)
 
-def start(port=s4.http_port, debug=False):
+def start(debug=False):
     util.log.setup()
     proc_garbage_collector()
     routes = [('/prepare_put', {'post': prepare_put_handler}),
@@ -176,7 +176,7 @@ def start(port=s4.http_port, debug=False):
               ('/list',        {'get':  list_handler}),
               ('/new_port',    {'post': new_port_handler}),
               ('/return_port', {'post': return_port_handler})]
-    web.app(routes, debug=debug).listen(port)
+    web.app(routes, debug=debug).listen(s4.http_port())
     tornado.ioloop.IOLoop.current().start()
 
 def main():

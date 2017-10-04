@@ -52,10 +52,8 @@ except:
 
 _num_servers = len(servers)
 
-try:
-    http_port = [port for address, port in servers if address in local_addresses][0]
-except IndexError:
-    http_port = None
+def http_port():
+    return [port for address, port in servers if address in local_addresses][0]
 
 def pick_server(s3_url):
     # when path is like s4://bucket/job/worker/001, hash only the last

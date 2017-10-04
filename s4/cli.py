@@ -59,7 +59,7 @@ def cp(src, dst, recursive=False):
         if dst == '-':
             print('dont use stdout, python is too slow. use a file path instead.')
         else:
-            resp = requests.post(f'http://localhost:{s4.http_port}/new_port')
+            resp = requests.post(f'http://localhost:{s4.http_port()}/new_port')
             assert resp.status_code == 200, resp
             port = int(resp.text)
             temp_path = s4.check_output('mktemp -p .')

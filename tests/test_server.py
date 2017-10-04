@@ -21,7 +21,8 @@ def rm_whitespace(x):
 
 def start(port):
     with shell.cd(f'_{port}'):
-        s4.server.start(port)
+        s4.http_port = lambda: port
+        s4.server.start()
 
 all_ports = itertools.count(8000)
 
@@ -33,7 +34,6 @@ def servers():
             ports = [next(all_ports), next(all_ports), next(all_ports)]
             s4.servers = [('0.0.0.0', str(port)) for port in ports]
             s4._num_servers = len(s4.servers)
-            s4.http_port = ports[0]
             procs = [pool.proc.new(start, port) for port in ports]
             watch = True
             def watcher():
