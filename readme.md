@@ -1,14 +1,17 @@
 ## why
 
-s3 is awesome, but can be expensive, slow, and has no actual data locality. so lets be cheaper, faster, and able to get at the data from metal. use this only for temporary, ephemeral data. it's strongly consistent, but not (by default) highly durable or available. this project was born out of the need to have more efficient intermediate storage when doing [mapreduce the hard way](https://github.com/nathants/py-aws#more-why-aka-map-reduce-the-hard-way).
+s3 is awesome, but can be expensive, slow, and has no actual data locality.
+
+## what
+a drop in s3 cli replacement that's cheaper, faster, and exposes data locality. use this only for temporary, ephemeral data. it's strongly consistent, but not highly durable or available. this project was born out of the need to have more efficient intermediate storage when doing [mapreduce the hard way](https://github.com/nathants/py-aws#more-why-aka-map-reduce-the-hard-way).
 
 ## non goals
 
 - high availability. by default every key lives on one and only one server in the hash ring.
 
-- high durability. data lives on disk, so it depends on the disk. for best perfomance embrace ephemerality and use instance local storage on ec2 i3.
+- high durability. data lives on disk, so it depends on the disk. for best performance embrace ephemerality and use instance local storage on ec2 i3.
 
-- network security. data is checked for integrity, but not encrypted, as it moves around the network. use on trusted networks only. ssh/scp is an option, but at significant performance penalty, even with hardware acceleartion.
+- network security. data is checked for integrity, but not encrypted, as it moves around the network. use on trusted networks only. ssh/scp is an option, but at significant performance penalty, even with hardware acceleration.
 
 - full compatability with s3. this is a drop in replacement for [some](https://github.com/nathants/s4/blob/master/tests/test_server.py) of the s3 cli functionality.
 
