@@ -1,14 +1,15 @@
-# use: boxed, for py.test --boxed
+# use: boxed testing, ie `py.test --boxed`
+import logging
+import sys
+import os
 import contextlib
 import itertools
-import os
 import pool.proc
 import pytest
 import requests
+import shell
 import s4.cli
 import s4.server
-import shell
-import sys
 import time
 import util.log
 import util.time
@@ -21,45 +22,62 @@ def rm_whitespace(x):
 
 def start(port):
     with shell.cd(f'_{port}'):
-        s4.http_port = lambda: port
-        s4.server.start()
+        for i in range(5):
+            try:
+                s4.http_port = lambda: port + i
+                s4.server.start()
+                return
+            except:
+                continue
+        assert False, f'failed to start server on ports from: {port}'
 
-all_ports = itertools.count(8000)
+used_ports = {int(port) for port in shell.run("netstat -ln|grep '^tcp '|cut -d: -f2|awk '{print $1}'").splitlines()}
+available_ports = (s4.server.new_port() for _ in itertools.count())
 
 @contextlib.contextmanager
+@s4.retry
 def servers():
     util.log.setup()
-    with util.time.timeout(3):
-        with shell.tempdir():
-            ports = [next(all_ports), next(all_ports), next(all_ports)]
-            s4.servers = [('0.0.0.0', str(port)) for port in ports]
-            s4._num_servers = len(s4.servers)
-            procs = [pool.proc.new(start, port) for port in ports]
-            watch = True
-            def watcher():
-                while watch:
-                    for proc in procs:
-                        if not proc.is_alive():
-                            time.sleep(1)
-                            sys.stdout.write('proc died! exiting...\n')
-                            sys.stdout.flush()
-                            os._exit(1)
-            pool.thread.new(watcher)
-            for _ in range(30):
-                try:
-                    for port in ports:
-                        requests.get(f'http://0.0.0.0:{port}')
-                    break
-                except:
-                    time.sleep(.1)
-            else:
-                assert False
-            try:
-                yield
-            finally:
-                watch = False
-                for proc in procs:
-                    proc.terminate()
+    for _ in range(5):
+        try:
+            with util.time.timeout(5):
+                with shell.tempdir():
+                    ports = [next(available_ports), next(available_ports), next(available_ports)]
+                    s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
+                    procs = [pool.proc.new(start, port) for port in ports]
+                    watch = True
+                    def watcher():
+                        while True:
+                            for proc in procs:
+                                if not proc.is_alive():
+                                    if not watch:
+                                        return
+                                    time.sleep(1)
+                                    sys.stdout.write('proc died! exiting...\n')
+                                    sys.stdout.flush()
+                                    os._exit(1)
+                    pool.thread.new(watcher)
+                    for _ in range(50):
+                        try:
+                            for port in ports:
+                                requests.get(f'http://0.0.0.0:{port}')
+                            break
+                        except:
+                            time.sleep(.1)
+                    else:
+                        continue
+                    try:
+                        yield
+                    finally:
+                        watch = False
+                        for proc in procs:
+                            proc.terminate()
+                    return
+        except:
+            logging.exception('retry servers')
+            continue
+    assert False, 'failed to start servers after 5 tries'
+
 
 def test_basic():
     with servers():

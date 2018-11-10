@@ -1,4 +1,5 @@
 import argh
+import logging
 import concurrent.futures
 import json
 import os
@@ -12,6 +13,7 @@ import tornado.gen
 import tornado.ioloop
 import traceback
 import util.log
+import util.hacks
 import uuid
 import web
 
@@ -20,6 +22,8 @@ ports_in_use = set()
 jobs = {}
 
 nc_pool = concurrent.futures.ThreadPoolExecutor(s4.max_jobs)
+
+timeout = 120
 
 def new_uuid():
     for _ in range(10):
@@ -52,13 +56,13 @@ def prepare_put_handler(req):
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
         yield pool.thread.submit(s4.check_output, 'mkdir -p', parent)
-        cmd = f'timeout 120 bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
+        cmd = f'timeout {timeout} bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': nc_pool.submit(s4.check_output, cmd),
                       'temp_path': temp_path,
                       'path': path}
-        yield pool.thread.submit(s4.check_output, f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+        yield pool.thread.submit(s4.check_output, f'timeout {timeout} bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
         return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
@@ -76,10 +80,9 @@ def prepare_get_handler(req):
     yield None
     key = req['query']['key']
     port = req['query']['port']
-    server = req['query']['server']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     src = os.path.join('_s4_data', key.split('s4://')[-1])
-    cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc {server} {port}"'
+    cmd = f'timeout {timeout} bash -c "set -euo pipefail; cat {src} | xxhsum | nc -N 0.0.0.0 {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
                   'future': nc_pool.submit(s4.check_output, cmd)}
@@ -153,8 +156,8 @@ def new_port_handler(req):
 def proc_garbage_collector():
     try:
         while True:
-            for k, v in jobs.items():
-                if time.monotonic() - v['time'] > 120:
+            for k, v in list(jobs.items()):
+                if time.monotonic() - v['time'] > timeout:
                     if v.get('temp_path'):
                         s4.check_output('rm -f', v['temp_path'])
                     del jobs[k]
@@ -176,8 +179,14 @@ def start(debug=False):
               ('/list',        {'get':  list_handler}),
               ('/new_port',    {'post': new_port_handler}),
               ('/return_port', {'post': return_port_handler})]
+    logging.info(f'starting s4 server on port: {s4.http_port()}')
     web.app(routes, debug=debug).listen(s4.http_port())
-    tornado.ioloop.IOLoop.current().start()
+    try:
+        tornado.ioloop.IOLoop.current().start()
+    except KeyboardInterrupt:
+        sys.exit(1)
 
 def main():
+    if util.hacks.override('--debug'):
+        s4._debug = True
     argh.dispatch_command(start)

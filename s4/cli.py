@@ -1,16 +1,26 @@
 import argh
+import util.hacks
 import os
 import pool.thread
 import requests
 import s4
 import sys
 
+if s4._debug:
+    def _trace(f):
+        def fn(*a, **kw):
+            print(*a, kw if kw else '')
+            return f(*a, **kw)
+        return fn
+    requests.post = _trace(requests.post)
+    requests.get = _trace(requests.get)
+
 @s4.retry
 def rm(prefix, recursive=False):
     assert 's3:' not in prefix
     assert prefix.startswith('s4://')
     if recursive:
-        for address, port in s4.servers:
+        for address, port in s4.servers():
             resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
             assert resp.status_code == 200, resp
     else:
@@ -19,18 +29,19 @@ def rm(prefix, recursive=False):
         assert resp.status_code == 200, resp
 
 @s4.retry
-def ls(prefix, recursive=False):
+def _ls(prefix, recursive):
     assert 's3:' not in prefix
-    vals = []
-    for address, port in s4.servers:
+    for address, port in s4.servers():
         url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
         resp = requests.get(url)
         assert resp.status_code == 200, resp
-        vals.extend(resp.json())
+        yield from resp.json()
+
+def ls(prefix, recursive=False):
     vals = sorted({f'  PRE {x}'
                    if x.endswith('/') else
                    f'_ _ _ {x}'
-                   for x in vals})
+                   for x in _ls(prefix, recursive)})
     assert vals
     return vals
 
@@ -68,7 +79,7 @@ def cp(src, dst, recursive=False):
                 future = pool.thread.submit(s4.check_output, cmd)
                 s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
                 server = s4.pick_server(src)
-                resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}&server={s4.local_address}')
+                resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
                 assert resp.status_code == 200, resp
                 uuid = resp.text
                 checksum = future.result()
@@ -91,7 +102,7 @@ def cp(src, dst, recursive=False):
             resp = requests.post(f'http://{server}/prepare_put?key={dst}')
             assert resp.status_code == 200, resp
             uuid, port = resp.json()
-            cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc {server.split(":")[0]} {port}"'
+            cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc -N {server.split(":")[0]} {port}"'
             checksum = s4.check_output(cmd)
             resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
             assert resp.status_code == 200, resp
@@ -100,4 +111,6 @@ def cp(src, dst, recursive=False):
         sys.exit(1)
 
 def main():
+    if util.hacks.override('--debug'):
+        s4._debug = True
     argh.dispatch_commands([cp, ls, rm])

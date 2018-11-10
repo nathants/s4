@@ -9,22 +9,21 @@ a drop in s3 cli replacement that's cheaper, faster, and exposes data locality. 
 
 - high availability. by default every key lives on one and only one server in the hash ring.
 
-- high durability. data lives on disk, so it depends on the disk. for best performance embrace ephemerality and use instance local storage on ec2 i3.
+- high durability. data lives on disk, so it depends on the disk. for best performance embrace ephemerality and use instance local storage on ec2.
 
 - network security. data is checked for integrity, but not encrypted, as it moves around the network. use on trusted networks only. ssh/scp is an option, but at significant performance penalty, even with hardware acceleration.
 
-- full compatability with s3. this is a drop in replacement for [some](https://github.com/nathants/s4/blob/master/tests/test_server.py) of the s3 cli functionality.
+- [partial compatability](https://github.com/nathants/s4/blob/master/tests/test_server.py) with the s3 cli.
 
 ## install
 
-note: tested only on ubuntu
+note: tested only on linux
 
 on every server:
 
 - install s4
-   ```
-   pip3 install git+https://github.com/nathants/s4
-   ```
+  `pip install --process-dependency-links git+https://github.com/nathants/s4@<git-hash>`
+
 
 - configure s4 with the ipv4:port of every server. make sure to use the ipv4 local to the machine, as the conf file defines the hash ring, and each server recognizes itself in the conf by comparing its ipv4 as reported by ifconfig.
    ```
@@ -38,9 +37,13 @@ on every server:
 
 `s4-server`
 
-python entrypoints are quite slow, so it's recommended to create a bash alias like:
+python entrypoints are quite slow, so it's recommended to create a bash function like:
 
-`s4() { python3 -c 'import s4.cli; s4.cli.main()'; }`
+```
+s4() {
+    python3 -c 'import s4.cli, sys; sys.argv[0] = "s4"; s4.cli.main()' "$@";
+}
+```
 
 cli startup times:
 
