@@ -18,12 +18,11 @@ import uuid
 import web
 
 ports_in_use = set()
-
 jobs = {}
-
-nc_pool = concurrent.futures.ThreadPoolExecutor(s4.max_jobs)
-
+max_jobs = 10
 timeout = 120
+path_prefix = '_s4_data'
+nc_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
 
 def new_uuid():
     for _ in range(10):
@@ -46,12 +45,12 @@ def return_port(port):
 
 @tornado.gen.coroutine
 def prepare_put_handler(req):
-    if len(jobs) > s4.max_jobs:
+    if len(jobs) > max_jobs:
         return {'status': 429}
     else:
         key = req['query']['key']
         assert '0.0.0.0' == s4.pick_server(key).split(':')[0] # make sure the key is meant to live on this server before accepting it
-        path = os.path.join('_s4_data', key.split('s4://')[-1])
+        path = os.path.join(path_prefix, key.split('s4://')[-1])
         parent = os.path.dirname(path)
         temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
         port = new_port()
@@ -81,7 +80,7 @@ def prepare_get_handler(req):
     key = req['query']['key']
     port = req['query']['port']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
-    src = os.path.join('_s4_data', key.split('s4://')[-1])
+    src = os.path.join(path_prefix, key.split('s4://')[-1])
     cmd = f'timeout {timeout} bash -c "set -euo pipefail; cat {src} | xxhsum | nc -N 0.0.0.0 {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
@@ -101,7 +100,7 @@ def confirm_get_handler(req):
 def list_handler(req):
     yield None
     _prefix = prefix = req['query'].get('prefix', '').split('s4://')[-1]
-    prefix = os.path.join('_s4_data', prefix)
+    prefix = os.path.join(path_prefix, prefix)
     recursive = req['query'].get('recursive') == 'true'
     try:
         if recursive:
@@ -132,7 +131,7 @@ def list_handler(req):
 def delete_handler(req):
     prefix = req['query']['prefix'].split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
-    prefix = os.path.join('_s4_data', prefix)
+    prefix = os.path.join(path_prefix, prefix)
     if recursive:
         prefix += '*'
     s4.check_call('rm -rf', prefix)
@@ -147,7 +146,7 @@ def return_port_handler(req):
 @tornado.gen.coroutine
 def new_port_handler(req):
     yield None
-    if len(jobs) > s4.max_jobs:
+    if len(jobs) > max_jobs:
         return {'status': 429}
     else:
         return {'status': 200, 'body': str(new_port())}
