@@ -19,9 +19,9 @@ import web
 
 ports_in_use = set()
 jobs = {}
-max_jobs = 10
-timeout = 120
 path_prefix = '_s4_data'
+max_jobs = int(os.environ.get('S4_MAX_JOBS', 10))
+timeout = int(os.environ.get('S4_TIMEOUT', 120))
 nc_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
 
 def new_uuid():
