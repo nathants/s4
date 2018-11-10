@@ -71,7 +71,9 @@ def confirm_put_handler(req):
     job = jobs.pop(uuid)
     local_checksum = yield job['future']
     assert checksum == local_checksum, [checksum, local_checksum]
-    yield pool.thread.submit(s4.check_output, 'mv', job['temp_path'], job['path'])
+    with open(f'{job["path"]}.xxhsum', 'w') as f:
+        f.write(checksum)
+    yield pool.thread.submit(os.rename, job['temp_path'], job['path'])
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -80,20 +82,24 @@ def prepare_get_handler(req):
     key = req['query']['key']
     port = req['query']['port']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
-    src = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'timeout {timeout} bash -c "set -euo pipefail; cat {src} | xxhsum | nc -N 0.0.0.0 {port}"'
+    path = os.path.join(path_prefix, key.split('s4://')[-1])
+    cmd = f'timeout {timeout} bash -c "set -euo pipefail; cat {path} | xxhsum | nc -N 0.0.0.0 {port}"'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
-                  'future': nc_pool.submit(s4.check_output, cmd)}
+                  'future': nc_pool.submit(s4.check_output, cmd),
+                  'path': path}
     return {'status': 200, 'body': uuid}
 
 @tornado.gen.coroutine
 def confirm_get_handler(req):
     uuid = req['query']['uuid']
-    checksum = req['query']['checksum']
+    read_checksum = req['query']['checksum']
     job = jobs.pop(uuid)
     local_checksum = yield job['future']
+    with open(f'{job["path"]}.xxhsum') as f:
+        checksum = f.read()
     assert checksum == local_checksum, [checksum, local_checksum]
+    assert read_checksum == local_checksum, [read_checksum, local_checksum]
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -108,7 +114,7 @@ def list_handler(req):
             if not prefix.endswith('/'):
                 path = f"-path '{path}*'"
                 prefix = os.path.dirname(prefix)
-            xs = s4.check_output(f'find {prefix} -type f {path}').splitlines()
+            xs = s4.check_output(f"find {prefix} -type f ! -name '*.xxhsum' {path}").splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]
         else:
             name = ''
@@ -116,8 +122,8 @@ def list_handler(req):
                 name = os.path.basename(prefix)
                 name = f"-name '{name}*'"
                 prefix = os.path.dirname(prefix)
-            files = s4.check_output(f"find {prefix} -maxdepth 1 -type f {name}")
-            dirs  = s4.check_output(f"find {prefix} -mindepth 1 -maxdepth 1 -type d {name}")
+            files = s4.check_output(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxhsum' {name}")
+            dirs  = s4.check_output(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxhsum' {name}")
             xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
             if not _prefix.endswith('/'):
                 _prefix = os.path.dirname(_prefix) + '/'
@@ -134,7 +140,7 @@ def delete_handler(req):
     prefix = os.path.join(path_prefix, prefix)
     if recursive:
         prefix += '*'
-    s4.check_call('rm -rf', prefix)
+    s4.check_call('rm -rf', prefix, prefix + '.xxhsum')
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -158,7 +164,7 @@ def proc_garbage_collector():
             for k, v in list(jobs.items()):
                 if time.monotonic() - v['time'] > timeout:
                     if v.get('temp_path'):
-                        s4.check_output('rm -f', v['temp_path'])
+                        s4.check_output('rm -f', v['temp_path'], v['temp_path'] + '.xxhsum')
                     del jobs[k]
             yield tornado.gen.sleep(10)
     except:

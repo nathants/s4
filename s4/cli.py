@@ -88,7 +88,7 @@ def cp(src, dst, recursive=False):
                 if dst.endswith('/'):
                     s4.check_output('mkdir -p', dst)
                     dst = os.path.join(dst, os.path.basename(src))
-                s4.check_output('mv', temp_path, dst)
+                os.rename(temp_path, dst)
             finally:
                 s4.check_output('rm -f', temp_path)
     elif dst.startswith('s4://'):
