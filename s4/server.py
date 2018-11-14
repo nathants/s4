@@ -1,4 +1,6 @@
 import argh
+import shell
+import tempfile
 import logging
 import concurrent.futures
 import json
@@ -21,7 +23,6 @@ ports_in_use = set()
 jobs = {}
 path_prefix = '_s4_data'
 max_jobs = int(os.environ.get('S4_MAX_JOBS', 10))
-timeout = int(os.environ.get('S4_TIMEOUT', 120))
 nc_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
 
 def new_uuid():
@@ -52,16 +53,16 @@ def prepare_put_handler(req):
         assert '0.0.0.0' == s4.pick_server(key).split(':')[0] # make sure the key is meant to live on this server before accepting it
         path = os.path.join(path_prefix, key.split('s4://')[-1])
         parent = os.path.dirname(path)
-        temp_path = yield pool.thread.submit(s4.check_output, 'mktemp -p .')
+        _, temp_path = tempfile.mkstemp(dir='.')
         port = new_port()
-        yield pool.thread.submit(s4.check_output, 'mkdir -p', parent)
-        cmd = f'timeout {timeout} bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
+        os.makedirs(parent, exist_ok=True)
+        cmd = f'set -euo pipefail; nc -l {port} | xxhsum > {temp_path}'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': nc_pool.submit(s4.check_output, cmd),
+                      'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
                       'temp_path': temp_path,
                       'path': path}
-        yield pool.thread.submit(s4.check_output, f'timeout {timeout} bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+        yield pool.thread.submit(shell.run, f'while ! netstat -ln|grep {port}; do sleep .1; done', timeout=s4.timeout)
         return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
@@ -69,8 +70,10 @@ def confirm_put_handler(req):
     uuid = req['query']['uuid']
     checksum = req['query']['checksum']
     job = jobs.pop(uuid)
-    local_checksum = yield job['future']
-    assert checksum == local_checksum, [checksum, local_checksum]
+    result = yield job['future']
+    assert result['exitcode'] == 0, result
+    local_checksum = result['stderr']
+    assert checksum == local_checksum, [checksum, local_checksum, result]
     with open(f'{job["path"]}.xxhsum', 'w') as f:
         f.write(checksum)
     yield pool.thread.submit(os.rename, job['temp_path'], job['path'])
@@ -83,10 +86,10 @@ def prepare_get_handler(req):
     port = req['query']['port']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'timeout {timeout} bash -c "set -euo pipefail; cat {path} | xxhsum | nc -N 0.0.0.0 {port}"'
+    cmd = f'set -euo pipefail; cat {path} | xxhsum | nc -N 0.0.0.0 {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
-                  'future': nc_pool.submit(s4.check_output, cmd),
+                  'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
                   'path': path}
     return {'status': 200, 'body': uuid}
 
@@ -95,7 +98,9 @@ def confirm_get_handler(req):
     uuid = req['query']['uuid']
     read_checksum = req['query']['checksum']
     job = jobs.pop(uuid)
-    local_checksum = yield job['future']
+    result = yield job['future']
+    assert result['exitcode'] == 0, result
+    local_checksum = result['stderr']
     with open(f'{job["path"]}.xxhsum') as f:
         checksum = f.read()
     assert checksum == local_checksum, [checksum, local_checksum]
@@ -114,7 +119,9 @@ def list_handler(req):
             if not prefix.endswith('/'):
                 path = f"-path '{path}*'"
                 prefix = os.path.dirname(prefix)
-            xs = s4.check_output(f"find {prefix} -type f ! -name '*.xxhsum' {path}").splitlines()
+            res = shell.run(f"find {prefix} -type f ! -name '*.xxhsum' {path}", warn=True)
+            assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
+            xs = res['stdout'].splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]
         else:
             name = ''
@@ -122,8 +129,12 @@ def list_handler(req):
                 name = os.path.basename(prefix)
                 name = f"-name '{name}*'"
                 prefix = os.path.dirname(prefix)
-            files = s4.check_output(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxhsum' {name}")
-            dirs  = s4.check_output(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxhsum' {name}")
+            res = shell.run(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxhsum' {name}", warn=True)
+            assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
+            files = res['stdout']
+            res  = shell.run(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxhsum' {name}", warn=True)
+            assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
+            dirs = res['stdout']
             xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
             if not _prefix.endswith('/'):
                 _prefix = os.path.dirname(_prefix) + '/'
@@ -140,7 +151,7 @@ def delete_handler(req):
     prefix = os.path.join(path_prefix, prefix)
     if recursive:
         prefix += '*'
-    s4.check_call('rm -rf', prefix, prefix + '.xxhsum')
+    shell.run('rm -rf', prefix, prefix + '.xxhsum')
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -162,9 +173,9 @@ def proc_garbage_collector():
     try:
         while True:
             for k, v in list(jobs.items()):
-                if time.monotonic() - v['time'] > timeout:
+                if time.monotonic() - v['time'] > s4.timeout:
                     if v.get('temp_path'):
-                        s4.check_output('rm -f', v['temp_path'], v['temp_path'] + '.xxhsum')
+                        shell.run('rm -f', v['temp_path'], v['temp_path'] + '.xxhsum')
                     del jobs[k]
             yield tornado.gen.sleep(10)
     except:
@@ -194,4 +205,5 @@ def start(debug=False):
 def main():
     if util.hacks.override('--debug'):
         s4._debug = True
+        shell.set_stream().__enter__()
     argh.dispatch_command(start)

@@ -1,5 +1,4 @@
 # use: boxed testing, ie `py.test --boxed`
-import logging
 import sys
 import os
 import contextlib
@@ -31,32 +30,24 @@ def start(port):
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
-used_ports = {int(port) for port in shell.run("netstat -ln|grep '^tcp '|cut -d: -f2|awk '{print $1}'").splitlines()}
+used_ports = {int(port) for port in run("netstat -ln|grep '^tcp '|cut -d: -f2|awk '{print $1}'").splitlines()}
 available_ports = (s4.server.new_port() for _ in itertools.count())
 
 @contextlib.contextmanager
-@s4.retry
 def servers():
     util.log.setup()
-    for _ in range(5):
-        try:
-            with util.time.timeout(5):
-                with shell.tempdir():
-                    ports = [next(available_ports), next(available_ports), next(available_ports)]
-                    s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
-                    procs = [pool.proc.new(start, port) for port in ports]
-                    watch = True
-                    def watcher():
-                        while True:
-                            for proc in procs:
-                                if not proc.is_alive():
-                                    if not watch:
-                                        return
-                                    time.sleep(1)
-                                    sys.stdout.write('proc died! exiting...\n')
-                                    sys.stdout.flush()
-                                    os._exit(1)
-                    pool.thread.new(watcher)
+    with util.time.timeout(10):
+        with shell.tempdir():
+
+            @s4.retry
+            def dostart():
+                ports = [next(available_ports), next(available_ports), next(available_ports)]
+                s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
+                s4.conf_path = os.environ['S4_CONF_PATH'] = run('mktemp -p .')
+                with open(s4.conf_path, 'w') as f:
+                    f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
+                procs = [pool.proc.new(start, port) for port in ports]
+                try:
                     for _ in range(50):
                         try:
                             for port in ports:
@@ -65,19 +56,32 @@ def servers():
                         except:
                             time.sleep(.1)
                     else:
-                        continue
-                    try:
-                        yield
-                    finally:
-                        watch = False
-                        for proc in procs:
-                            proc.terminate()
-                    return
-        except:
-            logging.exception('retry servers')
-            continue
-    assert False, 'failed to start servers after 5 tries'
-
+                        assert False, 'failed to start servers'
+                except:
+                    for proc in procs:
+                        proc.terminate()
+                    raise
+                else:
+                    return procs
+            procs = dostart()
+            watch = True
+            def watcher():
+                while True:
+                    for proc in procs:
+                        if not proc.is_alive():
+                            if not watch:
+                                return
+                            time.sleep(1)
+                            sys.stdout.write('proc died! exiting...\n')
+                            sys.stdout.flush()
+                            os._exit(1)
+            pool.thread.new(watcher)
+            try:
+                yield
+            finally:
+                watch = False
+                for proc in procs:
+                    proc.terminate()
 
 def test_basic():
     with servers():
@@ -92,17 +96,17 @@ def test_basic():
             '_ _ _ basic/dir/file2.txt',
         ]
         s4.cli.cp('s4://bucket/basic/dir/file.txt', 'out.txt')
-        shell.run('cat out.txt') == "123"
+        run('cat out.txt') == "123"
         s4.cli.cp('s4://bucket/basic/dir/file2.txt', 'out2.txt')
-        shell.run('cat out.txt') == "345\n"
-        shell.run('mkdir foo/')
+        run('cat out.txt') == "345\n"
+        run('mkdir foo/')
         s4.cli.cp('s4://bucket/basic/dir/file.txt', 'foo/')
         with open('foo/file.txt') as f:
             assert f.read() == "123"
 
 def test_cp():
     with servers():
-        s4.check_output('mkdir -p foo/3')
+        run('mkdir -p foo/3')
         with open('foo/1.txt', 'w') as f:
             f.write('123')
         with open('foo/2.txt', 'w') as f:
@@ -176,7 +180,7 @@ def test_listing():
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
-        with pytest.raises(AssertionError):
+        with pytest.raises(SystemExit):
             s4.cli.ls('bucket/fake/')
 
 def test_rm():
@@ -193,5 +197,24 @@ def test_rm():
             _ _ _ rm/dir1/dir2/key2.txt
         """)
         s4.cli.rm('s4://bucket/rm/di', recursive=True)
-        with pytest.raises(AssertionError):
+        with pytest.raises(SystemExit):
             s4.cli.ls('bucket/rm/', recursive=True)
+
+def test_stdin():
+    with servers():
+        run('echo foo | s4-cli cp - s4://bucket/stdin/bar')
+        assert 'foo' == run('s4-cli cp s4://bucket/stdin/bar -')
+
+def test_binary():
+    with servers():
+        run('head -c10 /dev/urandom > input')
+        run('s4-cli cp input s4://bucket/blob')
+        run('s4-cli cp s4://bucket/blob output')
+        a = run('cat input | xxhsum >/dev/null', warn=True)['stderr']
+        b = run('cat output | xxhsum >/dev/null', warn=True)['stderr']
+        assert a == b
+        run('cat input | s4-cli cp - s4://bucket/blob2')
+        run('s4-cli cp s4://bucket/blob2 - > output2')
+        a = run('cat input | xxhsum >/dev/null', warn=True)['stderr']
+        b = run('cat output2 | xxhsum >/dev/null', warn=True)['stderr']
+        assert a == b

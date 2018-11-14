@@ -1,11 +1,14 @@
 import sys
+import shell
 import util.cached
 import itertools
-import subprocess
 import os
 import mmh3
 import logging
 import functools
+
+timeout = int(os.environ.get('S4_TIMEOUT', 60 * 10))
+conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 
 def retry(f):
     @functools.wraps(f)
@@ -21,29 +24,17 @@ def retry(f):
 
 _debug = False
 
-def check_output(*a):
-    cmd = ' '.join(map(str, a))
-    if _debug:
-        print(cmd, flush=True)
-    return subprocess.check_output(cmd, shell=True, executable='/bin/bash', stderr=subprocess.STDOUT).decode('utf-8').strip()
-
-def check_call(*a):
-    cmd = ' '.join(map(str, a))
-    if _debug:
-        print(cmd, flush=True)
-    return subprocess.check_call(cmd, shell=True, executable='/bin/bash')
-
-for cmd in ['timeout', 'bash', 'nc', 'xxhsum', 'netstat', 'grep']:
+for cmd in ['bash', 'nc', 'xxhsum', 'netstat', 'grep', 'ifconfig']:
     try:
-        check_call('which', cmd, '&>/dev/null')
+        shell.run('which', cmd)
     except:
         logging.error(f'no such cmd:', cmd)
         sys.exit(1)
-assert check_output('man nc | grep -i bsd'), 'please install the openbsd version of netcat, not gnu netcat'
-assert check_output('echo foo | xxhsum 2>/dev/null') == 'foo', 'please install this version of xxHash: github.com/nathants/xxHash'
-assert check_output('echo foo | xxhsum 1>/dev/null') == '703c0c8c1824552d', 'please install this version of xxHash: github.com/nathants/xxHash'
+assert shell.run('man nc | grep -i bsd'), 'please install the openbsd version of netcat, not gnu netcat'
+assert shell.run('echo foo | xxhsum') == 'foo', 'please install this version of xxHash: github.com/nathants/xxHash'
+assert shell.run('echo foo | xxhsum', warn=True)['stderr'] == '703c0c8c1824552d', 'please install this version of xxHash: github.com/nathants/xxHash'
 
-local_address = check_output("ifconfig|grep Ethernet -A1|grep addr:|head -n1|awk '{print $2}'|cut -d: -f2")
+local_address = shell.run("ifconfig | grep -o 'inet [^ ]*' | awk '{print $2}' | head -n1")
 
 local_addresses = {
     local_address,
@@ -52,12 +43,10 @@ local_addresses = {
     '127.0.0.1',
 }
 
-_conf_path = os.path.expanduser('~/.s4.conf')
-
 @util.cached.func
 def servers():
     try:
-        with open(_conf_path) as f:
+        with open(conf_path) as f:
             return [(address, port)
                     if address not in local_addresses
                     else ('0.0.0.0', port)

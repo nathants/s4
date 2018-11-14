@@ -1,7 +1,10 @@
 import argh
+import time
+import subprocess
+import shell
+import tempfile
 import util.hacks
 import os
-import pool.thread
 import requests
 import s4
 import sys
@@ -9,7 +12,7 @@ import sys
 if s4._debug:
     def _trace(f):
         def fn(*a, **kw):
-            print(*a, kw if kw else '')
+            print(*a, kw if kw else '', file=sys.stderr)
             return f(*a, **kw)
         return fn
     requests.post = _trace(requests.post)
@@ -42,7 +45,8 @@ def ls(prefix, recursive=False):
                    if x.endswith('/') else
                    f'_ _ _ {x}'
                    for x in _ls(prefix, recursive)})
-    assert vals
+    if not vals:
+        sys.exit(1)
     return vals
 
 @s4.retry
@@ -64,53 +68,66 @@ def cp(src, dst, recursive=False):
                 for file in files:
                     cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
     elif src.startswith('s4://') and dst.startswith('s4://'):
-        print('mv not implmented yet')
+        print('there is no move, there is only cp and rm. -- yoda', file=sys.stderr)
         sys.exit(1)
     elif src.startswith('s4://'):
-        if dst == '-':
-            print('dont use stdout, python is too slow. use a file path instead.')
-        else:
-            resp = requests.post(f'http://localhost:{s4.http_port()}/new_port')
+        resp = requests.post(f'http://localhost:{s4.http_port()}/new_port')
+        assert resp.status_code == 200, resp
+        port = int(resp.text)
+        _, temp_path = tempfile.mkstemp(dir='.')
+        try:
+            if dst == '-':
+                print('WARN: stdout is potentially slow, consider using a file path instead', file=sys.stderr)
+                cmd = f'set -euo pipefail; nc -l {port} | xxhsum'
+            else:
+                cmd = f'set -euo pipefail; nc -l {port} | xxhsum > {temp_path}'
+            start = time.time()
+            proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
+            shell.run(f'while ! netstat -ln | grep {port}; do sleep .1; done', timeout=s4.timeout)
+            server = s4.pick_server(src)
+            resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
             assert resp.status_code == 200, resp
-            port = int(resp.text)
-            temp_path = s4.check_output('mktemp -p .')
-            try:
-                cmd = f'timeout 120 bash -c "set -euo pipefail; nc -l {port} | xxhsum > {temp_path}"'
-                future = pool.thread.submit(s4.check_output, cmd)
-                s4.check_output(f'timeout 120 bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
-                server = s4.pick_server(src)
-                resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
-                assert resp.status_code == 200, resp
-                uuid = resp.text
-                checksum = future.result()
-                resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={checksum}')
-                assert resp.status_code == 200, resp
-                if dst.endswith('/'):
-                    s4.check_output('mkdir -p', dst)
-                    dst = os.path.join(dst, os.path.basename(src))
-                os.rename(temp_path, dst)
-            finally:
-                s4.check_output('rm -f', temp_path)
-    elif dst.startswith('s4://'):
-        if src == '-':
-            print('dont use stdin, python is too slow. use a file path instead.')
-            sys.exit(1)
-        else:
+            uuid = resp.text
+            while proc.poll() is None:
+                assert time.time() - start < s4.timeout, f'timeout on cmd: {cmd}'
+                time.sleep(.01)
+            stderr = proc.stderr.read().decode('utf-8').rstrip()
+            assert proc.poll() == 0, stderr
+            checksum = stderr
+            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={checksum}')
+            assert resp.status_code == 200, resp
             if dst.endswith('/'):
+                os.makedirs(dst, exist_ok=True)
                 dst = os.path.join(dst, os.path.basename(src))
-            server = s4.pick_server(dst)
-            resp = requests.post(f'http://{server}/prepare_put?key={dst}')
-            assert resp.status_code == 200, resp
-            uuid, port = resp.json()
-            cmd = f'timeout 120 bash -c "set -euo pipefail; cat {src} | xxhsum | nc -N {server.split(":")[0]} {port}"'
-            checksum = s4.check_output(cmd)
-            resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
-            assert resp.status_code == 200, resp
+            if dst != '-':
+                os.rename(temp_path, dst)
+        finally:
+            shell.run('rm -f', temp_path)
+    elif dst.startswith('s4://'):
+        if dst.endswith('/'):
+            dst = os.path.join(dst, os.path.basename(src))
+        server = s4.pick_server(dst)
+        server_address = server.split(":")[0]
+        resp = requests.post(f'http://{server}/prepare_put?key={dst}')
+        assert resp.status_code == 200, resp
+        uuid, port = resp.json()
+        if src == '-':
+            print('WARN: stdin is potentially slow, consider using a file path instead', file=sys.stderr)
+            cmd = f'set -euo pipefail; xxhsum | nc -N {server_address} {port}'
+            result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
+        else:
+            cmd = f'set -euo pipefail; cat {src} | xxhsum | nc -N {server_address} {port}'
+            result = shell.run(cmd, timeout=s4.timeout, warn=True)
+        assert result['exitcode'] == 0, result
+        checksum = result['stderr']
+        resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={checksum}')
+        assert resp.status_code == 200, resp
     else:
-        print('something needs s4://')
+        print('src or dst needs s4://')
         sys.exit(1)
 
 def main():
     if util.hacks.override('--debug'):
         s4._debug = True
+        shell.set_stream().__enter__()
     argh.dispatch_commands([cp, ls, rm])
