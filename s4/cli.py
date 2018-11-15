@@ -18,8 +18,11 @@ if s4._debug:
     requests.post = _trace(requests.post)
     requests.get = _trace(requests.get)
 
-@s4.retry
 def rm(prefix, recursive=False):
+    _rm(prefix, recursive)
+
+@s4.retry
+def _rm(prefix, recursive):
     assert 's3:' not in prefix
     assert prefix.startswith('s4://')
     if recursive:
@@ -31,15 +34,6 @@ def rm(prefix, recursive=False):
         resp = requests.post(f'http://{server}/delete?prefix={prefix}')
         assert resp.status_code == 200, resp
 
-@s4.retry
-def _ls(prefix, recursive):
-    assert 's3:' not in prefix
-    for address, port in s4.servers():
-        url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
-        resp = requests.get(url)
-        assert resp.status_code == 200, resp
-        yield from resp.json()
-
 def ls(prefix, recursive=False):
     vals = sorted({f'  PRE {x}'
                    if x.endswith('/') else
@@ -50,17 +44,28 @@ def ls(prefix, recursive=False):
     return vals
 
 @s4.retry
+def _ls(prefix, recursive):
+    assert 's3:' not in prefix
+    for address, port in s4.servers():
+        url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
+        resp = requests.get(url)
+        assert resp.status_code == 200, resp
+        yield from resp.json()
+
 def cp(src, dst, recursive=False):
+    _cp(src, dst, recursive)
+
+@s4.retry
+def _cp(src, dst, recursive):
     assert 's3:' not in src + dst
     if recursive:
         if src.startswith('s4://'):
             bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
-            prefix = '/'.join(parts)
-            for x in ls(src, recursive=True):
-                key = x.split()[-1]
+            prefix = '/'.join(parts) or bucket + '/'
+            for key in _ls(src, recursive=True):
                 token = os.path.dirname(prefix) if dst == '.' else prefix
-                path = os.path.join(dst, key.split(token)[-1].lstrip(' /'))
-                os.makedirs(os.path.dirname(path), 0o777, True)
+                path = os.path.join(dst, key.split(token or None)[-1].lstrip(' /'))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
                 cp('s4://' + os.path.join(bucket, key), path)
         elif dst.startswith('s4://'):
             for dirpath, dirs, files in os.walk(src):
@@ -99,8 +104,11 @@ def cp(src, dst, recursive=False):
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
                 dst = os.path.join(dst, os.path.basename(src))
+            if dst == '.':
+                dst = os.path.basename(src)
             if dst != '-':
                 os.rename(temp_path, dst)
+
         finally:
             shell.run('rm -f', temp_path)
     elif dst.startswith('s4://'):

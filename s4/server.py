@@ -115,11 +115,9 @@ def list_handler(req):
     recursive = req['query'].get('recursive') == 'true'
     try:
         if recursive:
-            path = ''
             if not prefix.endswith('/'):
-                path = f"-path '{path}*'"
-                prefix = os.path.dirname(prefix)
-            res = shell.run(f"find {prefix} -type f ! -name '*.xxhsum' {path}", warn=True)
+                prefix += '*'
+            res = shell.run(f"find {prefix} -type f ! -name '*.xxhsum'", warn=True, echo=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             xs = res['stdout'].splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]

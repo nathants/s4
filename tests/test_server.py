@@ -104,6 +104,64 @@ def test_basic():
         with open('foo/file.txt') as f:
             assert f.read() == "123"
 
+def test_cp_file_to_dot():
+    with servers():
+        with open('file.txt', 'w') as f:
+            f.write('foo')
+        s4.cli.cp('file.txt', 's4://bucket/file.txt')
+        s4.cli.cp('s4://bucket/file.txt', '.')
+        assert 'foo' == run('cat file.txt')
+
+def test_cp_dir_to_dot():
+    with servers():
+        s4.cli.cp('/dev/null', 's4://bucket/dir1/file1.txt')
+        s4.cli.cp('/dev/null', 's4://bucket/dir2/file2.txt')
+        s4.cli.cp('/dev/null', 's4://bucket/dir2/file3.txt')
+        s4.cli.cp('s4://bucket', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        s4.cli.cp('s4://bucket/dir2', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        s4.cli.cp('s4://bucket/dir2/', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+
+def test_cp_dot_to_dot():
+    with servers():
+        with shell.tempdir():
+            run('mkdir dir1 dir2')
+            run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
+            s4.cli.cp('.', 's4://bucket', recursive=True)
+        s4.cli.cp('s4://bucket', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        s4.cli.cp('s4://bucket/dir2', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        s4.cli.cp('s4://bucket/dir2/', '.', recursive=True)
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+
+
 def test_cp():
     with servers():
         run('mkdir -p foo/3')
@@ -155,8 +213,9 @@ def test_cp():
             dst/3/4.txt:456
         """)
 
-def test_listing():
+def test_ls():
     with servers():
+        s4.cli.cp('/dev/null', 's4://bucket/other-listing/key0.txt')
         s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/key1.txt')
         s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/dir2/key2.txt')
         assert '\n'.join(s4.cli.ls('bucket/listing/dir1/ke')) == rm_whitespace("""
@@ -171,6 +230,10 @@ def test_listing():
         """)
         assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/'))) == rm_whitespace("""
               PRE dir1/
+        """)
+        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing', recursive=True))) == rm_whitespace("""
+            _ _ _ listing/dir1/dir2/key2.txt
+            _ _ _ listing/dir1/key1.txt
         """)
         assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/', recursive=True))) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
