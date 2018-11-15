@@ -36,8 +36,6 @@ def setup_function():
 def ssh(*a, ids=None):
     return run('aws-ec2-ssh -yc "%s"' % ' '.join(map(str, a)), *(ids or state['ids']))
 
-import pytest
-@pytest.mark.only
 def test_basic():
     ids = state['ids']
     cmd = ''
