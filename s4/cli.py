@@ -1,5 +1,8 @@
 import argh
 import time
+import util.colors
+import util.log
+import random
 import subprocess
 import shell
 import tempfile
@@ -8,15 +11,6 @@ import os
 import requests
 import s4
 import sys
-
-if s4._debug:
-    def _trace(f):
-        def fn(*a, **kw):
-            print(*a, kw if kw else '', file=sys.stderr)
-            return f(*a, **kw)
-        return fn
-    requests.post = _trace(requests.post)
-    requests.get = _trace(requests.get)
 
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
@@ -55,6 +49,13 @@ def _ls(prefix, recursive):
 def cp(src, dst, recursive=False):
     _cp(src, dst, recursive)
 
+def _new_port():
+    for _ in range(10):
+        port = random.randint(20000, 60000)
+        if str(port) not in shell.run('netstat -ln'):
+            return port
+    assert False, 'failed to find a free port'
+
 @s4.retry
 def _cp(src, dst, recursive):
     assert 's3:' not in src + dst
@@ -76,9 +77,8 @@ def _cp(src, dst, recursive):
         print('there is no move, there is only cp and rm. -- yoda', file=sys.stderr)
         sys.exit(1)
     elif src.startswith('s4://'):
-        resp = requests.post(f'http://localhost:{s4.http_port()}/new_port')
-        assert resp.status_code == 200, resp
-        port = int(resp.text)
+        server = s4.pick_server(src)
+        port = _new_port()
         _, temp_path = tempfile.mkstemp(dir='.')
         try:
             if dst == '-':
@@ -86,6 +86,8 @@ def _cp(src, dst, recursive):
                 cmd = f'set -euo pipefail; nc -l {port} | xxhsum'
             else:
                 cmd = f'set -euo pipefail; nc -l {port} | xxhsum > {temp_path}'
+            if util.hacks.override('--debug'):
+                print('$', util.colors.yellow(cmd))
             start = time.time()
             proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
             shell.run(f'while ! netstat -ln | grep {port}; do sleep .1; done', timeout=s4.timeout)
@@ -108,7 +110,6 @@ def _cp(src, dst, recursive):
                 dst = os.path.basename(src)
             if dst != '-':
                 os.rename(temp_path, dst)
-
         finally:
             shell.run('rm -f', temp_path)
     elif dst.startswith('s4://'):
@@ -136,6 +137,13 @@ def _cp(src, dst, recursive):
 
 def main():
     if util.hacks.override('--debug'):
-        s4._debug = True
+        def _trace(f):
+            def fn(*a, **kw):
+                print(*a, kw if kw else '', file=sys.stderr)
+                return f(*a, **kw)
+            return fn
+        requests.post = _trace(requests.post)
+        requests.get = _trace(requests.get)
         shell.set_stream().__enter__()
+    util.log.setup()
     argh.dispatch_commands([cp, ls, rm])

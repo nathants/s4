@@ -22,8 +22,6 @@ def retry(f):
                 logging.info(f'retrying: {f.__module__}.{f.__name__}, because of: {type(e)} {e}')
     return fn
 
-_debug = False
-
 for cmd in ['bash', 'nc', 'xxhsum', 'netstat', 'grep', 'ifconfig']:
     try:
         shell.run('which', cmd)

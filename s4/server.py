@@ -84,9 +84,10 @@ def prepare_get_handler(req):
     yield None
     key = req['query']['key']
     port = req['query']['port']
+    remote = req['remote']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'set -euo pipefail; cat {path} | xxhsum | nc -N 0.0.0.0 {port}'
+    cmd = f'set -euo pipefail; cat {path} | xxhsum | nc -N {remote} {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
                   'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
@@ -202,6 +203,5 @@ def start(debug=False):
 
 def main():
     if util.hacks.override('--debug'):
-        s4._debug = True
         shell.set_stream().__enter__()
     argh.dispatch_command(start)
