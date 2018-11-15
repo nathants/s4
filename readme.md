@@ -3,15 +3,16 @@
 s3 is awesome, but can be expensive, slow, and has no actual data locality.
 
 ## what
-a drop in s3 cli replacement that's cheaper, faster, and exposes data locality. use this only for temporary, ephemeral data. it's strongly consistent, but not highly durable or available. this project was born out of the need to have more efficient intermediate storage when doing [mapreduce the hard way](https://github.com/nathants/py-aws#more-why-aka-map-reduce-the-hard-way).
+
+an s3 cli replacement that's cheaper, faster, and exposes data locality. use this for ephemeral data. it's strongly consistent, but not highly durable or available. this project was born out of the need to have more efficient intermediate storage when doing [mapreduce the hard way](https://github.com/nathants/py-aws#more-what-aka-mapreduce-the-hard-way).
 
 ## non goals
 
 - high availability. by default every key lives on one and only one server in the hash ring.
 
-- high durability. data lives on disk, so it depends on the disk. for best performance embrace ephemerality and use instance local storage on ec2.
+- high durability. data lives on disk, so it depends on the disk. nvme instance store on ec2 is recommended.
 
-- network security. data is checked for integrity, but not encrypted, as it moves around the network. use on trusted networks only. ssh/scp is an option, but at significant performance penalty, even with hardware acceleration.
+- network security. data is checked for integrity, but not encrypted, as it moves around the network. ssh/scp is an option if needed.
 
 - [partial compatability](https://github.com/nathants/s4/blob/master/tests/test_server.py) with the s3 cli.
 
@@ -28,8 +29,8 @@ on every server:
 - configure s4 with the ipv4:port of every server. make sure to use the ipv4 local to the machine, as the conf file defines the hash ring, and each server recognizes itself in the conf by comparing its ipv4 as reported by ifconfig.
    ```
    touch ~/.s4.conf
-   echo server.1.ipv4:port >> ~/.s4.conf
-   echo server.2:ipv4:port >> ~/.s4.conf
+   echo $server1:$port1 >> ~/.s4.conf
+   echo $server2:$port2 >> ~/.s4.conf
    echo ... >> ~/.s4.conf
    ```
 
@@ -37,7 +38,7 @@ on every server:
 
 `s4-server`
 
-python entrypoints are quite slow, so it's recommended to create a bash function like:
+python entrypoints are quite slow, so create a bash function like:
 
 ```
 s4() {
