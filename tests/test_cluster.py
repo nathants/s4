@@ -12,29 +12,30 @@ def setup_module():
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
-        ids = run('aws-ec2-new -t z1d.large -a arch --num 3', cluster_name).splitlines()
+        ids = run('aws-ec2-new -t i3.large -a arch --num 3', cluster_name).splitlines()
     ips = run('aws-ec2-ip-private', cluster_name).splitlines()
-    with shell.climb_git_root():
-        run('aws-ec2-rsync -y . :s4', cluster_name)
     conf = '\n'.join(f'{ip}:8080' for ip in ips) + '\n'
     with shell.tempdir():
         with open('s4.conf', 'w') as f:
             f.write(conf)
         run('aws-ec2-scp -y s4.conf :.s4.conf', *ids)
     with shell.climb_git_root():
+        run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
+    with shell.climb_git_root():
         run('cat arch.sh | aws-ec2-ssh -yc -', *ids)
     state['ids'] = ids
 
 def teardown_module():
     state['context'].__exit__(None, None, None)
+    run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
-    run(f'aws-ec2-ssh -yc "rm -rf {s4.server.path_prefix}"', *state['ids'])
+    run(f'aws-ec2-ssh -yc "cd /mnt && rm -rf {s4.server.path_prefix}"', *state['ids'])
     run('aws-ec2-ssh -yc "killall -r s4-server || true"', *state['ids'])
-    run('aws-ec2-ssh --no-tty -yc "s4-server &> s4.log </dev/null &"', *state['ids'])
+    run('aws-ec2-ssh --no-tty -yc "cd /mnt && (s4-server &> s4.log </dev/null &)"', *state['ids'])
 
 def ssh(*a, ids=None):
-    return run('aws-ec2-ssh -yc "%s"' % ' '.join(map(str, a)), *(ids or state['ids']))
+    return run('aws-ec2-ssh -yc "cd /mnt && %s"' % ' '.join(map(str, a)), *(ids or state['ids']))
 
 def test_basic():
     ids = state['ids']

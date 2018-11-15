@@ -125,7 +125,7 @@ def _cp(src, dst, recursive):
             cmd = f'set -euo pipefail; xxhsum | nc -N {server_address} {port}'
             result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
         else:
-            cmd = f'set -euo pipefail; cat {src} | xxhsum | nc -N {server_address} {port}'
+            cmd = f'set -euo pipefail; xxhsum < {src} | nc -N {server_address} {port}'
             result = shell.run(cmd, timeout=s4.timeout, warn=True)
         assert result['exitcode'] == 0, result
         checksum = result['stderr']
