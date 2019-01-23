@@ -23,8 +23,11 @@ note: tested only on linux
 on every server:
 
 - install s4
-  `pip install --process-dependency-links git+https://github.com/nathants/s4@<git-hash>`
-
+```
+git clone https://github.com/nathants/s4
+cd s4
+pip install -r requirements.txt .
+```
 
 - configure s4 with the ipv4:port of every server. make sure to use the ipv4 local to the machine, as the conf file defines the hash ring, and each server recognizes itself in the conf by comparing its ipv4 as reported by ifconfig.
    ```
