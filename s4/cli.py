@@ -90,7 +90,7 @@ def _cp(src, dst, recursive):
                 print('$', util.colors.yellow(cmd))
             start = time.time()
             proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
-            shell.run(f'while ! netstat -ln | grep {port}; do sleep .1; done', timeout=s4.timeout)
+            shell.run(f'timeout {s4.timeout} bash -c "while ! netstat -ln | grep {port}; do sleep .1; done"')
             server = s4.pick_server(src)
             resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
             assert resp.status_code == 200, resp

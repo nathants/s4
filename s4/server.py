@@ -62,7 +62,7 @@ def prepare_put_handler(req):
                       'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
                       'temp_path': temp_path,
                       'path': path}
-        yield pool.thread.submit(shell.run, f'while ! netstat -ln|grep {port}; do sleep .1; done', timeout=s4.timeout)
+        yield pool.thread.submit(shell.run, f'timeout {s4.timeout} bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
         return {'status': 200, 'body': json.dumps([uuid, port])}
 
 @tornado.gen.coroutine
