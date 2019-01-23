@@ -16,7 +16,7 @@ if ! which s4-server; then
             git clone https://github.com/nathants/s4
         fi
         cd s4
-        sudo python setup.py develop
+        pip install -r requirements.txt .
     )
 fi
 
