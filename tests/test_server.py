@@ -38,7 +38,6 @@ def servers():
     util.log.setup()
     with util.time.timeout(10):
         with shell.tempdir():
-
             @s4.retry
             def dostart():
                 ports = [next(available_ports), next(available_ports), next(available_ports)]
