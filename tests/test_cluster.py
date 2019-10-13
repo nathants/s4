@@ -1,5 +1,6 @@
 import shell
 import s4.server
+import util.iter
 from shell import run
 
 cluster_name = '_s4_test_cluster'
@@ -40,6 +41,8 @@ def ssh(*a, ids=None):
 def test_basic():
     ids = state['ids']
     cmd = ''
+    # ssh against [:1] because commands need only be issues from a single node
+    # in the cluster, but will operate against all nodes in the cluster
     for i in range(10):
         cmd += f'echo data{i} | s4-cli cp - s4://bucket/dir/key{i}.txt\n'
     ssh(cmd, ids=ids[:1])
@@ -65,7 +68,7 @@ def test_basic():
     cmd = 'rm -f key*.txt\n'
     cmd += f's4-cli cp s4://bucket/dir/ . --recursive\n'
     ssh(cmd, ids=ids[:1])
-    assert ssh("cd dir && grep '.*' key*.txt", ids=ids[:1]).splitlines() == [
+    assert sorted(ssh("cd dir && grep '.*' key*.txt", ids=ids[:1]).splitlines()) == [
         'key0.txt:data0',
         'key1.txt:data1',
         'key2.txt:data2',
@@ -77,3 +80,25 @@ def test_basic():
         'key8.txt:data8',
         'key9.txt:data9',
     ]
+    vals = sorted(ssh(f'cd {s4.server.path_prefix} && find -type f | grep -v xxhsum').splitlines())
+    vals = util.iter.groupby(vals, lambda x: x.split()[1])
+    vals = {frozenset({x.split()[-1] for x in v}) for k, v in vals}
+    result = {
+        frozenset({
+            './bucket/dir/key6.txt',
+            './bucket/dir/key8.txt',
+            './bucket/dir/key9.txt',
+        }),
+        frozenset({
+            './bucket/dir/key0.txt',
+            './bucket/dir/key1.txt',
+            './bucket/dir/key2.txt',
+        }),
+        frozenset({
+            './bucket/dir/key3.txt',
+            './bucket/dir/key4.txt',
+            './bucket/dir/key5.txt',
+            './bucket/dir/key7.txt',
+        }),
+    }
+    assert result == vals
