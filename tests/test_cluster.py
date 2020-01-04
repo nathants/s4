@@ -2,6 +2,7 @@ import shell
 import s4.server
 import util.iter
 from shell import run
+from util.retry import retry
 
 cluster_name = '_s4_test_cluster'
 
@@ -13,18 +14,20 @@ def setup_module():
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
-        ids = run('aws-ec2-new -t i3.large -a arch --num 3', cluster_name).splitlines()
+        ids = run('aws-ec2-new --spot 0 -t i3.large -a bionic --num 3', cluster_name).splitlines()
     ips = run('aws-ec2-ip-private', cluster_name).splitlines()
     conf = '\n'.join(f'{ip}:8080' for ip in ips) + '\n'
-    with shell.tempdir():
-        with open('s4.conf', 'w') as f:
-            f.write(conf)
-        run('aws-ec2-scp -y s4.conf :.s4.conf', *ids)
-    with shell.climb_git_root():
-        run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
-    with shell.climb_git_root():
-        run('cat arch.sh | aws-ec2-ssh -yc -', *ids)
-    state['ids'] = ids
+    def push():
+        with shell.tempdir():
+            with open('s4.conf', 'w') as f:
+                f.write(conf)
+            run('aws-ec2-scp -y s4.conf :.s4.conf', *ids)
+        with shell.climb_git_root():
+            run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
+        with shell.climb_git_root():
+            run('aws-ec2-ssh -yc bionic.sh', *ids)
+        state['ids'] = ids
+    retry(push, exponent=1.5)()
 
 def teardown_module():
     state['context'].__exit__(None, None, None)

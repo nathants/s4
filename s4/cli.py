@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argh
 import time
 import util.colors
@@ -135,7 +136,7 @@ def _cp(src, dst, recursive):
         print('src or dst needs s4://')
         sys.exit(1)
 
-def main():
+if __name__ == '__main__':
     if util.hacks.override('--debug'):
         def _trace(f):
             def fn(*a, **kw):

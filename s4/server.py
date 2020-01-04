@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argh
 import shell
 import tempfile
@@ -201,7 +202,7 @@ def start(debug=False):
     except KeyboardInterrupt:
         sys.exit(1)
 
-def main():
+if __name__ == '__main__':
     if util.hacks.override('--debug'):
         shell.set_stream().__enter__()
     argh.dispatch_command(start)

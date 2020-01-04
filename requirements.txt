@@ -1,5 +1,8 @@
-git+https://github.com/nathants/py-util@436b72816729a8d73abbe35ba02f5fc2bbae60fa
-git+https://github.com/nathants/py-pool@31dae540c2b7d581cb81301b0e5e72fdfe233dff
-git+https://github.com/nathants/py-shell@a8b21ea71645089cfa2c103f9bf9340bf58b264b
-git+https://github.com/nathants/py-web@e69bab45eb8802c2f6bc5614ef000d6a98bb9c8e
-git+https://github.com/nathants/py-schema@a2cdef22b8e6b1e736367c4bb65538d2a35e55ef
+git+https://github.com/nathants/py-util@5f71bc2b8906fab8bb51eebdbec4de29fe9c70c1
+git+https://github.com/nathants/py-pool@bac4eef1d11dd8447ca79fa91ece395134ed6774
+git+https://github.com/nathants/py-shell@4ac5a94d01ef107cf725692dcc0390230d833fdf
+git+https://github.com/nathants/py-web@1d61f95f589029c513cbc00df9858053b6158858
+git+https://github.com/nathants/py-schema@6f88b4497127f57fb04fddbfa31a65b35ec1c2ac
+argh >0.26, <0.27
+requests >2, <3
+mmh3 == 2.5.1
