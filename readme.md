@@ -14,7 +14,7 @@ an s3 cli replacement that's cheaper, faster, and exposes data locality. use thi
 
 - network security. data is checked for integrity, but not encrypted, as it moves around the network. ssh/scp is an option if needed.
 
-- [partial compatability](https://github.com/nathants/s4/blob/master/tests/test_server.py) with the s3 cli.
+- [partial compatibility](https://github.com/nathants/s4/blob/master/tests/test_server.py) with the s3 cli.
 
 ## install
 
@@ -40,32 +40,6 @@ pip install -r requirements.txt .
 - start the server, possibly with sudo if binding on port 80.
 
 `s4-server`
-
-python entrypoints are quite slow, so create a bash function like:
-
-```
-s4() {
-    python3 -c 'import s4.cli, sys; sys.argv[0] = "s4"; s4.cli.main()' "$@";
-}
-```
-
-cli startup times:
-
-```
->> time s4-cli -h
-usage: s4-cli [-h] [-p PORT] [-d]
-
-real    0m0.428s
-user    0m0.388s
-sys     0m0.032s
-
->> time s4 -h
-usage: -c [-h] {cp,ls,rm} ...
-
-real    0m0.179s
-user    0m0.140s
-sys     0m0.028s
-```
 
 ## related projects
 
