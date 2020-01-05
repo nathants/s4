@@ -3,9 +3,9 @@ import shell
 import util.cached
 import itertools
 import os
-import mmh3
 import logging
 import functools
+import xxh3
 
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 10))
 conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
@@ -22,15 +22,15 @@ def retry(f):
                 logging.info(f'retrying: {f.__module__}.{f.__name__}, because of: {type(e)} {e}')
     return fn
 
-for cmd in ['bash', 'nc', 'xxhsum', 'netstat', 'grep', 'ifconfig']:
+for cmd in ['bash', 'nc', 'xxh3', 'netstat', 'grep', 'ifconfig']:
     try:
         shell.run('which', cmd)
     except:
         logging.error(f'no such cmd:', cmd)
         sys.exit(1)
 assert shell.run('man nc | grep -i bsd'), 'please install the openbsd version of netcat, not gnu netcat'
-assert shell.run('echo foo | xxhsum') == 'foo', 'please install this version of xxHash: github.com/nathants/xxHash'
-assert shell.run('echo foo | xxhsum', warn=True)['stderr'] == '703c0c8c1824552d', 'please install this version of xxHash: github.com/nathants/xxHash'
+assert shell.run('echo foo | xxh3 --stream') == 'foo', 'please install this version of xxh3: github.com/nathants/xxh3'
+assert shell.run('echo foo | xxh3 --stream', warn=True)['stderr'] == '9f15a20cf20cea24', 'please install this version of xxh3: github.com/nathants/xxh3'
 
 local_address = shell.run("ifconfig | grep -o 'inet [^ ]*' | awk '{print $2}' | head -n1")
 
@@ -65,4 +65,4 @@ def pick_server(s3_url):
     s3_url = s3_url.split('s4://')[-1]
     if s3_url.split('/')[-1].isdigit():
         s3_url = s3_url.split('/')[-1]
-    return ':'.join(servers()[mmh3.hash(s3_url) % len(servers())])
+    return ':'.join(servers()[xxh3.oneshot_int(s3_url.encode('utf-8')) % len(servers())])

@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pypy3
 import argh
-import time
-import util.colors
-import util.log
-import random
-import subprocess
-import shell
-import tempfile
-import util.hacks
 import os
+import random
 import requests
 import s4
+import shell
+import subprocess
 import sys
+import tempfile
+import time
+import util.colors
+import util.hacks
+import util.log
 
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
@@ -84,9 +84,9 @@ def _cp(src, dst, recursive):
         try:
             if dst == '-':
                 print('WARN: stdout is potentially slow, consider using a file path instead', file=sys.stderr)
-                cmd = f'set -euo pipefail; nc -l {port} | xxhsum'
+                cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream'
             else:
-                cmd = f'set -euo pipefail; nc -l {port} | xxhsum > {temp_path}'
+                cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream > {temp_path}'
             if util.hacks.override('--debug'):
                 print('$', util.colors.yellow(cmd))
             start = time.time()
@@ -123,10 +123,10 @@ def _cp(src, dst, recursive):
         uuid, port = resp.json()
         if src == '-':
             print('WARN: stdin is potentially slow, consider using a file path instead', file=sys.stderr)
-            cmd = f'set -euo pipefail; xxhsum | nc -N {server_address} {port}'
+            cmd = f'set -euo pipefail; xxh3 --stream | nc -N {server_address} {port}'
             result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
         else:
-            cmd = f'set -euo pipefail; xxhsum < {src} | nc -N {server_address} {port}'
+            cmd = f'set -euo pipefail; xxh3 --stream < {src} | nc -N {server_address} {port}'
             result = shell.run(cmd, timeout=s4.timeout, warn=True)
         assert result['exitcode'] == 0, result
         checksum = result['stderr']

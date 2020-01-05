@@ -1,22 +1,22 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pypy3
 import argh
-import shell
-import tempfile
-import logging
 import concurrent.futures
 import json
+import logging
 import os
 import pool.thread
 import random
 import s4
+import shell
 import subprocess
 import sys
+import tempfile
 import time
 import tornado.gen
 import tornado.ioloop
 import traceback
-import util.log
 import util.hacks
+import util.log
 import uuid
 import web
 
@@ -57,7 +57,7 @@ def prepare_put_handler(req):
         _, temp_path = tempfile.mkstemp(dir='.')
         port = new_port()
         os.makedirs(parent, exist_ok=True)
-        cmd = f'set -euo pipefail; nc -l {port} | xxhsum > {temp_path}'
+        cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream > {temp_path}'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
@@ -75,7 +75,7 @@ def confirm_put_handler(req):
     assert result['exitcode'] == 0, result
     local_checksum = result['stderr']
     assert checksum == local_checksum, [checksum, local_checksum, result]
-    with open(f'{job["path"]}.xxhsum', 'w') as f:
+    with open(f'{job["path"]}.xxh3', 'w') as f:
         f.write(checksum)
     yield pool.thread.submit(os.rename, job['temp_path'], job['path'])
     return {'status': 200}
@@ -88,7 +88,7 @@ def prepare_get_handler(req):
     remote = req['remote']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'set -euo pipefail; xxhsum < {path} | nc -N {remote} {port}'
+    cmd = f'set -euo pipefail; xxh3 --stream < {path} | nc -N {remote} {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
                   'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
@@ -103,7 +103,7 @@ def confirm_get_handler(req):
     result = yield job['future']
     assert result['exitcode'] == 0, result
     local_checksum = result['stderr']
-    with open(f'{job["path"]}.xxhsum') as f:
+    with open(f'{job["path"]}.xxh3') as f:
         checksum = f.read()
     assert checksum == local_checksum, [checksum, local_checksum]
     assert read_checksum == local_checksum, [read_checksum, local_checksum]
@@ -119,7 +119,7 @@ def list_handler(req):
         if recursive:
             if not prefix.endswith('/'):
                 prefix += '*'
-            res = shell.run(f"find {prefix} -type f ! -name '*.xxhsum'", warn=True, echo=True)
+            res = shell.run(f"find {prefix} -type f ! -name '*.xxh3'", warn=True, echo=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             xs = res['stdout'].splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]
@@ -129,10 +129,10 @@ def list_handler(req):
                 name = os.path.basename(prefix)
                 name = f"-name '{name}*'"
                 prefix = os.path.dirname(prefix)
-            res = shell.run(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxhsum' {name}", warn=True)
+            res = shell.run(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}", warn=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             files = res['stdout']
-            res  = shell.run(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxhsum' {name}", warn=True)
+            res  = shell.run(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", warn=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             dirs = res['stdout']
             xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
@@ -151,7 +151,7 @@ def delete_handler(req):
     prefix = os.path.join(path_prefix, prefix)
     if recursive:
         prefix += '*'
-    shell.run('rm -rf', prefix, prefix + '.xxhsum')
+    shell.run('rm -rf', prefix, prefix + '.xxh3')
     return {'status': 200}
 
 @tornado.gen.coroutine
@@ -175,7 +175,7 @@ def proc_garbage_collector():
             for k, v in list(jobs.items()):
                 if time.monotonic() - v['time'] > s4.timeout:
                     if v.get('temp_path'):
-                        shell.run('rm -f', v['temp_path'], v['temp_path'] + '.xxhsum')
+                        shell.run('rm -f', v['temp_path'], v['temp_path'] + '.xxh3')
                     del jobs[k]
             yield tornado.gen.sleep(10)
     except:

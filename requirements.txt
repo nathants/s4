@@ -3,6 +3,6 @@ git+https://github.com/nathants/py-pool@bac4eef1d11dd8447ca79fa91ece395134ed6774
 git+https://github.com/nathants/py-shell@4ac5a94d01ef107cf725692dcc0390230d833fdf
 git+https://github.com/nathants/py-web@1d61f95f589029c513cbc00df9858053b6158858
 git+https://github.com/nathants/py-schema@6f88b4497127f57fb04fddbfa31a65b35ec1c2ac
+git+https://github.com/nathants/cffi-xxh3@0b008dddc397947e80d6be453ed0bb306a6b6a29
 argh >0.26, <0.27
 requests >2, <3
-mmh3 == 2.5.1

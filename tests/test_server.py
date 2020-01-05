@@ -272,11 +272,11 @@ def test_binary():
         run('head -c10 /dev/urandom > input')
         run('s4-cli cp input s4://bucket/blob')
         run('s4-cli cp s4://bucket/blob output')
-        a = run('cat input | xxhsum >/dev/null', warn=True)['stderr']
-        b = run('cat output | xxhsum >/dev/null', warn=True)['stderr']
+        a = run('cat input | xxh3', warn=True)['stdout']
+        b = run('cat output | xxh3', warn=True)['stdout']
         assert a == b
         run('cat input | s4-cli cp - s4://bucket/blob2')
         run('s4-cli cp s4://bucket/blob2 - > output2')
-        a = run('cat input | xxhsum >/dev/null', warn=True)['stderr']
-        b = run('cat output2 | xxhsum >/dev/null', warn=True)['stderr']
+        a = run('cat input | xxh3', warn=True)['stdout']
+        b = run('cat output2 | xxh3', warn=True)['stdout']
         assert a == b

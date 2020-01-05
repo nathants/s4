@@ -14,7 +14,7 @@ def setup_module():
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
-        ids = run('aws-ec2-new --spot 0 -t i3.large -a bionic --num 3', cluster_name).splitlines()
+        ids = run('aws-ec2-new -t i3.large -a arch --num 3', cluster_name).splitlines()
     ips = run('aws-ec2-ip-private', cluster_name).splitlines()
     conf = '\n'.join(f'{ip}:8080' for ip in ips) + '\n'
     def push():
@@ -25,13 +25,13 @@ def setup_module():
         with shell.climb_git_root():
             run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
         with shell.climb_git_root():
-            run('aws-ec2-ssh -yc bionic.sh', *ids)
+            run('aws-ec2-ssh -yc arch.sh', *ids)
         state['ids'] = ids
     retry(push, exponent=1.5)()
 
 def teardown_module():
     state['context'].__exit__(None, None, None)
-    run('aws-ec2-rm -y', cluster_name)
+    # run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
     run(f'aws-ec2-ssh -yc "cd /mnt && rm -rf {s4.server.path_prefix}"', *state['ids'])
@@ -83,25 +83,19 @@ def test_basic():
         'key8.txt:data8',
         'key9.txt:data9',
     ]
-    vals = sorted(ssh(f'cd {s4.server.path_prefix} && find -type f | grep -v xxhsum').splitlines())
+    vals = sorted(ssh(f'cd {s4.server.path_prefix} && find -type f | grep -v xxh3').splitlines())
     vals = util.iter.groupby(vals, lambda x: x.split()[1])
     vals = {frozenset({x.split()[-1] for x in v}) for k, v in vals}
     result = {
-        frozenset({
-            './bucket/dir/key6.txt',
-            './bucket/dir/key8.txt',
-            './bucket/dir/key9.txt',
-        }),
-        frozenset({
-            './bucket/dir/key0.txt',
-            './bucket/dir/key1.txt',
-            './bucket/dir/key2.txt',
-        }),
-        frozenset({
-            './bucket/dir/key3.txt',
-            './bucket/dir/key4.txt',
-            './bucket/dir/key5.txt',
-            './bucket/dir/key7.txt',
-        }),
+        frozenset({'./bucket/dir/key0.txt',
+                   './bucket/dir/key5.txt'}),
+        frozenset({'./bucket/dir/key2.txt',
+                   './bucket/dir/key3.txt'}),
+        frozenset({'./bucket/dir/key1.txt',
+                   './bucket/dir/key4.txt',
+                   './bucket/dir/key6.txt',
+                   './bucket/dir/key7.txt',
+                   './bucket/dir/key8.txt',
+                   './bucket/dir/key9.txt'}),
     }
     assert result == vals
