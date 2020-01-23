@@ -4,7 +4,6 @@ import concurrent.futures
 import json
 import logging
 import os
-import pool.thread
 import random
 import s4
 import shell
@@ -14,7 +13,6 @@ import tempfile
 import time
 import tornado.gen
 import tornado.ioloop
-import traceback
 import util.hacks
 import util.log
 import uuid
@@ -45,8 +43,7 @@ def new_port():
 def return_port(port):
     ports_in_use.remove(port)
 
-@tornado.gen.coroutine
-def prepare_put_handler(req):
+async def prepare_put_handler(req):
     if len(jobs) > max_jobs:
         return {'status': 429}
     else:
@@ -60,29 +57,26 @@ def prepare_put_handler(req):
         cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
+                      'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=nc_pool),
                       'temp_path': temp_path,
                       'path': path}
-        yield pool.thread.submit(shell.run, f'timeout {s4.timeout} bash -c "while ! netstat -ln|grep {port}; do sleep .1; done"')
+        await submit(shell.run, f'timeout {s4.timeout} bash -c "while ! netstat -ln | grep {port}; do sleep .1; done"')
         return {'status': 200, 'body': json.dumps([uuid, port])}
 
-@tornado.gen.coroutine
-def confirm_put_handler(req):
+async def confirm_put_handler(req):
     uuid = req['query']['uuid']
     checksum = req['query']['checksum']
     job = jobs.pop(uuid)
-    result = yield job['future']
+    result = await job['future']
     assert result['exitcode'] == 0, result
     local_checksum = result['stderr']
     assert checksum == local_checksum, [checksum, local_checksum, result]
     with open(f'{job["path"]}.xxh3', 'w') as f:
         f.write(checksum)
-    yield pool.thread.submit(os.rename, job['temp_path'], job['path'])
+    await submit(os.rename, job['temp_path'], job['path'])
     return {'status': 200}
 
-@tornado.gen.coroutine
-def prepare_get_handler(req):
-    yield None
+async def prepare_get_handler(req):
     key = req['query']['key']
     port = req['query']['port']
     remote = req['remote']
@@ -91,16 +85,15 @@ def prepare_get_handler(req):
     cmd = f'xxh3 --stream < {path} | nc -N {remote} {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
-                  'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
+                  'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=nc_pool),
                   'path': path}
     return {'status': 200, 'body': uuid}
 
-@tornado.gen.coroutine
-def confirm_get_handler(req):
+async def confirm_get_handler(req):
     uuid = req['query']['uuid']
     read_checksum = req['query']['checksum']
     job = jobs.pop(uuid)
-    result = yield job['future']
+    result = await job['future']
     assert result['exitcode'] == 0, result
     local_checksum = result['stderr']
     with open(f'{job["path"]}.xxh3') as f:
@@ -109,9 +102,7 @@ def confirm_get_handler(req):
     assert read_checksum == local_checksum, [read_checksum, local_checksum]
     return {'status': 200}
 
-@tornado.gen.coroutine
-def list_handler(req):
-    yield None
+async def list_handler(req):
     _prefix = prefix = req['query'].get('prefix', '').split('s4://')[-1]
     prefix = os.path.join(path_prefix, prefix)
     recursive = req['query'].get('recursive') == 'true'
@@ -119,7 +110,7 @@ def list_handler(req):
         if recursive:
             if not prefix.endswith('/'):
                 prefix += '*'
-            res = shell.run(f"find {prefix} -type f ! -name '*.xxh3'", warn=True, echo=True)
+            res = await submit(shell.run, f"find {prefix} -type f ! -name '*.xxh3'", warn=True, echo=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             xs = res['stdout'].splitlines()
             xs = ['/'.join(x.split('/')[2:]) for x in xs]
@@ -129,10 +120,10 @@ def list_handler(req):
                 name = os.path.basename(prefix)
                 name = f"-name '{name}*'"
                 prefix = os.path.dirname(prefix)
-            res = shell.run(f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}", warn=True)
+            res = await submit(shell.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}", warn=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             files = res['stdout']
-            res  = shell.run(f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", warn=True)
+            res = await submit(shell.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", warn=True)
             assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
             dirs = res['stdout']
             xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
@@ -144,49 +135,51 @@ def list_handler(req):
     return {'status': 200,
             'body': json.dumps(xs)}
 
-@tornado.gen.coroutine
-def delete_handler(req):
+async def delete_handler(req):
     prefix = req['query']['prefix'].split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
     prefix = os.path.join(path_prefix, prefix)
     if recursive:
         prefix += '*'
-    shell.run('rm -rf', prefix, prefix + '.xxh3')
+    await submit(shell.run, 'rm -rf', prefix, prefix + '.xxh3')
     return {'status': 200}
 
-@tornado.gen.coroutine
-def return_port_handler(req):
-    yield None
+async def return_port_handler(req):
     return_port(int(req['body']))
     return {'status': 200}
 
-@tornado.gen.coroutine
-def new_port_handler(req):
-    yield None
+async def new_port_handler(req):
     if len(jobs) > max_jobs:
         return {'status': 429}
     else:
         return {'status': 200, 'body': str(new_port())}
 
-@tornado.gen.coroutine
-def proc_garbage_collector():
+async def health(req):
+    return {'status': 200}
+
+def submit(f, *a, executor=None, **kw):
+    return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
+
+async def proc_garbage_collector():
     try:
-        while True:
-            for k, v in list(jobs.items()):
-                if time.monotonic() - v['time'] > s4.timeout:
-                    if v.get('temp_path'):
-                        shell.run('rm -f', v['temp_path'], v['temp_path'] + '.xxh3')
-                    del jobs[k]
-            yield tornado.gen.sleep(10)
+        for k, v in list(jobs.items()):
+            if time.monotonic() - v['time'] > s4.timeout:
+                if v.get('temp_path'):
+                    with util.exceptions.ignore(FileNotFoundError):
+                        await submit(os.remove, v['temp_path'])
+                    with util.exceptions.ignore(FileNotFoundError):
+                        await submit(os.remove, v['temp_path'] + '.xxh3')
+                del jobs[k]
     except:
-        traceback.print_exc() # because if you never call result() on a coroutine, you never see its error message
-        sys.stdout.flush()
+        logging.exception('proc garbage collector died')
         time.sleep(1)
         os._exit(1)
+    else:
+        await tornado.gen.sleep(5)
+        tornado.ioloop.IOLoop.current().add_callback(proc_garbage_collector)
 
 def start(debug=False):
     util.log.setup()
-    proc_garbage_collector()
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
               ('/prepare_get', {'post': prepare_get_handler}),
@@ -194,9 +187,11 @@ def start(debug=False):
               ('/delete',      {'post': delete_handler}),
               ('/list',        {'get':  list_handler}),
               ('/new_port',    {'post': new_port_handler}),
-              ('/return_port', {'post': return_port_handler})]
+              ('/return_port', {'post': return_port_handler}),
+              ('/health',      {'get':  health})]
     logging.info(f'starting s4 server on port: {s4.http_port()}')
     web.app(routes, debug=debug).listen(s4.http_port())
+    tornado.ioloop.IOLoop.current().add_callback(proc_garbage_collector)
     try:
         tornado.ioloop.IOLoop.current().start()
     except KeyboardInterrupt:

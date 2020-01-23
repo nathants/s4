@@ -31,7 +31,7 @@ def setup_module():
 
 def teardown_module():
     state['context'].__exit__(None, None, None)
-    # run('aws-ec2-rm -y', cluster_name) # cluster self destructs after an hour, so safe to not cleanup
+    run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
     run(f'aws-ec2-ssh -yc "cd /mnt && rm -rf {s4.server.path_prefix}"', *state['ids'])

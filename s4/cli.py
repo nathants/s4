@@ -8,10 +8,10 @@ import subprocess
 import sys
 import tempfile
 import time
-import util.net
 import util.colors
 import util.hacks
 import util.log
+import util.net
 
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
