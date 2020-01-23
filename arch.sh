@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -xeuo pipefail
 
 if ! which pypy3 || ! which nc || ! which git; then
     sudo pacman --noconfirm -Sy python-pip openbsd-netcat git pypy3 python-virtualenv man
@@ -16,8 +16,11 @@ if ! which s4-server; then
             git clone https://github.com/nathants/s4
         fi
         cd s4
-        sudo pypy3-pip install -r requirements.txt # server runs pypy
-        sudo pip install -r requirements.txt # cli runs python, faster startup
+        # cli runs python, faster startup
+        sudo pip install -r requirements.txt
+        sudo python setup.py develop
+        # server runs pypy, faster in general
+        sudo pypy3-pip install -r requirements.txt
         sudo pypy3 setup.py develop
     )
 fi
