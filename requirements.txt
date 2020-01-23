@@ -4,5 +4,3 @@ git+https://github.com/nathants/py-shell@772514605bab11c06c7b689465d2491dbfd2520
 git+https://github.com/nathants/py-web@1d61f95f589029c513cbc00df9858053b6158858
 git+https://github.com/nathants/py-schema@b59d8f39eb91f76f75b726efe49a306d8b08d0e0
 git+https://github.com/nathants/cffi-xxh3@0b008dddc397947e80d6be453ed0bb306a6b6a29
-argh >0.26, <0.27
-requests >2, <3
