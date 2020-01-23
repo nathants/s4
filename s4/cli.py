@@ -1,7 +1,6 @@
-#!/usr/bin/env pypy3
+#!/usr/bin/env python3
 import argh
 import os
-import random
 import requests
 import s4
 import shell

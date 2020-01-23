@@ -16,7 +16,8 @@ if ! which s4-server; then
             git clone https://github.com/nathants/s4
         fi
         cd s4
-        sudo pypy3-pip install -r requirements.txt
+        sudo pypy3-pip install -r requirements.txt # server runs pypy
+        sudo pip install -r requirements.txt # cli runs python, faster startup
         sudo pypy3 setup.py develop
     )
 fi
