@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import util.net
 import util.colors
 import util.hacks
 import util.log
@@ -50,13 +51,6 @@ def _ls(prefix, recursive):
 def cp(src, dst, recursive=False):
     _cp(src, dst, recursive)
 
-def _new_port():
-    for _ in range(10):
-        port = random.randint(20000, 60000)
-        if str(port) not in shell.run('netstat -ln'):
-            return port
-    assert False, 'failed to find a free port'
-
 @s4.retry
 def _cp(src, dst, recursive):
     assert 's3:' not in src + dst
@@ -79,14 +73,14 @@ def _cp(src, dst, recursive):
         sys.exit(1)
     elif src.startswith('s4://'):
         server = s4.pick_server(src)
-        port = _new_port()
+        port = util.net.free_port()
         _, temp_path = tempfile.mkstemp(dir='.')
         try:
             if dst == '-':
                 print('WARN: stdout is potentially slow, consider using a file path instead', file=sys.stderr)
-                cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream'
+                cmd = f'nc -l {port} | xxh3 --stream'
             else:
-                cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream > {temp_path}'
+                cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
             if util.hacks.override('--debug'):
                 print('$', util.colors.yellow(cmd))
             start = time.time()
@@ -123,10 +117,10 @@ def _cp(src, dst, recursive):
         uuid, port = resp.json()
         if src == '-':
             print('WARN: stdin is potentially slow, consider using a file path instead', file=sys.stderr)
-            cmd = f'set -euo pipefail; xxh3 --stream | nc -N {server_address} {port}'
+            cmd = f'xxh3 --stream | nc -N {server_address} {port}'
             result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
         else:
-            cmd = f'set -euo pipefail; xxh3 --stream < {src} | nc -N {server_address} {port}'
+            cmd = f'xxh3 --stream < {src} | nc -N {server_address} {port}'
             result = shell.run(cmd, timeout=s4.timeout, warn=True)
         assert result['exitcode'] == 0, result
         checksum = result['stderr']

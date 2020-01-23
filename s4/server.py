@@ -57,7 +57,7 @@ def prepare_put_handler(req):
         _, temp_path = tempfile.mkstemp(dir='.')
         port = new_port()
         os.makedirs(parent, exist_ok=True)
-        cmd = f'set -euo pipefail; nc -l {port} | xxh3 --stream > {temp_path}'
+        cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
@@ -88,7 +88,7 @@ def prepare_get_handler(req):
     remote = req['remote']
     assert '0.0.0.0' == s4.pick_server(key).split(':')[0]  # make sure the key is meant to live on this server before accepting it
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'set -euo pipefail; xxh3 --stream < {path} | nc -N {remote} {port}'
+    cmd = f'xxh3 --stream < {path} | nc -N {remote} {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
                   'future': nc_pool.submit(shell.run, cmd, timeout=s4.timeout, warn=True),
