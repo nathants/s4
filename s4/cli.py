@@ -68,7 +68,7 @@ def _cp(src, dst, recursive):
                 for file in files:
                     cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
     elif src.startswith('s4://') and dst.startswith('s4://'):
-        print('there is no move, there is only cp and rm. -- yoda', file=sys.stderr)
+        print('there is no move, there is only cp and rm.', file=sys.stderr)
         sys.exit(1)
     elif src.startswith('s4://'):
         server = s4.pick_server(src)
