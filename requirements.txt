@@ -1,6 +1,5 @@
-git+https://github.com/nathants/py-util@1168ad70972d2c8332032bb8a267cfda7c850009
-git+https://github.com/nathants/py-pool@bac4eef1d11dd8447ca79fa91ece395134ed6774
-git+https://github.com/nathants/py-shell@772514605bab11c06c7b689465d2491dbfd2520f
-git+https://github.com/nathants/py-web@1d61f95f589029c513cbc00df9858053b6158858
-git+https://github.com/nathants/py-schema@b59d8f39eb91f76f75b726efe49a306d8b08d0e0
+git+https://github.com/nathants/py-util@cc0d69279474c5ada82a7853c81b6eecb7295a6a
+git+https://github.com/nathants/py-pool@f8350c1dd5c2ff2ac0f8765c9ccf8f86b4c763b3
+git+https://github.com/nathants/py-shell@ed3f22edeab3c45345654c42b5ec3ce6c4677a54
+git+https://github.com/nathants/py-web@6a7246499ac1310147ef30fd07092da2f858e3c6
 git+https://github.com/nathants/cffi-xxh3@0b008dddc397947e80d6be453ed0bb306a6b6a29

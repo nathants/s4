@@ -1,6 +1,7 @@
 import shell
 import s4.server
 import util.iter
+import shell
 from shell import run
 from util.retry import retry
 
@@ -9,8 +10,7 @@ cluster_name = '_s4_test_cluster'
 state = {}
 
 def setup_module():
-    state['context'] = shell.set_stream()
-    state['context'].__enter__()
+    shell.set['stream'] = True
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
@@ -24,13 +24,11 @@ def setup_module():
             run('aws-ec2-scp -y s4.conf :.s4.conf', *ids)
         with shell.climb_git_root():
             run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
-        with shell.climb_git_root():
             run('aws-ec2-ssh -yc arch.sh', *ids)
         state['ids'] = ids
     retry(push, exponent=1.5)()
 
 def teardown_module():
-    state['context'].__exit__(None, None, None)
     run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
@@ -69,7 +67,7 @@ def test_basic():
         'key9.txt:data9',
     ]
     cmd = 'rm -f key*.txt\n'
-    cmd += f's4-cli cp s4://bucket/dir/ . --recursive\n'
+    cmd += 's4-cli cp s4://bucket/dir/ . --recursive\n'
     ssh(cmd, ids=ids[:1])
     assert sorted(ssh("cd dir && grep '.*' key*.txt", ids=ids[:1]).splitlines()) == [
         'key0.txt:data0',

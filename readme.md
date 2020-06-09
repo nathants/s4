@@ -1,24 +1,20 @@
 ## why
 
-s3 is awesome, but can be expensive, slow, and has no actual data locality.
+s3 is awesome, but can be expensive, slow, and doesn't expose data locality.
 
 ## what
 
-an s3 cli replacement that's cheaper, faster, and exposes data locality. use this for ephemeral data. it's strongly consistent, but not highly durable or available. this project was born out of the need to have more efficient intermediate storage when doing [mapreduce the hard way](https://github.com/nathants/py-aws#more-what-aka-mapreduce-the-hard-way).
+an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) that's cheap, fast, and data local. use this for ephemeral data.
 
 ## non goals
 
-- high availability. by default every key lives on one and only one server in the hash ring.
+- high availability. every key lives on one and only one server.
 
-- high durability. data lives on disk, so it depends on the disk. nvme instance store on ec2 is recommended.
+- high durability. data lives on a single disk, and is as durable as that disk.
 
-- network security. data is checked for integrity, but not encrypted, as it moves around the network. ssh/scp is an option if needed.
-
-- [partial compatibility](https://github.com/nathants/s4/blob/master/tests/test_server.py) with the s3 cli.
+- network security. data is checked for integrity, but not encrypted. secure the network with wireguard if needed.
 
 ## install
-
-note: tested only on linux
 
 on every server:
 
@@ -37,10 +33,6 @@ pip install -r requirements.txt .
    echo ... >> ~/.s4.conf
    ```
 
-- start the server, possibly with sudo if binding on port 80.
+- start the server.
 
 `s4-server`
-
-## related projects
-
-the [s3 stub](http://github.com/nathants/py-aws#testing-with-s3) in py-aws shares a test suite with s4.

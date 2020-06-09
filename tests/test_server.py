@@ -13,6 +13,7 @@ import time
 import util.log
 import util.time
 from shell import run
+from util.retry import retry
 
 def rm_whitespace(x):
     return '\n'.join([y.strip()
@@ -30,15 +31,16 @@ def start(port):
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
-used_ports = {int(port) for port in run("netstat -ln|grep '^tcp '|cut -d: -f2|awk '{print $1}'").splitlines()}
+used_ports = {int(port) for port in run("ss -tlH | cut -d: -f2 | cut -d' ' -f1 | grep -E '[0-9]+'").splitlines()}
 available_ports = (s4.server.new_port() for _ in itertools.count())
 
 @contextlib.contextmanager
 def servers():
-    util.log.setup()
+    util.log.setup(format='%(message)s')
+    shell.set['stream'] = True
     with util.time.timeout(10):
         with shell.tempdir():
-            @s4.retry
+            @retry
             def dostart():
                 ports = [next(available_ports), next(available_ports), next(available_ports)]
                 s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
