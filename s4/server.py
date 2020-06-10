@@ -62,11 +62,8 @@ async def prepare_put_handler(req):
                       'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=executor),
                       'temp_path': temp_path,
                       'path': path}
-        await submit(shell.run, cmd_wait_for_port(port))
+        await submit(shell.run, s4.cmd_wait_for_port(port))
         return {'code': 200, 'body': json.dumps([uuid, port])}
-
-def cmd_wait_for_port(port):
-    return f'timeout {s4.timeout} bash -c "while ! ss -tlH | grep :{port}; do sleep .1; done"'
 
 async def confirm_put_handler(req):
     uuid = req['query']['uuid']

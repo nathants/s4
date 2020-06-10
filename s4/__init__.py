@@ -23,6 +23,9 @@ local_addresses = {'0.0.0.0',
 for address in shell.run("ifconfig | grep -o 'inet [^ ]*' | cut -d' ' -f2"):
     local_addresses.add(address)
 
+def cmd_wait_for_port(port):
+    return f'timeout {timeout} bash -c "while ! ss -tlH | grep :{port}; do sleep .1; done"'
+
 @util.cached.func
 def servers():
     try:

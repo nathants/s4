@@ -83,7 +83,7 @@ def _cp_from(src, dst):
             cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
         start = time.monotonic()
         proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE, bufsize=bufsize)
-        shell.run(f'timeout {s4.timeout} bash -c "while ! netstat -ln | grep {port}; do sleep .1; done"')
+        shell.run(s4.cmd_wait_for_port(port))
         server = s4.pick_server(src)
         resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
         assert resp.status_code == 200, resp
