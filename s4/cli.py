@@ -17,8 +17,6 @@ retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
 retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
 
-bufsize = 1024 * 1024 * 5
-
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
 
@@ -80,7 +78,7 @@ def _cp_from(src, dst):
         else:
             cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
         start = time.monotonic()
-        proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE, bufsize=bufsize)
+        proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
         shell.run(s4.cmd_wait_for_port(port))
         server = s4.pick_server(src)
         resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
