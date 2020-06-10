@@ -20,7 +20,7 @@ assert shell.run('echo foo | xxh3 --stream', warn=True)['stderr'] == '9f15a20cf2
 local_addresses = {'0.0.0.0',
                    'localhost',
                    '127.0.0.1'}
-for address in shell.run("ifconfig | grep -o 'inet [^ ]*' | cut -d' ' -f2"):
+for address in shell.run("ifconfig | grep -o 'inet [^ ]*' | cut -d' ' -f2").splitlines():
     local_addresses.add(address)
 
 def cmd_wait_for_port(port):

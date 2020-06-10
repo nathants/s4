@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import logging
 import argh
+import logging
 import os
 import requests
 import s4
@@ -9,8 +9,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import util.colors
-import util.hacks
 import util.log
 import util.net
 import util.retry

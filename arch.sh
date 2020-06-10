@@ -1,31 +1,39 @@
 #!/bin/bash
 set -xeuo pipefail
 
-if ! which pypy3 || ! which nc || ! which git; then
-    sudo pacman --noconfirm -Sy python-pip openbsd-netcat git pypy3 python-virtualenv man
-    virtualenv --python=pypy3 ~/.env/pypy3
-    sudo ln -sfv ~/.env/pypy3/bin/python3 /usr/local/bin/pypy3
-    sudo ln -sfv ~/.env/pypy3/bin/pip3 /usr/local/bin/pypy3-pip
+if (! which pypy3 || ! which nc || ! which git) &>/dev/null; then
+    sudo pacman --noconfirm -Sy \
+         git \
+         man \
+         openbsd-netcat \
+         pypy3 \
+         python
+fi
+
+if ! sudo python3 -m ensurepip; then
+    sudo python3 -m ensurepip
+fi
+
+if ! sudo pypy3 -m ensurepip; then
+    sudo pypy3 -m ensurepip
 fi
 
 cd /mnt
 
-if ! which s4-server; then
-    (
-        if [ ! -d s4 ]; then
-            git clone https://github.com/nathants/s4
-        fi
-        cd s4
-        # cli runs python, faster startup
-        sudo pip install -r requirements.txt
-        sudo python setup.py develop
-        # server runs pypy, faster in general
-        sudo pypy3-pip install -r requirements.txt
-        sudo pypy3 setup.py develop
-    )
-fi
+(
+    if [ ! -d s4 ]; then
+        git clone https://github.com/nathants/s4
+    fi
+    cd s4
+    # cli runs python, faster startup
+    sudo python3 -m pip install -r requirements.txt
+    sudo python3 setup.py develop
+    # server runs pypy, faster in general
+    sudo pypy3 -m pip install -r requirements.txt
+    sudo pypy3 setup.py develop
+)
 
-if ! which xxh3; then
+if ! which xxh3 &>/dev/null; then
     git clone https://github.com/nathants/bsv
     (
         cd bsv

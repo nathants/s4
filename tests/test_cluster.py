@@ -5,12 +5,11 @@ import shell
 from shell import run
 from util.retry import retry
 
+shell.set['stream'] = True
 cluster_name = '_s4_test_cluster'
-
 state = {}
 
 def setup_module():
-    shell.set['stream'] = True
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
