@@ -44,14 +44,14 @@ def test_basic():
     # ssh against [:1] because commands need only be issues from a single node
     # in the cluster, but will operate against all nodes in the cluster
     for i in range(10):
-        cmd += f'echo data{i} | s4-cli cp - s4://bucket/dir/key{i}.txt\n'
+        cmd += f'echo data{i} | s4 cp - s4://bucket/dir/key{i}.txt\n'
     ssh(cmd, ids=ids[:1])
     xs = ssh('find', s4.server.path_prefix, '-type f | wc -l').splitlines()
     xs = [int(x.split()[-1]) for x in xs]
     assert all(x > 0 for x in xs)
     cmd = 'rm -f key*.txt\n'
     for i in range(10):
-        cmd += f's4-cli cp s4://bucket/dir/key{i}.txt .\n'
+        cmd += f's4 cp s4://bucket/dir/key{i}.txt .\n'
     ssh(cmd, ids=ids[:1])
     assert ssh("grep '.*' key*.txt", ids=ids[:1]).splitlines() == [
         'key0.txt:data0',
@@ -66,7 +66,7 @@ def test_basic():
         'key9.txt:data9',
     ]
     cmd = 'rm -f key*.txt\n'
-    cmd += 's4-cli cp s4://bucket/dir/ . --recursive\n'
+    cmd += 's4 cp s4://bucket/dir/ . --recursive\n'
     ssh(cmd, ids=ids[:1])
     assert sorted(ssh("cd dir && grep '.*' key*.txt", ids=ids[:1]).splitlines()) == [
         'key0.txt:data0',

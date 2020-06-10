@@ -1,8 +1,9 @@
 #!/bin/bash
 set -xeuo pipefail
 
-if (! which pypy3 || ! which nc || ! which git) &>/dev/null; then
+if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
     sudo pacman --noconfirm -Sy \
+         gcc \
          git \
          man \
          openbsd-netcat \

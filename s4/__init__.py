@@ -8,29 +8,20 @@ import xxh3
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 10))
 conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 
-for cmd in ['timeout', 'bash', 'nc', 'xxh3', 'ss', 'grep', 'ifconfig']:
-    try:
-        shell.run('which', cmd)
-    except:
-        logging.error(f'no such cmd: {cmd}')
-        sys.exit(1)
-assert shell.run('echo foo | xxh3 --stream') == 'foo', 'please install this version of xxh3: github.com/nathants/bsv'
-assert shell.run('echo foo | xxh3 --stream', warn=True)['stderr'] == '9f15a20cf20cea24', 'please install this version of xxh3: github.com/nathants/bsv'
-
-local_addresses = {'0.0.0.0',
-                   'localhost',
-                   '127.0.0.1'}
-for address in shell.run("ifconfig | grep -o 'inet [^ ]*' | cut -d' ' -f2").splitlines():
-    local_addresses.add(address)
-
-def cmd_wait_for_port(port):
-    return f'timeout {timeout} bash -c "while ! ss -tlH | grep :{port}; do sleep .1; done"'
+@util.cached.disk_memoize(max_age_seconds=60 * 60 * 24)
+def local_addresses():
+    vals = {'0.0.0.0',
+            'localhost',
+            '127.0.0.1'}
+    for address in shell.run("ifconfig | grep -o 'inet [^ ]*' | cut -d' ' -f2").splitlines():
+        vals.add(address)
+    return list(vals)
 
 @util.cached.func
 def servers():
     try:
         with open(conf_path) as f:
-            return [(address, port) if address not in local_addresses else ('0.0.0.0', port)
+            return [(address, port) if address not in local_addresses() else ('0.0.0.0', port)
                     for x in f.read().strip().splitlines()
                     for address, port in [x.split(':')]]
     except:

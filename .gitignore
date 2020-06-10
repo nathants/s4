@@ -1,3 +1,4 @@
+.ccls*
 dist/
 build/
 *flymake*

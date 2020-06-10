@@ -266,19 +266,19 @@ def test_rm():
 
 def test_stdin():
     with servers():
-        run('echo foo | s4-cli cp - s4://bucket/stdin/bar')
-        assert 'foo' == run('s4-cli cp s4://bucket/stdin/bar -')
+        run('echo foo | s4 cp - s4://bucket/stdin/bar')
+        assert 'foo' == run('s4 cp s4://bucket/stdin/bar -')
 
 def test_binary():
     with servers():
         run('head -c10 /dev/urandom > input')
-        run('s4-cli cp input s4://bucket/blob')
-        run('s4-cli cp s4://bucket/blob output')
+        run('s4 cp input s4://bucket/blob')
+        run('s4 cp s4://bucket/blob output')
         a = run('cat input | xxh3', warn=True)['stdout']
         b = run('cat output | xxh3', warn=True)['stdout']
         assert a == b
-        run('cat input | s4-cli cp - s4://bucket/blob2')
-        run('s4-cli cp s4://bucket/blob2 - > output2')
+        run('cat input | s4 cp - s4://bucket/blob2')
+        run('s4 cp s4://bucket/blob2 - > output2')
         a = run('cat input | xxh3', warn=True)['stdout']
         b = run('cat output2 | xxh3', warn=True)['stdout']
         assert a == b

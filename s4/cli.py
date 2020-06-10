@@ -73,13 +73,11 @@ def _cp_from(src, dst):
     _, temp_path = tempfile.mkstemp(dir='.')
     try:
         if dst == '-':
-            logging.info('WARN: stdout is potentially slow, consider using a file path instead')
-            cmd = f'nc -l {port} | xxh3 --stream'
+            cmd = f'recv {port} | xxh3 --stream'
         else:
-            cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
+            cmd = f'recv {port} | xxh3 --stream > {temp_path}'
         start = time.monotonic()
         proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
-        shell.run(s4.cmd_wait_for_port(port))
         server = s4.pick_server(src)
         resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
         assert resp.status_code == 200, resp
@@ -111,12 +109,11 @@ def _cp_to(src, dst):
     assert resp.status_code == 200, resp
     uuid, port = resp.json()
     if src == '-':
-        logging.info('WARN: stdin is potentially slow, consider using a file path instead')
-        cmd = f'xxh3 --stream | nc -N {server_address} {port}'
-        result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True, bufsize=bufsize)
+        cmd = f'xxh3 --stream | send {server_address} {port}'
+        result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
     else:
-        cmd = f'xxh3 --stream < {src} | nc -N {server_address} {port}'
-        result = shell.run(cmd, timeout=s4.timeout, warn=True, bufsize=bufsize)
+        cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
+        result = shell.run(cmd, timeout=s4.timeout, warn=True)
     assert result['exitcode'] == 0, result
     client_checksum = result['stderr']
     resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')

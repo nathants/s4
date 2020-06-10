@@ -21,7 +21,8 @@ ports_in_use = set()
 jobs = {}
 path_prefix = '_s4_data'
 max_jobs = int(os.environ.get('S4_MAX_JOBS', (os.cpu_count() or 1) * 8))
-executor = concurrent.futures.ThreadPoolExecutor(max_jobs)
+nc_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
+default_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
 
 def new_uuid():
     for _ in range(10):
@@ -56,13 +57,12 @@ async def prepare_put_handler(req):
         _, temp_path = tempfile.mkstemp(dir='.')
         port = new_port()
         os.makedirs(parent, exist_ok=True)
-        cmd = f'nc -l {port} | xxh3 --stream > {temp_path}'
+        cmd = f'recv {port} | xxh3 --stream > {temp_path}'
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=executor),
+                      'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=nc_pool),
                       'temp_path': temp_path,
                       'path': path}
-        await submit(shell.run, s4.cmd_wait_for_port(port))
         return {'code': 200, 'body': json.dumps([uuid, port])}
 
 async def confirm_put_handler(req):
@@ -82,10 +82,10 @@ async def prepare_get_handler(req):
     remote = req['remote']
     assert on_this_server(key)
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    cmd = f'xxh3 --stream < {path} | nc -N {remote} {port}'
+    cmd = f'xxh3 --stream < {path} | send {remote} {port}'
     uuid = new_uuid()
     jobs[uuid] = {'time': time.monotonic(),
-                  'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=executor),
+                  'future': submit(shell.run, cmd, timeout=s4.timeout, warn=True, executor=nc_pool),
                   'path': path}
     return {'code': 200,
             'body': uuid}
@@ -147,6 +147,7 @@ async def health(req):
     return {'code': 200}
 
 def submit(f, *a, executor=None, **kw):
+    executor = executor or default_pool
     return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
 
 async def gc_jobs():

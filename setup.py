@@ -1,7 +1,11 @@
 import setuptools
 import os
 import sys
+import subprocess
+from os import listdir
+from os.path import isfile, isdir, basename, dirname, join, abspath
 
+# install deps
 setuptools.setup(
     version="0.0.1",
     license='mit',
@@ -16,22 +20,17 @@ setuptools.setup(
     packages=['s4'],
 )
 
-parent = os.path.dirname(os.path.abspath(__file__))
-scripts = [os.path.abspath(os.path.join(service, script))
-           for service in os.listdir(parent)
-           if service.startswith('s4')
-           and os.path.isdir(service)
-           for script in os.listdir(os.path.join(parent, service))
-           for path in [os.path.join(service, script)]
-           if os.path.isfile(path)
-           and path.endswith('.py')
-           and not os.path.basename(path).startswith('_')]
+src_path = dirname(abspath(__file__))
+dst_path = dirname(abspath(sys.executable))
 
-dst_path = os.path.dirname(os.path.abspath(sys.executable))
-for src in scripts:
-    name = os.path.basename(src)
-    name = 's4-' + name.split('.py')[0]
-    dst = os.path.join(dst_path, name)
+# install s4 and s4-server
+scripts = [
+    ('s4/cli.py',    's4'),
+    ('s4/server.py', 's4-server'),
+]
+for src, dst in scripts:
+    src = join(src_path, src)
+    dst = join(dst_path, dst)
     try:
         os.remove(dst)
     except FileNotFoundError:
@@ -39,3 +38,17 @@ for src in scripts:
     os.symlink(src, dst)
     os.chmod(dst, 0o775)
     print('link:', dst, '=>', src, file=sys.stderr)
+
+# install send and recv
+def cc(*a):
+    cmd = ' '.join(map(str, a))
+    print(cmd)
+    subprocess.check_call(cmd, shell=True, executable='/bin/bash')
+scripts = [
+    ('s4/send.c', 'send'),
+    ('s4/recv.c', 'recv'),
+]
+for src, dst in scripts:
+    src = join(src_path, src)
+    dst = join(dst_path, dst)
+    cc('gcc -O3 -flto -march=native -mtune=native -o', dst, src)
