@@ -13,7 +13,7 @@ def setup_module():
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
-        ids = run('aws-ec2-new -t i3en.large -a arch --num 3', cluster_name).splitlines()
+        ids = run('aws-ec2-new -t i3en.xlarge -a arch --num 3', cluster_name).splitlines()
     ips = run('aws-ec2-ip-private', cluster_name).splitlines()
     conf = '\n'.join(f'{ip}:8080' for ip in ips) + '\n'
     def push():
