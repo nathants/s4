@@ -51,4 +51,4 @@ scripts = [
 for src, dst in scripts:
     src = join(src_path, src)
     dst = join(dst_path, dst)
-    cc('gcc -O3 -flto -march=native -mtune=native -o', dst, src)
+    cc('gcc -Wno-incompatible-pointer-types -O3 -flto -march=native -mtune=native -o', dst, src)
