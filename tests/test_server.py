@@ -31,7 +31,7 @@ def start(port):
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
-used_ports = {int(port) for port in run("ss -tlH | cut -d: -f2 | cut -d' ' -f1 | grep -E '[0-9]+'").splitlines()}
+used_ports = {int(port) for port in run("ss -tH | cut -d: -f2 | cut -d' ' -f1 | grep -E '[0-9]+'").splitlines()}
 available_ports = (s4.server.new_port() for _ in itertools.count())
 
 @contextlib.contextmanager
