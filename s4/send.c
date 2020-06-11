@@ -40,19 +40,23 @@ int main(int argc, char *argv[]) {
     }
 
     // copy from stdin to socket
-    int32_t n;
+    FILE *stream = fdopen(sock, "wb");
+    setvbuf(stream, NULL, _IONBF, 0);
+    int32_t size;
     while (1) {
         // read from stdin
-        n = fread_unlocked(buffer, 1, BUFFER_SIZE, stdin);
+        size = fread_unlocked(buffer, 1, BUFFER_SIZE, stdin);
         // write size of bytes to socket
-        ASSERT(sizeof(int32_t) == write(sock, &n, sizeof(int32_t)), "fatal: write errno: %d\n", errno);
+        ASSERT(sizeof(int32_t) == fwrite_unlocked(&size, 1, sizeof(int32_t), stream), "fatal: write size errno: %d\n", errno);
         // write bytes to socket
-        ASSERT(n == write(sock, buffer, n), "fatal: write errno: %d\n", errno);
-        if (n != BUFFER_SIZE) {
-            ASSERT(!ferror_unlocked(stdin), "error: couldnt read input\n");
+        ASSERT(size == fwrite_unlocked(buffer, 1, size, stream), "fatal: write bytes errno: %d\n", errno);
+        if (size != BUFFER_SIZE) {
+            ASSERT(!ferror(stdin), "error: couldnt read input\n");
             break;
         }
     }
-    ASSERT(0 == close(sock), "fatal: close errno: %d\n", errno);
+
+    // close stream
+    ASSERT(0 == fclose(stream), "fatal: close stream errno: %d\n", errno);
 
 }

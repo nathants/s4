@@ -35,17 +35,20 @@ int main(int argc, char *argv[]) {
     int32_t conn = accept(sock, NULL, NULL);
 
     // copy from socket to stdout
+    FILE *stream = fdopen(conn, "rb");
+    setvbuf(stream, NULL, _IONBF, 0);
     int32_t size;
     while(1) {
         // read size of bytes from socket
-        switch (read(conn, &size, sizeof(int32_t))) {
-            // done
+        switch (fread_unlocked(&size, 1, sizeof(int32_t), stream)) {
+            // close stream
             case 0:
-                ASSERT(0 == close(conn), "fatal: close errno: %d\n", errno);
+                ASSERT(0 == fclose(stream), "fatal: close stream errno: %d\n", errno);
+                ASSERT(0 == close(sock), "fatal: close sock errno: %d\n", errno);
                 return 0;
             // keep reading
             case sizeof(int32_t):
-                ASSERT(size == read(conn, buffer, size), "fatal: bad data read\n");
+                ASSERT(size == fread_unlocked(buffer, 1, size, stream), "fatal: bad data read\n");
                 ASSERT(size == fwrite_unlocked(buffer, 1, size, stdout), "fatal: bad write\n");
                 ASSERT(0 == fflush_unlocked(stdout), "fatal: failed to flush\n"); \
                 break;
