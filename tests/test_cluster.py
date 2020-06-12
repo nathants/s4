@@ -3,7 +3,9 @@ import s4.server
 import util.iter
 import shell
 from shell import run
-from util.retry import retry
+import util.retry
+
+retry = lambda f: util.retry.retry(f, times=1000, max_seconds=60, exponent=1.5)
 
 shell.set['stream'] = True
 cluster_name = '_s4_test_cluster'
@@ -13,9 +15,10 @@ def setup_module():
     try:
         ids = run('aws-ec2-id', cluster_name).splitlines()
     except:
-        ids = run('aws-ec2-new -t i3en.xlarge -a arch --num 3', cluster_name).splitlines()
+        ids = run('aws-ec2-new -t i3en.large -a arch --num 3', cluster_name).splitlines()
     ips = run('aws-ec2-ip-private', cluster_name).splitlines()
     conf = '\n'.join(f'{ip}:8080' for ip in ips) + '\n'
+    @retry
     def push():
         with shell.tempdir():
             with open('s4.conf', 'w') as f:
@@ -25,14 +28,14 @@ def setup_module():
             run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
             run('aws-ec2-ssh -yc arch.sh', *ids)
         state['ids'] = ids
-    retry(push, exponent=1.5)()
+    push()
 
 def teardown_module():
     run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
     run(f'aws-ec2-ssh -yc "cd /mnt && rm -rf {s4.server.path_prefix}"', *state['ids'])
-    run('aws-ec2-ssh -yc "killall -r s4-server || true"', *state['ids'])
+    run('aws-ec2-ssh -yc "killall -r pypy || true"', *state['ids'])
     run('aws-ec2-ssh --no-tty -yc "cd /mnt && (s4-server &> s4.log </dev/null &)"', *state['ids'])
 
 def ssh(*a, ids=None):

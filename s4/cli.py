@@ -4,7 +4,6 @@ import logging
 import os
 import requests
 import s4
-import shell
 import subprocess
 import sys
 import tempfile
@@ -80,25 +79,29 @@ def _cp_from(src, dst):
         proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
         server = s4.pick_server(src)
         resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
-        assert resp.status_code == 200, resp
-        uuid = resp.text
-        while proc.poll() is None:
-            assert time.monotonic() - start < s4.timeout, f'timeout on cmd: {cmd}'
-            time.sleep(.01)
-        stderr = proc.stderr.read().decode('utf-8').rstrip()
-        assert proc.poll() == 0, stderr
-        client_checksum = stderr
-        resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
-        assert resp.status_code == 200, resp
-        if dst.endswith('/'):
-            os.makedirs(dst, exist_ok=True)
-            dst = os.path.join(dst, os.path.basename(src))
-        if dst == '.':
-            dst = os.path.basename(src)
-        if dst != '-':
-            os.rename(temp_path, dst)
+        if resp.status_code == 404:
+            sys.exit(1)
+        else:
+            assert resp.status_code == 200, resp
+            uuid = resp.text
+            while proc.poll() is None:
+                assert time.monotonic() - start < s4.timeout, f'timeout on cmd: {cmd}'
+                time.sleep(.01)
+            stderr = proc.stderr.read().decode('utf-8').rstrip()
+            assert proc.poll() == 0, stderr
+            client_checksum = stderr
+            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
+            assert resp.status_code == 200, resp
+            if dst.endswith('/'):
+                os.makedirs(dst, exist_ok=True)
+                dst = os.path.join(dst, os.path.basename(src))
+            if dst == '.':
+                dst = os.path.basename(src)
+            if dst != '-':
+                os.rename(temp_path, dst)
     finally:
-        shell.run('rm -f', temp_path)
+        with util.exceptions.ignore(FileNotFoundError):
+            os.remove(temp_path)
 
 def _cp_to(src, dst):
     if dst.endswith('/'):
@@ -110,10 +113,10 @@ def _cp_to(src, dst):
     uuid, port = resp.json()
     if src == '-':
         cmd = f'xxh3 --stream | send {server_address} {port}'
-        result = shell.run(cmd, stdin=sys.stdin, timeout=s4.timeout, warn=True)
+        result = s4.run(cmd, stdin=sys.stdin)
     else:
         cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
-        result = shell.run(cmd, timeout=s4.timeout, warn=True)
+        result = s4.run(cmd)
     assert result['exitcode'] == 0, result
     client_checksum = result['stderr']
     resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')

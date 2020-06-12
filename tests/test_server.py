@@ -1,8 +1,5 @@
-# use: boxed testing, ie `py.test --boxed`
-import sys
 import os
 import contextlib
-import itertools
 import pool.proc
 import pytest
 import requests
@@ -31,9 +28,6 @@ def start(port):
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
-used_ports = {int(port) for port in run("ss -tH | cut -d: -f2 | cut -d' ' -f1 | grep -E '[0-9]+'").splitlines()}
-available_ports = (s4.server.new_port() for _ in itertools.count())
-
 @contextlib.contextmanager
 def servers():
     util.log.setup(format='%(message)s')
@@ -41,8 +35,8 @@ def servers():
     with util.time.timeout(10):
         with shell.tempdir():
             @retry
-            def dostart():
-                ports = [next(available_ports), next(available_ports), next(available_ports)]
+            def start_all():
+                ports = [util.net.free_port() for _ in range(3)]
                 s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
                 s4.conf_path = os.environ['S4_CONF_PATH'] = run('mktemp -p .')
                 with open(s4.conf_path, 'w') as f:
@@ -64,7 +58,7 @@ def servers():
                     raise
                 else:
                     return procs
-            procs = dostart()
+            procs = start_all()
             watch = True
             def watcher():
                 while True:
@@ -73,8 +67,7 @@ def servers():
                             if not watch:
                                 return
                             time.sleep(1)
-                            sys.stdout.write('proc died! exiting...\n')
-                            sys.stdout.flush()
+                            print('proc died! exiting...', flush=True)
                             os._exit(1)
             pool.thread.new(watcher)
             try:
@@ -162,7 +155,6 @@ def test_cp_dot_to_dot():
             'dir2/file3.txt',
         ]
 
-
 def test_cp():
     with servers():
         run('mkdir -p foo/3')
@@ -173,42 +165,42 @@ def test_cp():
         with open('foo/3/4.txt', 'w') as f:
             f.write('456')
         s4.cli.cp('foo/', 's4://bucket/cp/dst/', recursive=True)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst/'))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst/'))) == rm_whitespace("""
               PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst/', recursive=True))) == rm_whitespace("""
             _ _ _ cp/dst/1.txt
             _ _ _ cp/dst/2.txt
             _ _ _ cp/dst/3/4.txt
         """)
         s4.cli.cp('s4://bucket/cp/dst/', 'dst1/', recursive=True)
-        assert run('grep ".*" $(find dst1/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+        assert run('grep ".*" $(find dst1/ -type f | sort)') == rm_whitespace("""
             dst1/1.txt:123
             dst1/2.txt:234
             dst1/3/4.txt:456
         """)
         s4.cli.cp('s4://bucket/cp/dst/', '.', recursive=True)
-        assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+        assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
             dst/1.txt:123
             dst/2.txt:234
             dst/3/4.txt:456
         """)
         run('rm -rf dst')
         s4.cli.cp('foo', 's4://bucket/cp/dst2', recursive=True)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst2/'))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst2/'))) == rm_whitespace("""
               PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/cp/dst2/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst2/', recursive=True))) == rm_whitespace("""
             _ _ _ cp/dst2/1.txt
             _ _ _ cp/dst2/2.txt
             _ _ _ cp/dst2/3/4.txt
         """)
         s4.cli.cp('s4://bucket/cp/dst', '.', recursive=True)
-        assert run('grep ".*" $(find dst/ -type f|LC_ALL=C sort)') == rm_whitespace("""
+        assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
             dst/1.txt:123
             dst/2.txt:234
             dst/3/4.txt:456
@@ -219,50 +211,50 @@ def test_ls():
         s4.cli.cp('/dev/null', 's4://bucket/other-listing/key0.txt')
         s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/key1.txt')
         s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/dir2/key2.txt')
-        assert '\n'.join(s4.cli.ls('bucket/listing/dir1/ke')) == rm_whitespace("""
+        assert '\n'.join(s4.cli.ls('s4://bucket/listing/dir1/ke')) == rm_whitespace("""
             _ _ _ key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/dir1/'))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/dir1/'))) == rm_whitespace("""
               PRE dir2/
             _ _ _ key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/d'))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/d'))) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/'))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/'))) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing', recursive=True))) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/', recursive=True))) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/listing/d', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/d', recursive=True))) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
         with pytest.raises(SystemExit):
-            s4.cli.ls('bucket/fake/')
+            s4.cli.ls('s4://bucket/fake/')
 
 def test_rm():
     with servers():
         s4.cli.rm('s4://bucket/rm/di', recursive=True)
         s4.cli.cp('/dev/null', 's4://bucket/rm/dir1/key1.txt')
         s4.cli.cp('/dev/null', 's4://bucket/rm/dir1/dir2/key2.txt')
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/rm/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/rm/', recursive=True))) == rm_whitespace("""
             _ _ _ rm/dir1/dir2/key2.txt
             _ _ _ rm/dir1/key1.txt
         """)
         s4.cli.rm('s4://bucket/rm/dir1/key1.txt')
-        assert rm_whitespace('\n'.join(s4.cli.ls('bucket/rm/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/rm/', recursive=True))) == rm_whitespace("""
             _ _ _ rm/dir1/dir2/key2.txt
         """)
         s4.cli.rm('s4://bucket/rm/di', recursive=True)
         with pytest.raises(SystemExit):
-            s4.cli.ls('bucket/rm/', recursive=True)
+            s4.cli.ls('s4://bucket/rm/', recursive=True)
 
 def test_stdin():
     with servers():

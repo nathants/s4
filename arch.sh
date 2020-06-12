@@ -11,11 +11,11 @@ if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
          python
 fi
 
-if ! sudo python3 -m ensurepip; then
+if ! sudo python3 -m pip; then
     sudo python3 -m ensurepip
 fi
 
-if ! sudo pypy3 -m ensurepip; then
+if ! sudo pypy3 -m pip; then
     sudo pypy3 -m ensurepip
 fi
 
