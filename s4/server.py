@@ -138,7 +138,7 @@ async def list_handler(req):
         if not _prefix.endswith('/'):
             _prefix = os.path.dirname(_prefix) + '/'
         xs = [x.split(_prefix)[-1] for x in xs]
-    return {'code': 200, 'body': json.dumps(xs)}
+    return {'code': 200, 'body': json.dumps([x for x in xs if x.strip()])}
 
 async def delete_handler(req):
     prefix = req['query']['prefix']
