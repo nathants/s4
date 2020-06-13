@@ -111,18 +111,22 @@ def _put(src, dst):
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
     resp = requests.post(f'http://{server}/prepare_put?key={dst}')
-    assert resp.status_code == 200, resp
-    uuid, port = resp.json()
-    if src == '-':
-        cmd = f'xxh3 --stream | send {server_address} {port}'
-        result = shell.warn(cmd, stdin=sys.stdin)
+    if resp.status_code == 409:
+        logging.info('fatal: key already exists')
+        sys.exit(1)
     else:
-        cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
-        result = shell.warn(cmd)
-    assert result['exitcode'] == 0, result
-    client_checksum = result['stderr']
-    resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
-    assert resp.status_code == 200, resp
+        assert resp.status_code == 200, resp
+        uuid, port = resp.json()
+        if src == '-':
+            cmd = f'xxh3 --stream | send {server_address} {port}'
+            result = shell.warn(cmd, stdin=sys.stdin)
+        else:
+            cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
+            result = shell.warn(cmd)
+        assert result['exitcode'] == 0, result
+        client_checksum = result['stderr']
+        resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+        assert resp.status_code == 200, resp
 
 @retry
 def _cp(src, dst, recursive):

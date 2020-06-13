@@ -17,8 +17,8 @@ import web
 
 jobs = {}
 max_jobs = int(os.environ.get('S4_MAX_JOBS', os.cpu_count() * 8)) # type: ignore
-io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
-single_pool = concurrent.futures.ThreadPoolExecutor(1)
+io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs) # io is concurrent
+single_pool = concurrent.futures.ThreadPoolExecutor(1) # filesystem metadata is serializable
 
 def new_uuid():
     for _ in range(10):
@@ -46,9 +46,12 @@ def exists(path):
 
 def prepare_put(path):
     parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    assert not os.path.isfile(path)
+    with open(path, 'w'):
+        pass # touch file to reserve the key, updates to existing keys are not allowed
     _, temp_path = tempfile.mkstemp(dir='.')
     port = util.net.free_port()
-    os.makedirs(parent, exist_ok=True)
     return temp_path, port
 
 async def prepare_put_handler(req):
@@ -58,13 +61,17 @@ async def prepare_put_handler(req):
         key = req['query']['key']
         assert s4.on_this_server(key)
         path = key.split('s4://')[-1]
-        temp_path, port = await submit(prepare_put, path, executor=single_pool)
-        uuid = new_uuid()
-        jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(shell.warn, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
-                      'temp_path': temp_path,
-                      'path': path}
-        return {'code': 200, 'body': json.dumps([uuid, port])}
+        try:
+            temp_path, port = await submit(prepare_put, path, executor=single_pool)
+        except AssertionError:
+            return {'code': 409}
+        else:
+            uuid = new_uuid()
+            jobs[uuid] = {'time': time.monotonic(),
+                          'future': submit(shell.warn, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
+                          'temp_path': temp_path,
+                          'path': path}
+            return {'code': 200, 'body': json.dumps([uuid, port])}
 
 async def confirm_put_handler(req):
     uuid = req['query']['uuid']

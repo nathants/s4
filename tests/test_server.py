@@ -77,6 +77,15 @@ def servers():
                 for proc in procs:
                     proc.terminate()
 
+def test_updates_are_not_allowed():
+    with servers():
+        path = 's4://bucket/basic/dir/file.txt'
+        run('echo | s4 cp -', path)
+        with pytest.raises(SystemExit):
+            run('echo | s4 cp -', path)
+        run('s4 rm', path)
+        run('echo | s4 cp -', path)
+
 def test_basic():
     with servers():
         run('echo 123 > file.txt')
