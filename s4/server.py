@@ -50,7 +50,7 @@ def prepare_put(path):
     assert not os.path.isfile(path)
     with open(path, 'w'):
         pass # touch file to reserve the key, updates to existing keys are not allowed
-    _, temp_path = tempfile.mkstemp(dir='.')
+    _, temp_path = tempfile.mkstemp(dir='temp')
     port = util.net.free_port()
     return temp_path, port
 
@@ -174,7 +174,7 @@ async def gc_jobs():
 
 def start(debug=False):
     util.log.setup(format='%(message)s')
-    os.makedirs('s4_data', exist_ok=True)
+    os.makedirs('s4_data/temp', exist_ok=True)
     os.chdir('s4_data')
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
