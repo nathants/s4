@@ -98,9 +98,9 @@ def test_basic():
 def test_cp_file_to_dot():
     with servers():
         run('echo foo > file.txt')
-        run('s4 cp file.txt s4://bucket/file.txt')
-        run('s4 cp s4://bucket/file.txt .')
-        assert 'foo' == run('cat file.txt')
+        run('s4 cp file.txt s4://bucket/file2.txt')
+        run('s4 cp s4://bucket/file2.txt .')
+        assert 'foo' == run('cat file2.txt')
 
 def test_cp_dir_to_dot():
     with servers():
