@@ -33,11 +33,7 @@ def _rm(prefix, recursive):
         assert resp.status_code == 200, resp
 
 def ls(prefix, recursive=False):
-    vals = sorted({f'  PRE {x}'
-                   if x.endswith('/') else
-                   f'_ _ _ {x}'
-                   for x in _ls(prefix, recursive)},
-                  key=lambda x: x.split()[-1])
+    vals = sorted(list(_ls(prefix, recursive)), key=lambda x: x.split()[-1])
     if not vals:
         sys.exit(1)
     return vals
@@ -56,7 +52,8 @@ def cp(src, dst, recursive=False):
 def _get_recursive(src, dst):
     bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
     prefix = '/'.join(parts) or bucket + '/'
-    for key in _ls(src, recursive=True):
+    for line in _ls(src, recursive=True):
+        date, time, size, key = line.split()
         token = os.path.dirname(prefix) if dst == '.' else prefix
         path = os.path.join(dst, key.split(token or None)[-1].lstrip(' /'))
         os.makedirs(os.path.dirname(path), exist_ok=True)

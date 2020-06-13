@@ -97,9 +97,9 @@ def test_basic():
         run('s4 cp file.txt s4://bucket/basic/dir/file.txt')
         run('echo 345 > file2.txt')
         run('s4 cp file2.txt s4://bucket/basic/dir/')
-        assert run('s4 ls -r s4://bucket/').splitlines() == [
-            '_ _ _ basic/dir/file.txt',
-            '_ _ _ basic/dir/file2.txt',
+        assert run('s4 ls -r s4://bucket/ | cut -d" " -f4').splitlines() == [
+            'basic/dir/file.txt',
+            'basic/dir/file2.txt',
         ]
         run('s4 cp s4://bucket/basic/dir/file.txt out.txt')
         assert run('cat out.txt') == "123"
@@ -121,12 +121,12 @@ def test_cp_dir_to_dot():
         run('echo | s4 cp - s4://bucket/dir1/file1.txt')
         run('echo | s4 cp - s4://bucket/dir2/file2.txt')
         run('echo | s4 cp - s4://bucket/dir2/file3.txt')
-        run('s4 cp -r s4://bucket .')
-        assert run('s4 ls -r s4://bucket').splitlines() == [
-            '_ _ _ dir1/file1.txt',
-            '_ _ _ dir2/file2.txt',
-            '_ _ _ dir2/file3.txt',
+        assert run('s4 ls -r s4://bucket | cut -d" " -f4').splitlines() == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
         ]
+        run('s4 cp -r s4://bucket .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir1/file1.txt',
             'dir2/file2.txt',
@@ -151,10 +151,10 @@ def test_cp_dot_to_dot():
             run('mkdir dir1 dir2')
             run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
             run('s4 cp -r . s4://bucket')
-        assert run('s4 ls -r s4://bucket').splitlines() == [
-            '_ _ _ dir1/file1.txt',
-            '_ _ _ dir2/file2.txt',
-            '_ _ _ dir2/file3.txt',
+        assert run('s4 ls -r s4://bucket | cut -d" " -f4').splitlines() == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
         ]
         run('s4 cp -r s4://bucket .')
         assert sorted(run('find dir* -type f').splitlines()) == [
@@ -182,15 +182,15 @@ def test_cp():
         run('echo 234 > foo/2.txt')
         run('echo 456 > foo/3/4.txt')
         run('s4 cp -r foo/ s4://bucket/cp/dst/')
-        assert rm_whitespace(run('s4 ls s4://bucket/cp/dst/')) == rm_whitespace("""
-            _ _ _ 1.txt
-            _ _ _ 2.txt
-              PRE 3/
+        assert rm_whitespace(run("s4 ls s4://bucket/cp/dst/ | awk '{print $NF}'")) == rm_whitespace("""
+            1.txt
+            2.txt
+            3/
         """)
-        assert run('s4 ls -r s4://bucket/cp/dst/') == rm_whitespace("""
-            _ _ _ cp/dst/1.txt
-            _ _ _ cp/dst/2.txt
-            _ _ _ cp/dst/3/4.txt
+        assert run('s4 ls -r s4://bucket/cp/dst/ | cut -d" " -f4') == rm_whitespace("""
+            cp/dst/1.txt
+            cp/dst/2.txt
+            cp/dst/3/4.txt
         """)
         run('s4 cp -r s4://bucket/cp/dst/ dst1/')
         assert run('grep ".*" $(find dst1/ -type f | sort)') == rm_whitespace("""
@@ -206,15 +206,15 @@ def test_cp():
         """)
         run('rm -rf dst')
         run('s4 cp -r foo s4://bucket/cp/dst2')
-        assert rm_whitespace(run('s4 ls s4://bucket/cp/dst2/')) == rm_whitespace("""
-            _ _ _ 1.txt
-            _ _ _ 2.txt
-              PRE 3/
+        assert rm_whitespace(run("s4 ls s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
+            1.txt
+            2.txt
+            3/
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/cp/dst2/')) == rm_whitespace("""
-            _ _ _ cp/dst2/1.txt
-            _ _ _ cp/dst2/2.txt
-            _ _ _ cp/dst2/3/4.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/cp/dst2/ | cut -d" " -f4')) == rm_whitespace("""
+            cp/dst2/1.txt
+            cp/dst2/2.txt
+            cp/dst2/3/4.txt
         """)
         run('s4 cp -r s4://bucket/cp/dst .')
         assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
@@ -228,12 +228,12 @@ def test_ls():
         run('echo | s4 cp - s4://bucket/other-listing/key0.txt')
         run('echo | s4 cp - s4://bucket/listing/dir1/key1.txt')
         run('echo | s4 cp - s4://bucket/listing/dir1/dir2/key2.txt')
-        assert run('s4 ls s4://bucket/listing/dir1/ke') == rm_whitespace("""
-            _ _ _ key1.txt
+        assert run('s4 ls s4://bucket/listing/dir1/ke | cut -d" " -f4') == rm_whitespace("""
+            key1.txt
         """)
-        assert rm_whitespace(run('s4 ls s4://bucket/listing/dir1/')) == rm_whitespace("""
-              PRE dir2/
-            _ _ _ key1.txt
+        assert rm_whitespace(run("s4 ls s4://bucket/listing/dir1/ | awk '{print $NF}'")) == rm_whitespace("""
+            dir2/
+            key1.txt
         """)
         assert rm_whitespace(run('s4 ls s4://bucket/listing/d')) == rm_whitespace("""
               PRE dir1/
@@ -241,17 +241,17 @@ def test_ls():
         assert rm_whitespace(run('s4 ls s4://bucket/listing/')) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing')) == rm_whitespace("""
-            _ _ _ listing/dir1/dir2/key2.txt
-            _ _ _ listing/dir1/key1.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing | cut -d" " -f4')) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/')) == rm_whitespace("""
-            _ _ _ listing/dir1/dir2/key2.txt
-            _ _ _ listing/dir1/key1.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/ | cut -d" " -f4')) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/d')) == rm_whitespace("""
-            _ _ _ listing/dir1/dir2/key2.txt
-            _ _ _ listing/dir1/key1.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/d | cut -d" " -f4')) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
         """)
         with pytest.raises(SystemExit):
             run('s4 ls s4://bucket/fake/')
@@ -261,13 +261,13 @@ def test_rm():
         run('s4 rm -r s4://bucket/rm/di')
         run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
         run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
-        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/')) == rm_whitespace("""
-            _ _ _ rm/dir1/dir2/key2.txt
-            _ _ _ rm/dir1/key1.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/ | cut -d" " -f4')) == rm_whitespace("""
+            rm/dir1/dir2/key2.txt
+            rm/dir1/key1.txt
         """)
         run('s4 rm s4://bucket/rm/dir1/key1.txt')
-        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/')) == rm_whitespace("""
-            _ _ _ rm/dir1/dir2/key2.txt
+        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/ | cut -d" " -f4')) == rm_whitespace("""
+            rm/dir1/dir2/key2.txt
         """)
         run('s4 rm -r s4://bucket/rm/di')
         with pytest.raises(SystemExit):

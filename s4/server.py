@@ -19,6 +19,7 @@ jobs = {}
 max_jobs = int(os.environ.get('S4_MAX_JOBS', os.cpu_count() * 8)) # type: ignore
 io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs) # io is concurrent
 single_pool = concurrent.futures.ThreadPoolExecutor(1) # filesystem metadata is serializable
+printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 
 def new_uuid():
     for _ in range(10):
@@ -119,27 +120,28 @@ async def list_handler(req):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3'", executor=single_pool)
+        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
-        xs = res['stdout'].splitlines()
-        xs = ['/'.join(x.split('/')[1:]) for x in xs]
+        xs = [x.split() for x in res['stdout'].splitlines()]
+        xs = [f"{date} {time.split('.')[0]} {size} {'/'.join(path.split('/')[1:])}" for date, time, size, path in xs]
     else:
         name = ''
         if not prefix.endswith('/'):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}", executor=single_pool)
+        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         files = res['stdout']
         res = await submit(shell.warn, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
-        dirs = res['stdout']
-        xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
+        files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
+        dirs = [('_', '_', '_', x + '/') for x in res['stdout'].splitlines() if x.strip()]
+        xs = files + dirs
         if not _prefix.endswith('/'):
             _prefix = os.path.dirname(_prefix) + '/'
-        xs = [x.split(_prefix)[-1] for x in xs]
-    return {'code': 200, 'body': json.dumps([x for x in xs if x.strip()])}
+        xs = [f'{date} {time.split(".")[0]} {size} {path.split(_prefix)[-1]}'.replace("_ _ _", "   PRE") for date, time, size, path in xs]
+    return {'code': 200, 'body': json.dumps(xs)}
 
 async def delete_handler(req):
     prefix = req['query']['prefix']
