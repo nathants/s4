@@ -39,6 +39,6 @@ def pick_server(url):
     url = url.split('s4://')[-1]
     if url.split('/')[-1].isdigit():
         url = url.split('/')[-1]
-    index = xxh3.oneshot_int(url.encode('utf-8')) % len(servers())
+    index = xxh3.oneshot_int(url.encode()) % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'

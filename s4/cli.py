@@ -89,7 +89,7 @@ def _get(src, dst):
             while proc.poll() is None:
                 assert time.monotonic() - start < s4.timeout, f'timeout on cmd: {cmd}'
                 time.sleep(.01)
-            stderr = proc.stderr.read().decode('utf-8').rstrip()
+            stderr = proc.stderr.read().decode().rstrip()
             assert proc.poll() == 0, stderr
             client_checksum = stderr
             resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
