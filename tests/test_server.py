@@ -169,9 +169,9 @@ def test_cp():
         run('echo 456 > foo/3/4.txt')
         run('s4 cp -r foo/ s4://bucket/cp/dst/')
         assert rm_whitespace(run('s4 ls s4://bucket/cp/dst/')) == rm_whitespace("""
-              PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
+              PRE 3/
         """)
         assert run('s4 ls -r s4://bucket/cp/dst/') == rm_whitespace("""
             _ _ _ cp/dst/1.txt
@@ -193,9 +193,9 @@ def test_cp():
         run('rm -rf dst')
         run('s4 cp -r foo s4://bucket/cp/dst2')
         assert rm_whitespace(run('s4 ls s4://bucket/cp/dst2/')) == rm_whitespace("""
-              PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
+              PRE 3/
         """)
         assert rm_whitespace(run('s4 ls -r s4://bucket/cp/dst2/')) == rm_whitespace("""
             _ _ _ cp/dst2/1.txt

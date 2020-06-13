@@ -16,7 +16,6 @@ import uuid
 import web
 
 jobs = {}
-path_prefix = '_s4_data'
 max_jobs = int(os.environ.get('S4_MAX_JOBS', os.cpu_count() * 8)) # type: ignore
 io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
 single_pool = concurrent.futures.ThreadPoolExecutor(1)
@@ -58,7 +57,7 @@ async def prepare_put_handler(req):
     else:
         key = req['query']['key']
         assert s4.on_this_server(key)
-        path = os.path.join(path_prefix, key.split('s4://')[-1])
+        path = key.split('s4://')[-1]
         temp_path, port = await submit(prepare_put, path)
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
@@ -84,7 +83,7 @@ async def prepare_get_handler(req):
     port = req['query']['port']
     remote = req['remote']
     assert s4.on_this_server(key)
-    path = os.path.join(path_prefix, key.split('s4://')[-1])
+    path = key.split('s4://')[-1]
     if await submit(exists, path):
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
@@ -111,10 +110,9 @@ async def confirm_get_handler(req):
         return {'code': 200}
 
 async def list_handler(req):
-    _prefix = req['query']['prefix']
-    assert _prefix.startswith('s4://'), _prefix
-    _prefix = _prefix.split('s4://')[-1]
-    prefix = os.path.join(path_prefix, _prefix)
+    prefix = req['query']['prefix']
+    assert prefix.startswith('s4://')
+    _prefix = prefix = prefix.split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
     if recursive:
         if not prefix.endswith('/'):
@@ -122,7 +120,7 @@ async def list_handler(req):
         res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3'")
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         xs = res['stdout'].splitlines()
-        xs = ['/'.join(x.split('/')[2:]) for x in xs]
+        xs = ['/'.join(x.split('/')[1:]) for x in xs]
     else:
         name = ''
         if not prefix.endswith('/'):
@@ -143,10 +141,9 @@ async def list_handler(req):
 
 async def delete_handler(req):
     prefix = req['query']['prefix']
-    assert prefix.startswith('s4://'), prefix
+    assert prefix.startswith('s4://')
     prefix = prefix.split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
-    prefix = os.path.join(path_prefix, prefix)
     if recursive:
         resp = await submit(shell.warn, 'rm -rf', prefix + '*')
     else:
@@ -175,6 +172,9 @@ async def gc_jobs():
         tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
 def start(debug=False):
+    util.log.setup(format='%(message)s')
+    os.makedirs('s4_data', exist_ok=True)
+    os.chdir('s4_data')
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
               ('/prepare_get', {'post': prepare_get_handler}),
@@ -192,5 +192,4 @@ def start(debug=False):
         sys.exit(1)
 
 if __name__ == '__main__':
-    util.log.setup(format='%(message)s')
     argh.dispatch_command(start)

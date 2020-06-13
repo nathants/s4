@@ -1,5 +1,4 @@
 import shell
-import s4.server
 import util.iter
 import shell
 from shell import run
@@ -34,7 +33,7 @@ def teardown_module():
     run('aws-ec2-rm -y', cluster_name)
 
 def setup_function():
-    run(f'aws-ec2-ssh -yc "cd /mnt && rm -rf {s4.server.path_prefix}"', *state['ids'])
+    run('aws-ec2-ssh -yc "cd /mnt && rm -rf s4_data"', *state['ids'])
     run('aws-ec2-ssh -yc "killall -r pypy || true"', *state['ids'])
     run('aws-ec2-ssh --no-tty -yc "cd /mnt && (s4-server &> s4.log </dev/null &)"', *state['ids'])
 
@@ -49,7 +48,7 @@ def test_basic():
     for i in range(10):
         cmd += f'echo data{i} | s4 cp - s4://bucket/dir/key{i}.txt\n'
     ssh(cmd, ids=ids[:1])
-    xs = ssh('find', s4.server.path_prefix, '-type f | wc -l').splitlines()
+    xs = ssh('find s4_data -type f | wc -l').splitlines()
     xs = [int(x.split()[-1]) for x in xs]
     assert all(x > 0 for x in xs)
     cmd = 'rm -f key*.txt\n'
@@ -83,7 +82,7 @@ def test_basic():
         'key8.txt:data8',
         'key9.txt:data9',
     ]
-    vals = sorted(ssh(f'cd {s4.server.path_prefix} && find -type f | grep -v xxh3').splitlines())
+    vals = sorted(ssh('cd s4_data && find -type f | grep -v xxh3').splitlines())
     vals = util.iter.groupby(vals, lambda x: x.split()[1])
     vals = {frozenset({x.split()[-1] for x in v}) for k, v in vals}
     result = {

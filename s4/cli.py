@@ -36,7 +36,8 @@ def ls(prefix, recursive=False):
     vals = sorted({f'  PRE {x}'
                    if x.endswith('/') else
                    f'_ _ _ {x}'
-                   for x in _ls(prefix, recursive)})
+                   for x in _ls(prefix, recursive)},
+                  key=lambda x: x.split()[-1])
     if not vals:
         sys.exit(1)
     return vals
@@ -52,7 +53,7 @@ def _ls(prefix, recursive):
 def cp(src, dst, recursive=False):
     _cp(src, dst, recursive)
 
-def _cp_from_recursive(src, dst):
+def _get_recursive(src, dst):
     bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
     prefix = '/'.join(parts) or bucket + '/'
     for key in _ls(src, recursive=True):
@@ -61,13 +62,13 @@ def _cp_from_recursive(src, dst):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         cp('s4://' + os.path.join(bucket, key), path)
 
-def _cp_to_recursive(src, dst):
+def _put_recursive(src, dst):
     for dirpath, dirs, files in os.walk(src):
         path = dirpath.split(src)[-1].lstrip('/')
         for file in files:
             cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
 
-def _cp_from(src, dst):
+def _get(src, dst):
     server = s4.pick_server(src)
     port = util.net.free_port()
     _, temp_path = tempfile.mkstemp(dir='.')
@@ -104,7 +105,7 @@ def _cp_from(src, dst):
         with util.exceptions.ignore(FileNotFoundError):
             os.remove(temp_path)
 
-def _cp_to(src, dst):
+def _put(src, dst):
     if dst.endswith('/'):
         dst = os.path.join(dst, os.path.basename(src))
     server = s4.pick_server(dst)
@@ -127,9 +128,9 @@ def _cp_to(src, dst):
 def _cp(src, dst, recursive):
     if recursive:
         if src.startswith('s4://'):
-            _cp_from_recursive(src, dst)
+            _get_recursive(src, dst)
         elif dst.startswith('s4://'):
-            _cp_to_recursive(src, dst)
+            _put_recursive(src, dst)
         else:
             logging.info(f'src or dst needs s4://, got: {src} {dst}')
             sys.exit(1)
@@ -137,9 +138,9 @@ def _cp(src, dst, recursive):
         logging.info('there is no move, there is only cp and rm.', file=sys.stderr)
         sys.exit(1)
     elif src.startswith('s4://'):
-        _cp_from(src, dst)
+        _get(src, dst)
     elif dst.startswith('s4://'):
-        _cp_to(src, dst)
+        _put(src, dst)
     else:
         logging.info('src or dst needs s4://')
         sys.exit(1)

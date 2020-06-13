@@ -27,6 +27,7 @@ def http_port():
     return [port for address, port in servers() if address == '0.0.0.0'][0]
 
 def on_this_server(key):
+    assert key.startswith('s4://')
     return '0.0.0.0' == pick_server(key).split(':')[0]
 
 def pick_server(url):
