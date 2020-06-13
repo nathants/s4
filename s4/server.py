@@ -29,20 +29,20 @@ def new_uuid():
     assert False
 
 def checksum_write(path, checksum):
-    with open(xxh3_path(path), 'w') as f:
+    with open(checksum_path(path), 'w') as f:
         f.write(checksum)
 
 def checksum_read(path):
-    with open(xxh3_path(path)) as f:
+    with open(checksum_path(path)) as f:
         return f.read()
 
-def exists(path):
-    return os.path.isfile(path) and os.path.isfile(xxh3_path(path))
-
-def xxh3_path(key):
+def checksum_path(key):
     parts = key.split('/')
     parts = parts[:-1] + [f'.{parts[-1]}.xxh3']
     return '/'.join(parts)
+
+def exists(path):
+    return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
 def prepare_put(path):
     parent = os.path.dirname(path)
@@ -58,7 +58,7 @@ async def prepare_put_handler(req):
         key = req['query']['key']
         assert s4.on_this_server(key)
         path = key.split('s4://')[-1]
-        temp_path, port = await submit(prepare_put, path)
+        temp_path, port = await submit(prepare_put, path, executor=single_pool)
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': submit(shell.warn, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
@@ -74,8 +74,8 @@ async def confirm_put_handler(req):
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit(checksum_write, job['path'], server_checksum)
-    await submit(os.rename, job['temp_path'], job['path'])
+    await submit(checksum_write, job['path'], server_checksum, executor=single_pool)
+    await submit(os.rename, job['temp_path'], job['path'], executor=single_pool)
     return {'code': 200}
 
 async def prepare_get_handler(req):
@@ -84,11 +84,11 @@ async def prepare_get_handler(req):
     remote = req['remote']
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
-    if await submit(exists, path):
+    if await submit(exists, path, executor=single_pool):
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
                       'future': submit(shell.warn, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
-                      'path': path}
+                      'disk_checksum': await submit(checksum_read, path, executor=single_pool)}
         return {'code': 200, 'body': uuid}
     else:
         return {'code': 404}
@@ -100,14 +100,8 @@ async def confirm_get_handler(req):
     result = await job['future']
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
-    try:
-        disk_checksum = await submit(checksum_read, job['path'])
-    except FileNotFoundError:
-        return {'code': 404}
-    else:
-        assert disk_checksum == server_checksum, [disk_checksum, server_checksum]
-        assert client_checksum == server_checksum, [client_checksum, server_checksum]
-        return {'code': 200}
+    assert job['disk_checksum'] == client_checksum == server_checksum, [job['disk_checksum'], client_checksum, server_checksum]
+    return {'code': 200}
 
 async def list_handler(req):
     prefix = req['query']['prefix']
@@ -117,7 +111,7 @@ async def list_handler(req):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3'")
+        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3'", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         xs = res['stdout'].splitlines()
         xs = ['/'.join(x.split('/')[1:]) for x in xs]
@@ -127,10 +121,10 @@ async def list_handler(req):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}")
+        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         files = res['stdout']
-        res = await submit(shell.warn, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
+        res = await submit(shell.warn, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=single_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         dirs = res['stdout']
         xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
@@ -145,24 +139,24 @@ async def delete_handler(req):
     prefix = prefix.split('s4://')[-1]
     recursive = req['query'].get('recursive') == 'true'
     if recursive:
-        resp = await submit(shell.warn, 'rm -rf', prefix + '*')
+        resp = await submit(shell.warn, 'rm -rf', prefix + '*', executor=single_pool)
     else:
-        resp = await submit(shell.warn, 'rm -f', prefix, xxh3_path(prefix))
+        resp = await submit(shell.warn, 'rm -f', prefix, checksum_path(prefix), executor=single_pool)
     assert resp['exitcode'] == 0
     return {'code': 200}
 
 async def health(req):
     return {'code': 200}
 
-def submit(f, *a, executor=None, **kw):
-    return tornado.ioloop.IOLoop.current().run_in_executor(executor or single_pool, lambda: f(*a, **kw))
+def submit(f, *a, executor, **kw):
+    return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
 
 async def gc_jobs():
     try:
         for job in list(jobs):
             with util.exceptions.ignore(FileNotFoundError, KeyError):
                 if time.monotonic() - jobs[job]['time'] > s4.timeout:
-                    await submit(os.remove, jobs.pop(job)['temp_path'])
+                    await submit(os.remove, jobs.pop(job)['temp_path'], executor=single_pool)
     except:
         logging.exception('proc garbage collector died')
         time.sleep(1)
