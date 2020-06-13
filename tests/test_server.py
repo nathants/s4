@@ -38,7 +38,7 @@ def servers():
             def start_all():
                 ports = [util.net.free_port() for _ in range(3)]
                 s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
-                s4.conf_path = os.environ['S4_CONF_PATH'] = run('mktemp -p .')
+                s4.conf_path = os.environ['S4_CONF_PATH'] = os.path.abspath(run('mktemp -p .'))
                 with open(s4.conf_path, 'w') as f:
                     f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
                 procs = [pool.proc.new(start, port) for port in ports]
@@ -79,52 +79,53 @@ def servers():
 
 def test_basic():
     with servers():
-        with open('file.txt', 'w') as f:
-            f.write('123')
-        s4.cli.cp('file.txt', 's4://bucket/basic/dir/file.txt')
-        with open('file2.txt', 'w') as f:
-            f.write('345\n')
-        s4.cli.cp('file2.txt', 's4://bucket/basic/dir/')
-        assert s4.cli.ls('s4://bucket/', recursive=True) == [
+        run('echo 123 > file.txt')
+        run('s4 cp file.txt s4://bucket/basic/dir/file.txt')
+        run('echo 345 > file2.txt')
+        run('s4 cp file2.txt s4://bucket/basic/dir/')
+        assert run('s4 ls -r s4://bucket/').splitlines() == [
             '_ _ _ basic/dir/file.txt',
             '_ _ _ basic/dir/file2.txt',
         ]
-        s4.cli.cp('s4://bucket/basic/dir/file.txt', 'out.txt')
-        run('cat out.txt') == "123"
-        s4.cli.cp('s4://bucket/basic/dir/file2.txt', 'out2.txt')
-        run('cat out.txt') == "345\n"
+        run('s4 cp s4://bucket/basic/dir/file.txt out.txt')
+        assert run('cat out.txt') == "123"
+        run('s4 cp s4://bucket/basic/dir/file2.txt', 'out2.txt')
+        assert run('cat out2.txt') == "345"
         run('mkdir foo/')
-        s4.cli.cp('s4://bucket/basic/dir/file.txt', 'foo/')
-        with open('foo/file.txt') as f:
-            assert f.read() == "123"
+        run('s4 cp s4://bucket/basic/dir/file.txt foo/')
+        assert run('cat foo/file.txt') == "123"
 
 def test_cp_file_to_dot():
     with servers():
-        with open('file.txt', 'w') as f:
-            f.write('foo')
-        s4.cli.cp('file.txt', 's4://bucket/file.txt')
-        s4.cli.cp('s4://bucket/file.txt', '.')
+        run('echo foo > file.txt')
+        run('s4 cp file.txt s4://bucket/file.txt')
+        run('s4 cp s4://bucket/file.txt .')
         assert 'foo' == run('cat file.txt')
 
 def test_cp_dir_to_dot():
     with servers():
-        s4.cli.cp('/dev/null', 's4://bucket/dir1/file1.txt')
-        s4.cli.cp('/dev/null', 's4://bucket/dir2/file2.txt')
-        s4.cli.cp('/dev/null', 's4://bucket/dir2/file3.txt')
-        s4.cli.cp('s4://bucket', '.', recursive=True)
+        run('echo | s4 cp - s4://bucket/dir1/file1.txt')
+        run('echo | s4 cp - s4://bucket/dir2/file2.txt')
+        run('echo | s4 cp - s4://bucket/dir2/file3.txt')
+        run('s4 cp -r s4://bucket .')
+        assert run('s4 ls -r s4://bucket').splitlines() == [
+            '_ _ _ dir1/file1.txt',
+            '_ _ _ dir2/file2.txt',
+            '_ _ _ dir2/file3.txt',
+        ]
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir1/file1.txt',
             'dir2/file2.txt',
             'dir2/file3.txt',
         ]
         run('rm -rf dir*')
-        s4.cli.cp('s4://bucket/dir2', '.', recursive=True)
+        run('s4 cp -r s4://bucket/dir2 .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir2/file2.txt',
             'dir2/file3.txt',
         ]
         run('rm -rf dir*')
-        s4.cli.cp('s4://bucket/dir2/', '.', recursive=True)
+        run('s4 cp -r s4://bucket/dir2/ .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir2/file2.txt',
             'dir2/file3.txt',
@@ -135,21 +136,26 @@ def test_cp_dot_to_dot():
         with shell.tempdir():
             run('mkdir dir1 dir2')
             run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
-            s4.cli.cp('.', 's4://bucket', recursive=True)
-        s4.cli.cp('s4://bucket', '.', recursive=True)
+            run('s4 cp -r . s4://bucket')
+        assert run('s4 ls -r s4://bucket').splitlines() == [
+            '_ _ _ dir1/file1.txt',
+            '_ _ _ dir2/file2.txt',
+            '_ _ _ dir2/file3.txt',
+        ]
+        run('s4 cp -r s4://bucket .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir1/file1.txt',
             'dir2/file2.txt',
             'dir2/file3.txt',
         ]
         run('rm -rf dir*')
-        s4.cli.cp('s4://bucket/dir2', '.', recursive=True)
+        run('s4 cp -r s4://bucket/dir2 .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir2/file2.txt',
             'dir2/file3.txt',
         ]
         run('rm -rf dir*')
-        s4.cli.cp('s4://bucket/dir2/', '.', recursive=True)
+        run('s4 cp -r s4://bucket/dir2/ .')
         assert sorted(run('find dir* -type f').splitlines()) == [
             'dir2/file2.txt',
             'dir2/file3.txt',
@@ -158,48 +164,45 @@ def test_cp_dot_to_dot():
 def test_cp():
     with servers():
         run('mkdir -p foo/3')
-        with open('foo/1.txt', 'w') as f:
-            f.write('123')
-        with open('foo/2.txt', 'w') as f:
-            f.write('234')
-        with open('foo/3/4.txt', 'w') as f:
-            f.write('456')
-        s4.cli.cp('foo/', 's4://bucket/cp/dst/', recursive=True)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst/'))) == rm_whitespace("""
+        run('echo 123 > foo/1.txt')
+        run('echo 234 > foo/2.txt')
+        run('echo 456 > foo/3/4.txt')
+        run('s4 cp -r foo/ s4://bucket/cp/dst/')
+        assert rm_whitespace(run('s4 ls s4://bucket/cp/dst/')) == rm_whitespace("""
               PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst/', recursive=True))) == rm_whitespace("""
+        assert run('s4 ls -r s4://bucket/cp/dst/') == rm_whitespace("""
             _ _ _ cp/dst/1.txt
             _ _ _ cp/dst/2.txt
             _ _ _ cp/dst/3/4.txt
         """)
-        s4.cli.cp('s4://bucket/cp/dst/', 'dst1/', recursive=True)
+        run('s4 cp -r s4://bucket/cp/dst/ dst1/')
         assert run('grep ".*" $(find dst1/ -type f | sort)') == rm_whitespace("""
             dst1/1.txt:123
             dst1/2.txt:234
             dst1/3/4.txt:456
         """)
-        s4.cli.cp('s4://bucket/cp/dst/', '.', recursive=True)
+        run('s4 cp -r s4://bucket/cp/dst/ .')
         assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
             dst/1.txt:123
             dst/2.txt:234
             dst/3/4.txt:456
         """)
         run('rm -rf dst')
-        s4.cli.cp('foo', 's4://bucket/cp/dst2', recursive=True)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst2/'))) == rm_whitespace("""
+        run('s4 cp -r foo s4://bucket/cp/dst2')
+        assert rm_whitespace(run('s4 ls s4://bucket/cp/dst2/')) == rm_whitespace("""
               PRE 3/
             _ _ _ 1.txt
             _ _ _ 2.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/cp/dst2/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls -r s4://bucket/cp/dst2/')) == rm_whitespace("""
             _ _ _ cp/dst2/1.txt
             _ _ _ cp/dst2/2.txt
             _ _ _ cp/dst2/3/4.txt
         """)
-        s4.cli.cp('s4://bucket/cp/dst', '.', recursive=True)
+        run('s4 cp -r s4://bucket/cp/dst .')
         assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
             dst/1.txt:123
             dst/2.txt:234
@@ -208,53 +211,53 @@ def test_cp():
 
 def test_ls():
     with servers():
-        s4.cli.cp('/dev/null', 's4://bucket/other-listing/key0.txt')
-        s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/key1.txt')
-        s4.cli.cp('/dev/null', 's4://bucket/listing/dir1/dir2/key2.txt')
-        assert '\n'.join(s4.cli.ls('s4://bucket/listing/dir1/ke')) == rm_whitespace("""
+        run('echo | s4 cp - s4://bucket/other-listing/key0.txt')
+        run('echo | s4 cp - s4://bucket/listing/dir1/key1.txt')
+        run('echo | s4 cp - s4://bucket/listing/dir1/dir2/key2.txt')
+        assert run('s4 ls s4://bucket/listing/dir1/ke') == rm_whitespace("""
             _ _ _ key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/dir1/'))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls s4://bucket/listing/dir1/')) == rm_whitespace("""
               PRE dir2/
             _ _ _ key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/d'))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls s4://bucket/listing/d')) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/'))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls s4://bucket/listing/')) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing')) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/')) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/listing/d', recursive=True))) == rm_whitespace("""
+        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/d')) == rm_whitespace("""
             _ _ _ listing/dir1/dir2/key2.txt
             _ _ _ listing/dir1/key1.txt
         """)
         with pytest.raises(SystemExit):
-            s4.cli.ls('s4://bucket/fake/')
+            run('s4 ls s4://bucket/fake/')
 
 def test_rm():
     with servers():
-        s4.cli.rm('s4://bucket/rm/di', recursive=True)
-        s4.cli.cp('/dev/null', 's4://bucket/rm/dir1/key1.txt')
-        s4.cli.cp('/dev/null', 's4://bucket/rm/dir1/dir2/key2.txt')
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/rm/', recursive=True))) == rm_whitespace("""
+        run('s4 rm -r s4://bucket/rm/di')
+        run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
+        run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
+        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/')) == rm_whitespace("""
             _ _ _ rm/dir1/dir2/key2.txt
             _ _ _ rm/dir1/key1.txt
         """)
-        s4.cli.rm('s4://bucket/rm/dir1/key1.txt')
-        assert rm_whitespace('\n'.join(s4.cli.ls('s4://bucket/rm/', recursive=True))) == rm_whitespace("""
+        run('s4 rm s4://bucket/rm/dir1/key1.txt')
+        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/')) == rm_whitespace("""
             _ _ _ rm/dir1/dir2/key2.txt
         """)
-        s4.cli.rm('s4://bucket/rm/di', recursive=True)
+        run('s4 rm -r s4://bucket/rm/di')
         with pytest.raises(SystemExit):
-            s4.cli.ls('s4://bucket/rm/', recursive=True)
+            run('s4 ls -r s4://bucket/rm/')
 
 def test_stdin():
     with servers():

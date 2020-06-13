@@ -1,8 +1,6 @@
 import time
 import subprocess
-import logging
 import os
-import sys
 import util.cached
 import xxh3
 
@@ -20,14 +18,11 @@ def local_addresses():
 
 @util.cached.func
 def servers():
-    try:
-        with open(conf_path) as f:
-            return [(address, port) if address not in local_addresses() else ('0.0.0.0', port)
-                    for x in f.read().strip().splitlines()
-                    for address, port in [x.split(':')]]
-    except:
-        logging.info('~/.s4.conf should contain all server addresses on the local network, one on each line')
-        sys.exit(1)
+    assert os.path.isfile(conf_path), f'conf_path={conf_path} should contain all server addresses on the local network, one on each line'
+    with open(conf_path) as f:
+        return [(address, port) if address not in local_addresses() else ('0.0.0.0', port)
+                for x in f.read().strip().splitlines()
+                for address, port in [x.split(':')]]
 
 def run(*a, stdin=None):
     start = time.monotonic()

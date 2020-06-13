@@ -17,8 +17,8 @@ import web
 jobs = {}
 path_prefix = '_s4_data'
 max_jobs = int(os.environ.get('S4_MAX_JOBS', os.cpu_count() * 8)) # type: ignore
-nc_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
-default_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
+io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs)
+single_pool = concurrent.futures.ThreadPoolExecutor(1)
 
 def new_uuid():
     for _ in range(10):
@@ -61,7 +61,7 @@ async def prepare_put_handler(req):
         temp_path, port = await submit(prepare_put, path)
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(s4.run, f'recv {port} | xxh3 --stream > {temp_path}', executor=nc_pool),
+                      'future': submit(s4.run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
                       'temp_path': temp_path,
                       'path': path}
         return {'code': 200, 'body': json.dumps([uuid, port])}
@@ -84,14 +84,14 @@ async def prepare_get_handler(req):
     remote = req['remote']
     assert s4.on_this_server(key)
     path = os.path.join(path_prefix, key.split('s4://')[-1])
-    if not (await submit(exists, path)):
-        return {'code': 404}
-    else:
+    if await submit(exists, path):
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(s4.run, f'xxh3 --stream < {path} | send {remote} {port}', executor=nc_pool),
+                      'future': submit(s4.run, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
                       'path': path}
         return {'code': 200, 'body': uuid}
+    else:
+        return {'code': 404}
 
 async def confirm_get_handler(req):
     uuid = req['query']['uuid']
@@ -157,7 +157,7 @@ async def health(req):
     return {'code': 200}
 
 def submit(f, *a, executor=None, **kw):
-    return tornado.ioloop.IOLoop.current().run_in_executor(executor or default_pool, lambda: f(*a, **kw))
+    return tornado.ioloop.IOLoop.current().run_in_executor(executor or single_pool, lambda: f(*a, **kw))
 
 async def gc_jobs():
     try:
@@ -174,7 +174,6 @@ async def gc_jobs():
         tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
 def start(debug=False):
-    util.log.setup(format='%(message)s')
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
               ('/prepare_get', {'post': prepare_get_handler}),
@@ -192,4 +191,5 @@ def start(debug=False):
         sys.exit(1)
 
 if __name__ == '__main__':
+    util.log.setup(format='%(message)s')
     argh.dispatch_command(start)
