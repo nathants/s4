@@ -77,6 +77,11 @@ def servers():
                 for proc in procs:
                     proc.terminate()
 
+def test_spaces_are_not_allowed():
+    with servers():
+        with pytest.raises(SystemExit):
+            run('echo | s4 cp - "s4://bucket/basic/dir/fi le.txt"')
+
 def test_updates_are_not_allowed():
     with servers():
         path = 's4://bucket/basic/dir/file.txt'

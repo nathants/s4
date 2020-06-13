@@ -59,6 +59,7 @@ async def prepare_put_handler(req):
         return {'code': 429}
     else:
         key = req['query']['key']
+        assert ' ' not in key
         assert s4.on_this_server(key)
         path = key.split('s4://')[-1]
         try:
