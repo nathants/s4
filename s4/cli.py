@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shell
 import argh
 import logging
 import os
@@ -113,10 +114,10 @@ def _cp_to(src, dst):
     uuid, port = resp.json()
     if src == '-':
         cmd = f'xxh3 --stream | send {server_address} {port}'
-        result = s4.run(cmd, stdin=sys.stdin)
+        result = shell.warn(cmd, stdin=sys.stdin)
     else:
         cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
-        result = s4.run(cmd)
+        result = shell.warn(cmd)
     assert result['exitcode'] == 0, result
     client_checksum = result['stderr']
     resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')

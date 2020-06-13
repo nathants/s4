@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import shell
 import argh
 import concurrent.futures
 import json
@@ -61,7 +62,7 @@ async def prepare_put_handler(req):
         temp_path, port = await submit(prepare_put, path)
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(s4.run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
+                      'future': submit(shell.warn, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
                       'temp_path': temp_path,
                       'path': path}
         return {'code': 200, 'body': json.dumps([uuid, port])}
@@ -87,7 +88,7 @@ async def prepare_get_handler(req):
     if await submit(exists, path):
         uuid = new_uuid()
         jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(s4.run, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
+                      'future': submit(shell.warn, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
                       'path': path}
         return {'code': 200, 'body': uuid}
     else:
@@ -118,7 +119,7 @@ async def list_handler(req):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        res = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3'")
+        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3'")
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         xs = res['stdout'].splitlines()
         xs = ['/'.join(x.split('/')[2:]) for x in xs]
@@ -128,10 +129,10 @@ async def list_handler(req):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        res = await submit(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}")
+        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name}")
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         files = res['stdout']
-        res = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
+        res = await submit(shell.warn, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         dirs = res['stdout']
         xs = files.splitlines() + [x + '/' for x in dirs.splitlines()]
@@ -147,9 +148,9 @@ async def delete_handler(req):
     recursive = req['query'].get('recursive') == 'true'
     prefix = os.path.join(path_prefix, prefix)
     if recursive:
-        resp = await submit(s4.run, 'rm -rf', prefix + '*')
+        resp = await submit(shell.warn, 'rm -rf', prefix + '*')
     else:
-        resp = await submit(s4.run, 'rm -f', prefix, xxh3_path(prefix))
+        resp = await submit(shell.warn, 'rm -f', prefix, xxh3_path(prefix))
     assert resp['exitcode'] == 0
     return {'code': 200}
 
