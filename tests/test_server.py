@@ -177,6 +177,14 @@ def test_cp_dot_to_dot():
             'dir2/file3.txt',
         ]
 
+def test_data_modifications_not_allowed():
+    with servers():
+        run('echo | s4 cp - s4://bucket/data.txt')
+        path = run('find . -type f -name data.txt')
+        assert path.endswith('/data.txt')
+        with pytest.raises(SystemExit):
+            run('echo >>', path)
+
 def test_cp():
     with servers():
         run('mkdir -p foo/3')
@@ -260,7 +268,6 @@ def test_ls():
 
 def test_rm():
     with servers():
-        run('s4 rm -r s4://bucket/rm/di')
         run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
         run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
         assert rm_whitespace(run('s4 ls -r s4://bucket/rm/ | cut -d" " -f4')) == rm_whitespace("""

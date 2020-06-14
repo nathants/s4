@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import stat
 import argh
 import concurrent.futures
 import json
@@ -103,6 +104,11 @@ async def prepare_put_handler(request):
         else:
             return {'code': 200, 'body': json.dumps([uuid, port])}
 
+def confirm_put(job, server_checksum):
+    checksum_write(job['path'], server_checksum)
+    os.rename(job['temp_path'], job['path'])
+    os.chmod(job['path'], stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+
 async def confirm_put_handler(request):
     uuid = request['query']['uuid']
     client_checksum = request['query']['checksum']
@@ -111,8 +117,7 @@ async def confirm_put_handler(request):
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit(checksum_write, job['path'], server_checksum, executor=solo_pool)
-    await submit(os.rename, job['temp_path'], job['path'], executor=solo_pool)
+    await submit(confirm_put, job, server_checksum, executor=solo_pool)
     return {'code': 200}
 
 async def prepare_get_handler(request):
