@@ -9,6 +9,8 @@ import s4.server
 import time
 import util.log
 import util.time
+import util.iter
+import random
 from shell import run
 from util.retry import retry
 
@@ -22,17 +24,17 @@ def start(port):
         for i in range(5):
             try:
                 s4.http_port = lambda: port + i
-                s4.server.start()
+                s4.server.main()
                 return
             except:
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
 @contextlib.contextmanager
-def servers():
+def servers(timeout=30):
     util.log.setup(format='%(message)s')
     shell.set['stream'] = True
-    with util.time.timeout(10):
+    with util.time.timeout(timeout):
         with shell.tempdir():
             @retry
             def start_all():

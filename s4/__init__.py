@@ -3,8 +3,10 @@ import os
 import util.cached
 import xxh3
 
-timeout = int(os.environ.get('S4_TIMEOUT', 60 * 10))
+timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
 conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
+
+run = lambda *a, **kw: shell.warn(*a, **kw, timeout=timeout)
 
 @util.cached.disk_memoize(max_age_seconds=60 * 60 * 24)
 def local_addresses():
@@ -30,15 +32,15 @@ def on_this_server(key):
     assert key.startswith('s4://')
     return '0.0.0.0' == pick_server(key).split(':')[0]
 
-def pick_server(url):
+def pick_server(key):
     # when path is like s4://bucket/job/worker/001, hash only the last
     # component of the path, in this case: 001. this naming scheme is used for
     # partitioning data, and we want all of the partitions for the same bucket
-    # to be on the same server. otherwise hash the whole url.
-    assert url.startswith('s4://'), url
-    url = url.split('s4://')[-1]
-    if url.split('/')[-1].isdigit():
-        url = url.split('/')[-1]
-    index = xxh3.oneshot_int(url.encode()) % len(servers())
+    # to be on the same server. otherwise hash the whole key.
+    assert key.startswith('s4://')
+    key = key.split('s4://')[-1]
+    if key.split('/')[-1].isdigit():
+        key = key.split('/')[-1]
+    index = xxh3.oneshot_int(key.encode()) % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'

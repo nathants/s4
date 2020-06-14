@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import shell
+import random
+import pool.thread
 import argh
 import logging
 import os
@@ -12,10 +13,13 @@ import time
 import util.log
 import util.net
 import util.retry
+import util.strings
 
 retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
 retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
+
+timeout = s4.timeout * 2 + 60
 
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
@@ -25,24 +29,29 @@ def _rm(prefix, recursive):
     assert prefix.startswith('s4://')
     if recursive:
         for address, port in s4.servers():
-            resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
+            resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true', timeout=timeout)
             assert resp.status_code == 200, resp
     else:
         server = s4.pick_server(prefix)
-        resp = requests.post(f'http://{server}/delete?prefix={prefix}')
+        resp = requests.post(f'http://{server}/delete?prefix={prefix}', timeout=timeout)
         assert resp.status_code == 200, resp
 
 def ls(prefix, recursive=False):
-    vals = sorted(list(_ls(prefix, recursive)), key=lambda x: x.split()[-1])
+    vals = list(_ls(prefix, recursive))
+    vals = sorted(vals, key=lambda x: x.split()[-1])
     if not vals:
         sys.exit(1)
     return vals
 
 @retry
 def _ls(prefix, recursive):
+    pool.thread._size = len(s4.servers())
+    fs = []
     for address, port in s4.servers():
-        url = f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}'
-        resp = requests.get(url)
+        f = pool.thread.submit(requests.get, f'http://{address}:{port}/list?prefix={prefix}&recursive={"true" if recursive else "false"}', timeout=timeout)
+        fs.append(f)
+    for f in fs:
+        resp = f.result()
         assert resp.status_code == 200, resp
         yield from resp.json()
 
@@ -77,7 +86,7 @@ def _get(src, dst):
         start = time.monotonic()
         proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stderr=subprocess.PIPE)
         server = s4.pick_server(src)
-        resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}')
+        resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}', timeout=timeout)
         if resp.status_code == 404:
             sys.exit(1)
         else:
@@ -89,7 +98,7 @@ def _get(src, dst):
             stderr = proc.stderr.read().decode().rstrip()
             assert proc.poll() == 0, stderr
             client_checksum = stderr
-            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
+            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}', timeout=timeout)
             assert resp.status_code == 200, resp
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
@@ -111,7 +120,7 @@ def _put(src, dst):
             dst = os.path.join(dst, os.path.basename(src))
         server = s4.pick_server(dst)
         server_address = server.split(":")[0]
-        resp = requests.post(f'http://{server}/prepare_put?key={dst}')
+        resp = requests.post(f'http://{server}/prepare_put?key={dst}', timeout=timeout)
         if resp.status_code == 409:
             logging.info('fatal: key already exists')
             sys.exit(1)
@@ -120,13 +129,13 @@ def _put(src, dst):
             uuid, port = resp.json()
             if src == '-':
                 cmd = f'xxh3 --stream | send {server_address} {port}'
-                result = shell.warn(cmd, stdin=sys.stdin)
+                result = s4.run(cmd, stdin=sys.stdin)
             else:
                 cmd = f'xxh3 --stream < {src} | send {server_address} {port}'
-                result = shell.warn(cmd)
+                result = s4.run(cmd)
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
-            resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+            resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}', timeout=timeout)
             assert resp.status_code == 200, resp
 
 @retry

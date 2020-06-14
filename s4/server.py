@@ -1,5 +1,4 @@
 #!/usr/bin/env pypy3
-import shell
 import argh
 import concurrent.futures
 import json
@@ -11,21 +10,36 @@ import tempfile
 import time
 import tornado.gen
 import tornado.ioloop
+import tornado.util
+import tornado.concurrent
 import util.log
+import util.strings
 import uuid
 import web
+import datetime
 
-jobs = {}
-max_jobs = int(os.environ.get('S4_MAX_JOBS', os.cpu_count() * 8)) # type: ignore
-io_pool = concurrent.futures.ThreadPoolExecutor(max_jobs) # io is concurrent
-single_pool = concurrent.futures.ThreadPoolExecutor(1) # filesystem metadata is serializable
+io_jobs = {}
+cpu_jobs = {}
+
+num_cpus = os.cpu_count() or 1
+max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 8))
+max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus))
+
+io_pool   = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+cpu_pool  = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+solo_pool = concurrent.futures.ThreadPoolExecutor(1)
+if 'S4_SERIAL_FIND' in os.environ:
+    find_pool = solo_pool
+else:
+    find_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+
 printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 
 def new_uuid():
     for _ in range(10):
         val = str(uuid.uuid4())
-        if val not in jobs:
-            jobs[val] = None
+        if val not in io_jobs:
+            io_jobs[val] = None
             return val
     assert False
 
@@ -55,72 +69,93 @@ def prepare_put(path):
     port = util.net.free_port()
     return temp_path, port
 
-async def prepare_put_handler(req):
-    if len(jobs) > max_jobs:
-        return {'code': 429}
+def start(func, timeout):
+    future = tornado.concurrent.Future()
+    add_callback = tornado.ioloop.IOLoop.current().add_callback
+    def fn(*a, **kw):
+        add_callback(future.set_result, None)
+        return func(*a, **kw)
+    future = tornado.gen.with_timeout(datetime.timedelta(seconds=timeout), future)
+    return future, fn
+
+async def prepare_put_handler(request):
+    key = request['query']['key']
+    assert ' ' not in key
+    assert s4.on_this_server(key)
+    path = key.split('s4://')[-1]
+    try:
+        temp_path, port = await submit(prepare_put, path, executor=solo_pool)
+    except AssertionError:
+        return {'code': 409}
     else:
-        key = req['query']['key']
-        assert ' ' not in key
-        assert s4.on_this_server(key)
-        path = key.split('s4://')[-1]
+        started, s4_run = start(s4.run, s4.timeout)
+        uuid = new_uuid()
+        io_jobs[uuid] = {'time': time.monotonic(),
+                         'future': submit(s4_run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
+                         'temp_path': temp_path,
+                         'path': path}
         try:
-            temp_path, port = await submit(prepare_put, path, executor=single_pool)
-        except AssertionError:
-            return {'code': 409}
+            await started
+        except tornado.util.TimeoutError:
+            io_jobs[uuid]['future'].cancel()
+            await submit(os.remove, io_jobs.pop(uuid)['temp_path'], executor=solo_pool)
+            return {'code': 429}
         else:
-            uuid = new_uuid()
-            jobs[uuid] = {'time': time.monotonic(),
-                          'future': submit(shell.warn, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
-                          'temp_path': temp_path,
-                          'path': path}
             return {'code': 200, 'body': json.dumps([uuid, port])}
 
-async def confirm_put_handler(req):
-    uuid = req['query']['uuid']
-    client_checksum = req['query']['checksum']
-    job = jobs.pop(uuid)
+async def confirm_put_handler(request):
+    uuid = request['query']['uuid']
+    client_checksum = request['query']['checksum']
+    job = io_jobs.pop(uuid)
     result = await job['future']
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit(checksum_write, job['path'], server_checksum, executor=single_pool)
-    await submit(os.rename, job['temp_path'], job['path'], executor=single_pool)
+    await submit(checksum_write, job['path'], server_checksum, executor=solo_pool)
+    await submit(os.rename, job['temp_path'], job['path'], executor=solo_pool)
     return {'code': 200}
 
-async def prepare_get_handler(req):
-    key = req['query']['key']
-    port = req['query']['port']
-    remote = req['remote']
+async def prepare_get_handler(request):
+    key = request['query']['key']
+    port = request['query']['port']
+    remote = request['remote']
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
-    if await submit(exists, path, executor=single_pool):
-        uuid = new_uuid()
-        jobs[uuid] = {'time': time.monotonic(),
-                      'future': submit(shell.warn, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
-                      'disk_checksum': await submit(checksum_read, path, executor=single_pool)}
-        return {'code': 200, 'body': uuid}
-    else:
+    if not await submit(exists, path, executor=solo_pool):
         return {'code': 404}
+    else:
+        started, s4_run = start(s4.run, s4.timeout)
+        uuid = new_uuid()
+        io_jobs[uuid] = {'time': time.monotonic(),
+                         'future': submit(s4_run, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
+                         'disk_checksum': await submit(checksum_read, path, executor=solo_pool)}
+        try:
+            await started
+        except tornado.util.TimeoutError:
+            io_jobs.pop(uuid)['future'].cancel()
+            return {'code': 429}
+        else:
+            return {'code': 200, 'body': uuid}
 
-async def confirm_get_handler(req):
-    uuid = req['query']['uuid']
-    client_checksum = req['query']['checksum']
-    job = jobs.pop(uuid)
+async def confirm_get_handler(request):
+    uuid = request['query']['uuid']
+    client_checksum = request['query']['checksum']
+    job = io_jobs.pop(uuid)
     result = await job['future']
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert job['disk_checksum'] == client_checksum == server_checksum, [job['disk_checksum'], client_checksum, server_checksum]
     return {'code': 200}
 
-async def list_handler(req):
-    prefix = req['query']['prefix']
+async def list_handler(request):
+    prefix = request['query']['prefix']
     assert prefix.startswith('s4://')
     _prefix = prefix = prefix.split('s4://')[-1]
-    recursive = req['query'].get('recursive') == 'true'
+    recursive = request['query'].get('recursive') == 'true'
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        res = await submit(shell.warn, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=single_pool)
+        res = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=find_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         xs = [x.split() for x in res['stdout'].splitlines()]
         xs = [f"{date} {time.split('.')[0]} {size} {'/'.join(path.split('/')[1:])}" for date, time, size, path in xs]
@@ -130,10 +165,10 @@ async def list_handler(req):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        res = await submit(shell.warn, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=single_pool)
+        res = await submit(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=find_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         files = res['stdout']
-        res = await submit(shell.warn, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=single_pool)
+        res = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=find_pool)
         assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('_', '_', '_', x + '/') for x in res['stdout'].splitlines() if x.strip()]
@@ -143,19 +178,19 @@ async def list_handler(req):
         xs = [f'{date} {time.split(".")[0]} {size} {path.split(_prefix)[-1]}'.replace("_ _ _", "   PRE") for date, time, size, path in xs]
     return {'code': 200, 'body': json.dumps(xs)}
 
-async def delete_handler(req):
-    prefix = req['query']['prefix']
+async def delete_handler(request):
+    prefix = request['query']['prefix']
     assert prefix.startswith('s4://')
     prefix = prefix.split('s4://')[-1]
-    recursive = req['query'].get('recursive') == 'true'
+    recursive = request['query'].get('recursive') == 'true'
     if recursive:
-        resp = await submit(shell.warn, 'rm -rf', prefix + '*', executor=single_pool)
+        resp = await submit(s4.run, 'rm -rf', prefix + '*', executor=solo_pool)
     else:
-        resp = await submit(shell.warn, 'rm -f', prefix, checksum_path(prefix), executor=single_pool)
+        resp = await submit(s4.run, 'rm -f', prefix, checksum_path(prefix), executor=solo_pool)
     assert resp['exitcode'] == 0
     return {'code': 200}
 
-async def health(req):
+async def health(request):
     return {'code': 200}
 
 def submit(f, *a, executor, **kw):
@@ -163,10 +198,10 @@ def submit(f, *a, executor, **kw):
 
 async def gc_jobs():
     try:
-        for job in list(jobs):
+        for job in list(io_jobs):
             with util.exceptions.ignore(FileNotFoundError, KeyError):
-                if time.monotonic() - jobs[job]['time'] > s4.timeout:
-                    await submit(os.remove, jobs.pop(job)['temp_path'], executor=single_pool)
+                if time.monotonic() - io_jobs[job]['time'] > s4.timeout * 2 + 60:
+                    await submit(os.remove, io_jobs.pop(job)['temp_path'], executor=solo_pool)
     except:
         logging.exception('proc garbage collector died')
         time.sleep(1)
@@ -175,7 +210,7 @@ async def gc_jobs():
         await tornado.gen.sleep(5)
         tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
-def start(debug=False):
+def main(debug=False):
     util.log.setup(format='%(message)s')
     os.makedirs('s4_data/temp', exist_ok=True)
     os.chdir('s4_data')
@@ -188,7 +223,8 @@ def start(debug=False):
               ('/health',      {'get':  health})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
-    web.app(routes, debug=debug).listen(port)
+    timeout = s4.timeout * 2 + 60
+    web.app(routes, debug=debug).listen(port, idle_connection_timeout=timeout, body_timeout=timeout)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
     try:
         tornado.ioloop.IOLoop.current().start()
@@ -196,4 +232,4 @@ def start(debug=False):
         sys.exit(1)
 
 if __name__ == '__main__':
-    argh.dispatch_command(start)
+    argh.dispatch_command(main)
