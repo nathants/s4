@@ -60,15 +60,18 @@ def checksum_path(key):
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
+def new_temp_path():
+    _, temp_path = tempfile.mkstemp(dir='temp')
+    return temp_path
+
 def prepare_put(path):
     parent = os.path.dirname(path)
     os.makedirs(parent, exist_ok=True)
     assert not os.path.isfile(path)
     with open(path, 'w'):
         pass # touch file to reserve the key, updates to existing keys are not allowed
-    _, temp_path = tempfile.mkstemp(dir='temp')
     port = util.net.free_port()
-    return temp_path, port
+    return new_temp_path(), port
 
 def start(func, timeout):
     future = tornado.concurrent.Future()
@@ -195,7 +198,29 @@ async def delete_handler(request):
     assert resp['exitcode'] == 0
     return {'code': 200}
 
-async def health(request):
+async def health_handler(request):
+    return {'code': 200}
+
+async def map_to_n_handler(request):
+    pass
+
+async def map_from_n_handler(request):
+    pass
+
+async def map_handler(request):
+    inkey = request['query']['inkey']
+    outkey = request['query']['outkey']
+    assert s4.on_this_server(inkey)
+    assert s4.on_this_server(outkey)
+    inpath = inkey.split('s4://')[-1]
+    outpath = outkey.split('s4://')[-1]
+    temp_path = new_temp_path()
+    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    await submit(os.makedirs, os.path.dirname(outpath), exist_ok=True, executor=solo_pool)
+    result = await submit(s4.run, f'cat {inpath} | {cmd} 2>/dev/null | xxh3 --stream > {temp_path}', executor=cpu_pool)
+    assert result['exitcode'] == 0, result
+    server_checksum = result['stderr']
+    await submit(confirm_put, {'path': outpath, 'temp_path': temp_path}, server_checksum, executor=solo_pool)
     return {'code': 200}
 
 def submit(f, *a, executor, **kw):
@@ -219,13 +244,17 @@ def main(debug=False):
     util.log.setup(format='%(message)s')
     os.makedirs('s4_data/temp', exist_ok=True)
     os.chdir('s4_data')
+    os.environ['LC_ALL'] = 'C'
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
               ('/prepare_get', {'post': prepare_get_handler}),
               ('/confirm_get', {'post': confirm_get_handler}),
               ('/delete',      {'post': delete_handler}),
+              ('/map',         {'post': map_handler}),
+              ('/map_to_n',    {'post': map_to_n_handler}),
+              ('/map_from_n',  {'post': map_from_n_handler}),
               ('/list',        {'get':  list_handler}),
-              ('/health',      {'get':  health})]
+              ('/health',      {'get':  health_handler})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
     timeout = s4.timeout * 2 + 60

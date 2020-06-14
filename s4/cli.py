@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import random
 import pool.thread
 import argh
 import logging
@@ -14,6 +13,7 @@ import util.log
 import util.net
 import util.retry
 import util.strings
+import util.time
 
 retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
@@ -159,6 +159,42 @@ def _cp(src, dst, recursive):
         logging.info('src or dst needs s4://')
         sys.exit(1)
 
+def map_to_n(src, dst, cmd):
+    pass
+
+def map_from_n(src, dst, cmd):
+    pass
+
+def map(src, dst, cmd):
+    assert src.endswith('/'), 'src must be a directory'
+    assert dst.endswith('/'), 'dst must be a directory'
+    lines = ls(src)
+    pool.thread._size = len(s4.servers())
+    for line in lines:
+        assert 'PRE' not in line
+        date, time, size, key = line.split()
+        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so src and dst both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+    fs = {}
+    b64cmd = util.strings.b64_encode(cmd)
+    url = lambda inkey, outkey: f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={b64cmd}'
+    for line in lines:
+        date, time, size, key = line.split()
+        inkey = os.path.join(src, key)
+        outkey = os.path.join(dst, key)
+        assert s4.pick_server(inkey) == s4.pick_server(outkey)
+        f = pool.thread.submit(requests.post, url(inkey, outkey), timeout=timeout)
+        fs[f] = inkey, outkey
+    with util.time.timeout(s4.timeout):
+        while fs:
+            f, (inkey, outkey) = fs.popitem()
+            resp = f.result()
+            if resp.status_code == 429:
+                logging.info(f'server busy, retry map: {inkey}')
+                f = pool.thread.submit(requests.post, url(inkey, outkey), timeout=timeout)
+                fs[f] = inkey, outkey
+            else:
+                assert resp.status_code == 200
+
 if __name__ == '__main__':
     util.log.setup(format='%(message)s')
-    argh.dispatch_commands([cp, ls, rm])
+    argh.dispatch_commands([cp, ls, rm, map, map_to_n, map_from_n])
