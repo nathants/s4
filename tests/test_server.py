@@ -320,7 +320,6 @@ for line in sys.stdin:
 with open('/tmp/partition.py', 'w') as f:
     f.write(r"""
 import sys
-import os
 import collections
 num_buckets = int(sys.argv[1])
 files = {}
@@ -331,7 +330,7 @@ for line in sys.stdin:
         files[bucket] = open(bucket, "w")
     files[bucket].write(','.join(cols) + '\n')
 for name, file in files.items():
-    print(os.path.abspath(name))
+    print(name)
     file.close()
 """)
 

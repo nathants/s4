@@ -215,14 +215,15 @@ async def map_to_n_handler(request):
             return {'code': 400, 'body': json.dumps(result)}
         else:
             temp_paths = result['stdout'].splitlines()
-            await submit(confirm_n, inpath, outdir, temp_paths, executor=io_pool)
+            await submit(confirm_n, inpath, outdir, tempdir, temp_paths, executor=io_pool)
             return {'code': 200}
     finally:
         result = await submit(s4.run, 'rm -rf', tempdir, executor=solo_pool)
         assert result['exitcode'] == 0, result
 
-def confirm_n(inpath, outdir, temp_paths):
+def confirm_n(inpath, outdir, tempdir, temp_paths):
     for temp_path in temp_paths:
+        temp_path = os.path.join(tempdir, temp_path)
         outkey = os.path.join(outdir, os.path.basename(temp_path), os.path.basename(inpath)) # $outdir/$bucket_num/$file_num
         result = s4.run(f's4 cp - {outkey} < {temp_path}')
         assert result['exitcode'] == 0, result
