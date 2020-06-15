@@ -1,4 +1,6 @@
 #!/usr/bin/env pypy3
+import shutil
+import shell
 import stat
 import argh
 import concurrent.futures
@@ -26,9 +28,10 @@ num_cpus = os.cpu_count() or 1
 max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 8))
 max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus))
 
-io_pool   = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
-cpu_pool  = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-solo_pool = concurrent.futures.ThreadPoolExecutor(1)
+io_pool       = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+cpu_pool      = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+checksum_pool = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+solo_pool     = concurrent.futures.ThreadPoolExecutor(1)
 if 'S4_SERIAL_FIND' in os.environ:
     find_pool = solo_pool
 else:
@@ -61,15 +64,13 @@ def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
 def new_temp_path():
-    _, temp_path = tempfile.mkstemp(dir='temp')
-    return temp_path
+    _, temp_path = tempfile.mkstemp(dir='tempfiles')
+    return os.path.abspath(temp_path)
 
 def prepare_put(path):
-    parent = os.path.dirname(path)
-    os.makedirs(parent, exist_ok=True)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     assert not os.path.isfile(path)
-    with open(path, 'w'):
-        pass # touch file to reserve the key, updates to existing keys are not allowed
+    open(path, 'w').close()
     port = util.net.free_port()
     return new_temp_path(), port
 
@@ -107,10 +108,10 @@ async def prepare_put_handler(request):
         else:
             return {'code': 200, 'body': json.dumps([uuid, port])}
 
-def confirm_put(job, server_checksum):
-    checksum_write(job['path'], server_checksum)
-    os.rename(job['temp_path'], job['path'])
-    os.chmod(job['path'], stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+def confirm_put(path, temp_path, server_checksum):
+    checksum_write(path, server_checksum)
+    os.rename(temp_path, path)
+    os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
 
 async def confirm_put_handler(request):
     uuid = request['query']['uuid']
@@ -120,7 +121,7 @@ async def confirm_put_handler(request):
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit(confirm_put, job, server_checksum, executor=solo_pool)
+    await submit(confirm_put, job['path'], job['temp_path'], server_checksum, executor=solo_pool)
     return {'code': 200}
 
 async def prepare_get_handler(request):
@@ -163,9 +164,9 @@ async def list_handler(request):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        res = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=find_pool)
-        assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
-        xs = [x.split() for x in res['stdout'].splitlines()]
+        result = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=find_pool)
+        assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
+        xs = [x.split() for x in result['stdout'].splitlines()]
         xs = [f"{date} {time.split('.')[0]} {size} {'/'.join(path.split('/')[1:])}" for date, time, size, path in xs]
     else:
         name = ''
@@ -173,13 +174,13 @@ async def list_handler(request):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        res = await submit(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=find_pool)
-        assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
-        files = res['stdout']
-        res = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=find_pool)
-        assert res['exitcode'] == 0 or 'No such file or directory' in res['stderr']
+        result = await submit(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=find_pool)
+        assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
+        files = result['stdout']
+        result = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=find_pool)
+        assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
-        dirs = [('_', '_', '_', x + '/') for x in res['stdout'].splitlines() if x.strip()]
+        dirs = [('_', '_', '_', x + '/') for x in result['stdout'].splitlines() if x.strip()]
         xs = files + dirs
         if not _prefix.endswith('/'):
             _prefix = os.path.dirname(_prefix) + '/'
@@ -192,36 +193,72 @@ async def delete_handler(request):
     prefix = prefix.split('s4://')[-1]
     recursive = request['query'].get('recursive') == 'true'
     if recursive:
-        resp = await submit(s4.run, 'rm -rf', prefix + '*', executor=solo_pool)
+        result = await submit(s4.run, 'rm -rf', prefix + '*', executor=solo_pool)
     else:
-        resp = await submit(s4.run, 'rm -f', prefix, checksum_path(prefix), executor=solo_pool)
-    assert resp['exitcode'] == 0
+        result = await submit(s4.run, 'rm -f', prefix, checksum_path(prefix), executor=solo_pool)
+    assert result['exitcode'] == 0, result
     return {'code': 200}
 
 async def health_handler(request):
     return {'code': 200}
 
 async def map_to_n_handler(request):
-    pass
+    inkey = request['query']['inkey']
+    outdir = request['query']['outdir']
+    assert s4.on_this_server(inkey)
+    assert outdir.startswith('s4://')
+    inpath = os.path.abspath(inkey.split('s4://')[-1])
+    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    tempdir, result = await submit(run_in_persisted_tempdir, f'< {inpath} {cmd}', executor=cpu_pool)
+    try:
+        if result['exitcode'] != 0:
+            return {'code': 400, 'body': json.dumps(result)}
+        else:
+            temp_paths = result['stdout'].splitlines()
+            await submit(confirm_n, inpath, outdir, temp_paths, executor=io_pool)
+            return {'code': 200}
+    finally:
+        result = await submit(s4.run, 'rm -rf', tempdir, executor=solo_pool)
+        assert result['exitcode'] == 0, result
+
+def confirm_n(inpath, outdir, temp_paths):
+    for temp_path in temp_paths:
+        outkey = os.path.join(outdir, os.path.basename(temp_path), os.path.basename(inpath)) # $outdir/$bucket_num/$file_num
+        result = s4.run(f's4 cp - {outkey} < {temp_path}')
+        assert result['exitcode'] == 0, result
+        os.remove(temp_path)
 
 async def map_from_n_handler(request):
     pass
+
+def run_in_tempdir(*a, **kw):
+    tempdir = tempfile.mkdtemp(dir='tempdirs')
+    try:
+        return s4.run(f'cd {tempdir};', *a, **kw)
+    finally:
+        shutil.rmtree(tempdir)
+
+def run_in_persisted_tempdir(*a, **kw):
+    tempdir = tempfile.mkdtemp(dir='tempdirs')
+    return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
 
 async def map_handler(request):
     inkey = request['query']['inkey']
     outkey = request['query']['outkey']
     assert s4.on_this_server(inkey)
     assert s4.on_this_server(outkey)
-    inpath = inkey.split('s4://')[-1]
-    outpath = outkey.split('s4://')[-1]
+    inpath = os.path.abspath(inkey.split('s4://')[-1])
+    outpath = os.path.abspath(outkey.split('s4://')[-1])
     temp_path = new_temp_path()
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
     await submit(os.makedirs, os.path.dirname(outpath), exist_ok=True, executor=solo_pool)
-    result = await submit(s4.run, f'cat {inpath} | {cmd} 2>/dev/null | xxh3 --stream > {temp_path}', executor=cpu_pool)
-    assert result['exitcode'] == 0, result
-    server_checksum = result['stderr']
-    await submit(confirm_put, {'path': outpath, 'temp_path': temp_path}, server_checksum, executor=solo_pool)
-    return {'code': 200}
+    result = await submit(run_in_tempdir, f'< {inpath} {cmd} | xxh3 --stream > {temp_path}', executor=cpu_pool)
+    if result['exitcode'] != 0:
+        return {'code': 400, 'body': json.dumps(result)}
+    else:
+        server_checksum = result['stderr']
+        await submit(confirm_put, outpath, temp_path, server_checksum, executor=solo_pool)
+        return {'code': 200}
 
 def submit(f, *a, executor, **kw):
     return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
@@ -242,7 +279,8 @@ async def gc_jobs():
 
 def main(debug=False):
     util.log.setup(format='%(message)s')
-    os.makedirs('s4_data/temp', exist_ok=True)
+    os.makedirs('s4_data/tempfiles', exist_ok=True)
+    os.makedirs('s4_data/tempdirs',  exist_ok=True)
     os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
     routes = [('/prepare_put', {'post': prepare_put_handler}),
@@ -257,7 +295,7 @@ def main(debug=False):
               ('/health',      {'get':  health_handler})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
-    timeout = s4.timeout * 2 + 60
+    timeout = s4.timeout * 2 + 60 # one timeout for fifo queue, one timeout for the job once it starts
     web.app(routes, debug=debug).listen(port, idle_connection_timeout=timeout, body_timeout=timeout)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
     try:

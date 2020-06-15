@@ -32,6 +32,13 @@ def on_this_server(key):
     assert key.startswith('s4://')
     return '0.0.0.0' == pick_server(key).split(':')[0]
 
+@util.cached.func
+def server_num():
+    for i, (address, port) in enumerate(servers()):
+        if address == '0.0.0.0' and str(port) == str(http_port()):
+            return i
+    assert False, [servers(), http_port()]
+
 def pick_server(key):
     # when path is like s4://bucket/job/worker/001, hash only the last
     # component of the path, in this case: 001. this naming scheme is used for

@@ -33,7 +33,7 @@ def start(port):
 @contextlib.contextmanager
 def servers(timeout=30):
     util.log.setup(format='%(message)s')
-    shell.set['echo'] = True
+    shell.set['stream'] = True
     with util.time.timeout(timeout):
         with shell.tempdir():
             @retry
@@ -301,8 +301,86 @@ def test_binary():
         b = run('cat output2 | xxh3', warn=True)['stdout']
         assert a == b
 
+# utils for map tests
+with open('/tmp/bucket.py', 'w') as f:
+    f.write("""
+import hashlib
+import sys
+num_buckets = int(sys.argv[1])
+for line in sys.stdin:
+    cols = line.rstrip().split(',')
+    hash_bytes = hashlib.md5(cols[0].encode()).digest()
+    hash_int = int.from_bytes(hash_bytes, 'big')
+    bucket = hash_int % num_buckets
+    cols = [str(bucket).rjust(5, '0')] + cols
+    print(','.join(cols))
+""")
+
+# utils for map tests
+with open('/tmp/partition.py', 'w') as f:
+    f.write(r"""
+import sys
+import os
+import collections
+num_buckets = int(sys.argv[1])
+files = {}
+for line in sys.stdin:
+    line = line.rstrip()
+    bucket, *cols = line.split(',')
+    if bucket not in files:
+        files[bucket] = open(bucket, "w")
+    files[bucket].write(','.join(cols) + '\n')
+for name, file in files.items():
+    print(os.path.abspath(name))
+    file.close()
+""")
+
 def test_map_to_n():
-    pass
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/'
+        step2 = 's4://bucket/step2/'
+        step3 = 's4://bucket/step3/'
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f's4 ls {step1} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
+        assert run(f's4 ls {step2} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        assert run(f's4 ls -r {step3} | cut -d" " -f4').splitlines() == [
+            # $outdir/$bucket_num/$file_num
+            'step3/00000/00000',
+            'step3/00000/00001',
+            'step3/00000/00002',
+            'step3/00000/00003',
+            'step3/00000/00004',
+            'step3/00000/00005',
+            'step3/00001/00000',
+            'step3/00001/00001',
+            'step3/00001/00002',
+            'step3/00001/00003',
+            'step3/00001/00004',
+            'step3/00001/00005',
+            'step3/00002/00000',
+            'step3/00002/00001',
+            'step3/00002/00002',
+            'step3/00002/00003',
+            'step3/00002/00004',
+            'step3/00002/00005',
+        ]
+        result = []
+        num_buckets = 3
+        for word in words:
+            import hashlib
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word)
+        run(f's4 cp -r {step3} step3/')
+        assert '\n'.join(result) == shell.run('cat step3/00000/*', stream=False)
 
 def test_map_from_n():
     pass
@@ -321,7 +399,7 @@ def test_map():
         assert run(f's4 ls {dst} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {dst}/00000 - | head -n5').splitlines() == ['abelson', 'aberdeen', 'allison', 'amsterdam', 'apollos']
         run(f's4 cp -r {dst} result')
-        assert run('cat result/*') == '\n'.join(words).lower()
+        assert run('cat result/*', stream=False) == '\n'.join(words).lower()
 
 words = [
     "Abelson", "Aberdeen", "Allison", "Amsterdam", "Apollos", "Arabian", "Assad", "Austerlitz", "Bactria", "Baldwin", "Belinda", "Bethe", "Blondel",
