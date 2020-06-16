@@ -30,7 +30,7 @@ def http_port():
 
 def on_this_server(key):
     assert key.startswith('s4://')
-    return '0.0.0.0' == pick_server(key).split(':')[0]
+    return '0.0.0.0' == pick_server(key).split(':')[0], key
 
 @util.cached.func
 def server_num():
@@ -44,7 +44,7 @@ def pick_server(key):
     # component of the path, in this case: 001. this naming scheme is used for
     # partitioning data, and we want all of the partitions for the same bucket
     # to be on the same server. otherwise hash the whole key.
-    assert key.startswith('s4://')
+    assert key.startswith('s4://'), key
     key = key.split('s4://')[-1]
     if key.split('/')[-1].isdigit():
         key = key.split('/')[-1]

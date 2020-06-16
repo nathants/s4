@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import collections
 import pool.thread
 import argh
 import logging
@@ -194,8 +195,45 @@ def map_to_n(indir, outdir, cmd):
             else:
                 assert resp.status_code == 200
 
-def map_from_n(src, dst, cmd):
-    pass
+def map_from_n(indir, outdir, cmd):
+    assert indir.endswith('/'), 'indir must be a directory'
+    assert outdir.endswith('/'), 'outdir must be a directory'
+    pool.thread._size = len(s4.servers())
+    lines = ls(indir, recursive = True)
+    buckets = collections.defaultdict(list)
+    bucket, *_ = indir.split('://')[-1].split('/')
+    for line in lines:
+        date, time, size, key = line.split()
+        assert len(key.split('/')) == 3, key
+        _indir, _inkey, bucket_num = key.split('/')
+        assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
+        buckets[bucket_num].append(os.path.join(f's4://{bucket}', key))
+    b64cmd = util.strings.b64_encode(cmd)
+    url = lambda server, outdir: f'http://{server}/map_from_n?outdir={outdir}&b64cmd={b64cmd}'
+    fs = {}
+    for bucket_num, inkeys in buckets.items():
+        servers = [s4.pick_server(k) for k in inkeys]
+        assert len(set(servers)) == 1
+        server = servers[0]
+        f = pool.thread.submit(requests.post, url(server, outdir), json=inkeys, timeout=timeout)
+        fs[f] = server, outdir
+    with util.time.timeout(s4.timeout):
+        while fs:
+            f, (server, outdir) = fs.popitem()
+            resp = f.result()
+            if resp.status_code == 429:
+                logging.info(f'server busy, retry map_to_n: {server}')
+                f = pool.thread.submit(requests.post, url(server, outdir), timeout=timeout)
+                fs[f] = server, outdir
+            elif resp.status_code == 400:
+                result = resp.json()
+                logging.info('cmd failure')
+                logging.info(result['stdout'])
+                logging.info(result['stderr'])
+                logging.info(f'exitcode={result["exitcode"]}')
+                sys.exit(1)
+            else:
+                assert resp.status_code == 200
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -205,7 +243,7 @@ def map(indir, outdir, cmd):
     for line in lines:
         assert 'PRE' not in line
         date, time, size, key = line.split()
-        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
     b64cmd = util.strings.b64_encode(cmd)
     url = lambda inkey, outkey: f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={b64cmd}'
     fs = {}

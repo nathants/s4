@@ -10,7 +10,6 @@ import time
 import util.log
 import util.time
 import util.iter
-import random
 from shell import run
 from util.retry import retry
 
@@ -335,10 +334,11 @@ for name, file in files.items():
 """)
 
 def test_map_to_n():
+    # build on map test
     with servers(1_000_000):
-        step1 = 's4://bucket/step1/'
-        step2 = 's4://bucket/step2/'
-        step3 = 's4://bucket/step3/'
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
         def fn(arg):
             i, chunk = arg
             run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
@@ -349,26 +349,27 @@ def test_map_to_n():
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
         assert run(f's4 ls -r {step3} | cut -d" " -f4').splitlines() == [
-            # $outdir/$bucket_num/$file_num
+            # $outdir/$file_num/$bucket_num
             'step3/00000/00000',
             'step3/00000/00001',
             'step3/00000/00002',
-            'step3/00000/00003',
-            'step3/00000/00004',
-            'step3/00000/00005',
             'step3/00001/00000',
             'step3/00001/00001',
             'step3/00001/00002',
-            'step3/00001/00003',
-            'step3/00001/00004',
-            'step3/00001/00005',
             'step3/00002/00000',
             'step3/00002/00001',
             'step3/00002/00002',
-            'step3/00002/00003',
-            'step3/00002/00004',
-            'step3/00002/00005',
+            'step3/00003/00000',
+            'step3/00003/00001',
+            'step3/00003/00002',
+            'step3/00004/00000',
+            'step3/00004/00001',
+            'step3/00004/00002',
+            'step3/00005/00000',
+            'step3/00005/00001',
+            'step3/00005/00002',
         ]
+        run(f's4 cp -r {step3} step3/')
         result = []
         num_buckets = 3
         for word in words:
@@ -378,11 +379,41 @@ def test_map_to_n():
             bucket = hash_int % num_buckets
             if bucket == 0:
                 result.append(word)
-        run(f's4 cp -r {step3} step3/')
-        assert '\n'.join(result) == shell.run('cat step3/00000/*', stream=False)
+        assert '\n'.join(result) == shell.run('cat step3/*/00000', stream=False)
 
 def test_map_from_n():
-    pass
+    # builds on map and map_to_n test
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
+        step4 = 's4://bucket/step4/' # merged buckets
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f's4 ls {step1} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
+        assert run(f's4 ls {step2} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        run(f"s4 map-from-n {step3} {step4} 'while read filename; do cat $filename; done'")
+        assert run(f's4 ls -r {step4} | cut -d" " -f4').splitlines() == [
+            'step4/00000',
+            'step4/00001',
+            'step4/00002',
+        ]
+        run(f's4 cp -r {step4} step4/')
+        result = []
+        num_buckets = 3
+        for word in words:
+            import hashlib
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word)
+        assert sorted(result) == sorted(shell.run('cat step4/00000', stream=False).splitlines())
 
 def test_map():
     with servers(1_000_000):

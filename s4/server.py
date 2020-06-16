@@ -1,6 +1,5 @@
 #!/usr/bin/env pypy3
 import shutil
-import shell
 import stat
 import argh
 import concurrent.futures
@@ -22,7 +21,6 @@ import web
 import datetime
 
 io_jobs = {}
-cpu_jobs = {}
 
 num_cpus = os.cpu_count() or 1
 max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 8))
@@ -206,7 +204,7 @@ async def map_to_n_handler(request):
     inkey = request['query']['inkey']
     outdir = request['query']['outdir']
     assert s4.on_this_server(inkey)
-    assert outdir.startswith('s4://')
+    assert outdir.startswith('s4://') and outdir.endswith('/')
     inpath = os.path.abspath(inkey.split('s4://')[-1])
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
     tempdir, result = await submit(run_in_persisted_tempdir, f'< {inpath} {cmd}', executor=cpu_pool)
@@ -215,22 +213,34 @@ async def map_to_n_handler(request):
             return {'code': 400, 'body': json.dumps(result)}
         else:
             temp_paths = result['stdout'].splitlines()
-            await submit(confirm_n, inpath, outdir, tempdir, temp_paths, executor=io_pool)
+            await submit(confirm_to_n, inpath, outdir, tempdir, temp_paths, executor=io_pool)
             return {'code': 200}
     finally:
         result = await submit(s4.run, 'rm -rf', tempdir, executor=solo_pool)
         assert result['exitcode'] == 0, result
 
-def confirm_n(inpath, outdir, tempdir, temp_paths):
+def confirm_to_n(inpath, outdir, tempdir, temp_paths):
     for temp_path in temp_paths:
         temp_path = os.path.join(tempdir, temp_path)
-        outkey = os.path.join(outdir, os.path.basename(temp_path), os.path.basename(inpath)) # $outdir/$bucket_num/$file_num
+        outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
         result = s4.run(f's4 cp - {outkey} < {temp_path}')
         assert result['exitcode'] == 0, result
         os.remove(temp_path)
 
 async def map_from_n_handler(request):
-    pass
+    outdir = request['query']['outdir']
+    assert outdir.startswith('s4://') and outdir.endswith('/')
+    inkeys = json.loads(request['body'])
+    assert all(s4.on_this_server(key) for key in inkeys)
+    bucket_num = inkeys[0].split('/')[-1]
+    outpath = os.path.join(outdir, bucket_num)
+    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
+    result = await submit(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', executor=cpu_pool, stdin='\n'.join(inpaths) + '\n')
+    if result['exitcode'] != 0:
+        return {'code': 400, 'body': json.dumps(result)}
+    else:
+        return {'code': 200}
 
 def run_in_tempdir(*a, **kw):
     tempdir = tempfile.mkdtemp(dir='tempdirs')
@@ -249,16 +259,11 @@ async def map_handler(request):
     assert s4.on_this_server(inkey)
     assert s4.on_this_server(outkey)
     inpath = os.path.abspath(inkey.split('s4://')[-1])
-    outpath = os.path.abspath(outkey.split('s4://')[-1])
-    temp_path = new_temp_path()
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
-    await submit(os.makedirs, os.path.dirname(outpath), exist_ok=True, executor=solo_pool)
-    result = await submit(run_in_tempdir, f'< {inpath} {cmd} | xxh3 --stream > {temp_path}', executor=cpu_pool)
+    result = await submit(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}', executor=cpu_pool)
     if result['exitcode'] != 0:
         return {'code': 400, 'body': json.dumps(result)}
     else:
-        server_checksum = result['stderr']
-        await submit(confirm_put, outpath, temp_path, server_checksum, executor=solo_pool)
         return {'code': 200}
 
 def submit(f, *a, executor, **kw):

@@ -1,5 +1,5 @@
 git+https://github.com/nathants/py-util@3d74330f3df598ddbe97c57354d17e0511b85b4a
 git+https://github.com/nathants/py-pool@2eba7f7a7f32ed22a8ab82d85e8eacb600f685fa
 git+https://github.com/nathants/py-web@1ab105c4fa3222ad61d958561379cf4af2db5b28
-git+https://github.com/nathants/py-shell@fb7d1b4a6134c0ac5ea186f0bff54afbc62ab416
+git+https://github.com/nathants/py-shell@b66624bec5f7ef10ab590b2088e8b34953821c3d
 git+https://github.com/nathants/cffi-xxh3@0b008dddc397947e80d6be453ed0bb306a6b6a29
