@@ -1,15 +1,16 @@
-import os
 import contextlib
+import hashlib
+import os
 import pool.proc
 import pytest
 import requests
-import shell
 import s4.cli
 import s4.server
+import shell
 import time
+import util.iter
 import util.log
 import util.time
-import util.iter
 from shell import run
 from util.retry import retry
 
@@ -22,12 +23,47 @@ def start(port):
     with shell.cd(f'_{port}'):
         for i in range(5):
             try:
-                s4.http_port = lambda: port + i
+                s4.http_port = lambda: port
                 s4.server.main()
                 return
             except:
                 continue
         assert False, f'failed to start server on ports from: {port}'
+
+@retry
+def start_all():
+    ports = [util.net.free_port() for _ in range(3)]
+    s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
+    s4.conf_path = os.environ['S4_CONF_PATH'] = os.path.abspath(run('mktemp -p .'))
+    with open(s4.conf_path, 'w') as f:
+        f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
+    procs = [pool.proc.new(start, port) for port in ports]
+    try:
+        for _ in range(50):
+            try:
+                for port in ports:
+                    requests.get(f'http://0.0.0.0:{port}')
+                break
+            except:
+                time.sleep(.1)
+        else:
+            assert False, 'failed to start servers'
+    except:
+        for proc in procs:
+            proc.terminate()
+        raise
+    else:
+        return procs
+
+def watcher(watch, procs):
+    while True:
+        for proc in procs:
+            if not proc.is_alive():
+                if not watch[0]:
+                    return
+                time.sleep(1)
+                print('proc died! exiting...', flush=True)
+                os._exit(1)
 
 @contextlib.contextmanager
 def servers(timeout=30):
@@ -35,46 +71,13 @@ def servers(timeout=30):
     shell.set['stream'] = True
     with util.time.timeout(timeout):
         with shell.tempdir():
-            @retry
-            def start_all():
-                ports = [util.net.free_port() for _ in range(3)]
-                s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
-                s4.conf_path = os.environ['S4_CONF_PATH'] = os.path.abspath(run('mktemp -p .'))
-                with open(s4.conf_path, 'w') as f:
-                    f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
-                procs = [pool.proc.new(start, port) for port in ports]
-                try:
-                    for _ in range(50):
-                        try:
-                            for port in ports:
-                                requests.get(f'http://0.0.0.0:{port}')
-                            break
-                        except:
-                            time.sleep(.1)
-                    else:
-                        assert False, 'failed to start servers'
-                except:
-                    for proc in procs:
-                        proc.terminate()
-                    raise
-                else:
-                    return procs
             procs = start_all()
-            watch = True
-            def watcher():
-                while True:
-                    for proc in procs:
-                        if not proc.is_alive():
-                            if not watch:
-                                return
-                            time.sleep(1)
-                            print('proc died! exiting...', flush=True)
-                            os._exit(1)
-            pool.thread.new(watcher)
+            watch = [True]
+            pool.thread.new(watcher, watch, procs)
             try:
                 yield
             finally:
-                watch = False
+                watch[0] = False
                 for proc in procs:
                     proc.terminate()
 
@@ -86,11 +89,11 @@ def test_spaces_are_not_allowed():
 def test_updates_are_not_allowed():
     with servers():
         path = 's4://bucket/basic/dir/file.txt'
-        run('echo | s4 cp -', path)
+        run(f'echo | s4 cp - {path}')
         with pytest.raises(SystemExit):
-            run('echo | s4 cp -', path)
+            run(f'echo | s4 cp - {path}')
         run('s4 rm', path)
-        run('echo | s4 cp -', path)
+        run(f'echo | s4 cp - {path}')
 
 def test_basic():
     with servers():
@@ -300,6 +303,22 @@ def test_binary():
         b = run('cat output2 | xxh3', warn=True)['stdout']
         assert a == b
 
+def test_map():
+    with servers(1_000_000):
+        src = 's4://bucket/data_in/'
+        dst = 's4://bucket/data_out/'
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {src}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f's4 ls {src} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {src}/00000 - | head -n5').splitlines() == ['Abelson', 'Aberdeen', 'Allison', 'Amsterdam', 'Apollos']
+        run(f's4 map {src} {dst} "tr A-Z a-z"')
+        assert run(f's4 ls {dst} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {dst}/00000 - | head -n5').splitlines() == ['abelson', 'aberdeen', 'allison', 'amsterdam', 'apollos']
+        run(f's4 cp -r {dst} result')
+        assert run('cat result/*', stream=False) == '\n'.join(words).lower()
+
 # utils for map tests
 with open('/tmp/bucket.py', 'w') as f:
     f.write("""
@@ -373,7 +392,6 @@ def test_map_to_n():
         result = []
         num_buckets = 3
         for word in words:
-            import hashlib
             hash_bytes = hashlib.md5(word.encode()).digest()
             hash_int = int.from_bytes(hash_bytes, 'big')
             bucket = hash_int % num_buckets
@@ -407,29 +425,12 @@ def test_map_from_n():
         result = []
         num_buckets = 3
         for word in words:
-            import hashlib
             hash_bytes = hashlib.md5(word.encode()).digest()
             hash_int = int.from_bytes(hash_bytes, 'big')
             bucket = hash_int % num_buckets
             if bucket == 0:
                 result.append(word)
         assert sorted(result) == sorted(shell.run('cat step4/00000', stream=False).splitlines())
-
-def test_map():
-    with servers(1_000_000):
-        src = 's4://bucket/data_in/'
-        dst = 's4://bucket/data_out/'
-        def fn(arg):
-            i, chunk = arg
-            run(f's4 cp - {src}{i:05}', stdin="\n".join(chunk) + "\n")
-        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-        assert run(f's4 ls {src} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-        assert run(f's4 cp {src}/00000 - | head -n5').splitlines() == ['Abelson', 'Aberdeen', 'Allison', 'Amsterdam', 'Apollos']
-        run(f's4 map {src} {dst} "tr A-Z a-z"')
-        assert run(f's4 ls {dst} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-        assert run(f's4 cp {dst}/00000 - | head -n5').splitlines() == ['abelson', 'aberdeen', 'allison', 'amsterdam', 'apollos']
-        run(f's4 cp -r {dst} result')
-        assert run('cat result/*', stream=False) == '\n'.join(words).lower()
 
 words = [
     "Abelson", "Aberdeen", "Allison", "Amsterdam", "Apollos", "Arabian", "Assad", "Austerlitz", "Bactria", "Baldwin", "Belinda", "Bethe", "Blondel",

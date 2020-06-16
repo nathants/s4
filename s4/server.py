@@ -158,6 +158,8 @@ async def list_handler(request):
     prefix = request['query']['prefix']
     assert prefix.startswith('s4://')
     _prefix = prefix = prefix.split('s4://')[-1]
+    if not _prefix.endswith('/'):
+        _prefix = os.path.dirname(_prefix) + '/'
     recursive = request['query'].get('recursive') == 'true'
     if recursive:
         if not prefix.endswith('/'):
@@ -165,7 +167,7 @@ async def list_handler(request):
         result = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=find_pool)
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         xs = [x.split() for x in result['stdout'].splitlines()]
-        xs = [f"{date} {time.split('.')[0]} {size} {'/'.join(path.split('/')[1:])}" for date, time, size, path in xs]
+        xs = [[date, time.split('.')[0], size, '/'.join(path.split('/')[1:])] for date, time, size, path in xs]
     else:
         name = ''
         if not prefix.endswith('/'):
@@ -178,11 +180,8 @@ async def list_handler(request):
         result = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=find_pool)
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
-        dirs = [('_', '_', '_', x + '/') for x in result['stdout'].splitlines() if x.strip()]
-        xs = files + dirs
-        if not _prefix.endswith('/'):
-            _prefix = os.path.dirname(_prefix) + '/'
-        xs = [f'{date} {time.split(".")[0]} {size} {path.split(_prefix)[-1]}'.replace("_ _ _", "   PRE") for date, time, size, path in xs]
+        dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines() if x.strip()]
+        xs = [[date, time.split(".")[0], size, path.split(_prefix)[-1]] for date, time, size, path in files + dirs]
     return {'code': 200, 'body': json.dumps(xs)}
 
 async def delete_handler(request):
@@ -223,7 +222,7 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
     for temp_path in temp_paths:
         temp_path = os.path.join(tempdir, temp_path)
         outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
-        result = s4.run(f's4 cp - {outkey} < {temp_path}')
+        result = s4.run(f's4 cp {temp_path} {outkey}')
         assert result['exitcode'] == 0, result
         os.remove(temp_path)
 

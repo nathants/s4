@@ -16,16 +16,18 @@ an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_ser
 
 - fine granularity performance. data should be medium to coarse granularity.
 
+- safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
+
 ## install
 
 on every server:
 
 - install s4
-```
-git clone https://github.com/nathants/s4
-cd s4
-pip install -r requirements.txt .
-```
+  ```
+  git clone https://github.com/nathants/s4
+  cd s4
+  pip install -r requirements.txt .
+  ```
 
 - configure s4 conf with the ipv4:port of every server. make sure to use the ipv4 local to the machine, as the conf file defines the hash ring, and each server recognizes itself in the conf by comparing its ipv4 as reported by ifconfig.
    ```
@@ -36,5 +38,6 @@ pip install -r requirements.txt .
    ```
 
 - start the server.
-
-`s4-server`
+  ```
+  s4-server
+  ```
