@@ -284,9 +284,10 @@ async def gc_jobs():
 
 def main(debug=False):
     util.log.setup(format='%(message)s')
-    os.makedirs('s4_data/tempfiles', exist_ok=True)
-    os.makedirs('s4_data/tempdirs',  exist_ok=True)
-    os.chdir('s4_data')
+    if not os.path.basename(os.getcwd()) == 's4_data':
+        os.makedirs('s4_data/tempfiles', exist_ok=True)
+        os.makedirs('s4_data/tempdirs',  exist_ok=True)
+        os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
     routes = [('/prepare_put', {'post': prepare_put_handler}),
               ('/confirm_put', {'post': confirm_put_handler}),
