@@ -15,6 +15,7 @@ import tornado.ioloop
 import tornado.util
 import tornado.concurrent
 import util.log
+import util.misc
 import util.strings
 import uuid
 import web
@@ -53,10 +54,9 @@ def checksum_read(path):
     with open(checksum_path(path)) as f:
         return f.read()
 
-def checksum_path(key):
-    parts = key.split('/')
-    parts = parts[:-1] + [f'.{parts[-1]}.xxh3']
-    return '/'.join(parts)
+def checksum_path(path):
+    assert not path.endswith('/')
+    return f'{path}.xxh3'
 
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
@@ -98,11 +98,16 @@ async def prepare_put_handler(request):
         try:
             await started
         except tornado.util.TimeoutError:
-            io_jobs[uuid]['future'].cancel()
-            await submit(os.remove, io_jobs.pop(uuid)['temp_path'], executor=solo_pool)
+            job = io_jobs.pop(uuid)
+            job['future'].cancel()
+            await submit(delete, checksum_path(job['path']), job['temp_path'], executor=solo_pool)
             return {'code': 429}
         else:
             return {'code': 200, 'body': json.dumps([uuid, port])}
+
+def delete(*paths):
+    for path in paths:
+        os.remove(path)
 
 def confirm_put(path, temp_path, server_checksum):
     checksum_write(path, server_checksum)
@@ -222,7 +227,7 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
         outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
         result = s4.run(f's4 cp {temp_path} {outkey}')
         assert result['exitcode'] == 0, result
-        os.remove(temp_path)
+        delete(temp_path)
 
 async def map_from_n_handler(request):
     outdir = request['query']['outdir']
@@ -266,19 +271,14 @@ async def map_handler(request):
 def submit(f, *a, executor, **kw):
     return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
 
+@util.misc.exceptions_kill_pid
 async def gc_jobs():
-    try:
-        for job in list(io_jobs):
-            with util.exceptions.ignore(FileNotFoundError, KeyError):
-                if time.monotonic() - io_jobs[job]['time'] > s4.timeout * 2 + 60:
-                    await submit(os.remove, io_jobs.pop(job)['temp_path'], executor=solo_pool)
-    except:
-        logging.exception('proc garbage collector died')
-        time.sleep(1)
-        os._exit(1)
-    else:
-        await tornado.gen.sleep(5)
-        tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
+    for job in list(io_jobs):
+        with util.exceptions.ignore(FileNotFoundError, KeyError):
+            if time.monotonic() - io_jobs[job]['time'] > s4.timeout * 2 + 60:
+                await submit(delete, io_jobs.pop(job)['temp_path'], executor=solo_pool)
+    await tornado.gen.sleep(5)
+    tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
 def main(debug=False):
     util.log.setup(format='%(message)s')
