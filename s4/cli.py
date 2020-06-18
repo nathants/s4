@@ -122,7 +122,7 @@ def _put(src, dst):
             if src == '-':
                 result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
             else:
-                result = s4.run(f'xxh3 --stream < {src} | send {server_address} {port}')
+                result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
             resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}', timeout=timeout)
@@ -162,8 +162,8 @@ def _map(indir, outdir, cmd):
     pool.thread._size = len(s4.servers())
     lines = ls(indir)
     for line in lines:
-        assert 'PRE' not in line
         date, time, size, key = line.split()
+        assert size != 'PRE', key
         assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
     b64cmd = util.strings.b64_encode(cmd)
     url = lambda inkey, outkey: f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={b64cmd}'
@@ -204,7 +204,7 @@ def _map_to_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=False)
     for line in lines:
         date, time, size, key = line
-        assert size != 'PRE'
+        assert size != 'PRE', key
         assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
     b64cmd = util.strings.b64_encode(cmd)
     url = lambda inkey, outdir: f'http://{s4.pick_server(inkey)}/map_to_n?inkey={inkey}&outdir={outdir}&b64cmd={b64cmd}'

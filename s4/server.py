@@ -132,7 +132,7 @@ async def prepare_get_handler(request):
         started, s4_run = start(s4.run, s4.timeout)
         uuid = new_uuid()
         io_jobs[uuid] = {'time': time.monotonic(),
-                         'future': submit(s4_run, f'xxh3 --stream < {path} | send {remote} {port}', executor=io_pool),
+                         'future': submit(s4_run, f'< {path} xxh3 --stream | send {remote} {port}', executor=io_pool),
                          'disk_checksum': await submit(checksum_read, path, executor=solo_pool)}
         try:
             await started
