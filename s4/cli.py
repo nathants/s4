@@ -45,7 +45,6 @@ def ls(prefix, recursive=False):
 
 @retry
 def _ls(prefix, recursive):
-    pool.thread._size = len(s4.servers())
     recursive = 'recursive=true' if recursive else ''
     fs = [pool.thread.submit(requests.get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}', timeout=timeout)
           for address, port in s4.servers()]
@@ -159,7 +158,6 @@ def map(indir, outdir, cmd):
 def _map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    pool.thread._size = len(s4.servers())
     lines = ls(indir)
     for line in lines:
         date, time, size, key = line.split()
@@ -200,7 +198,6 @@ def map_to_n(indir, outdir, cmd):
 def _map_to_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    pool.thread._size = len(s4.servers())
     lines = _ls(indir, recursive=False)
     for line in lines:
         date, time, size, key = line
@@ -239,7 +236,6 @@ def map_from_n(indir, outdir, cmd):
 def _map_from_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    pool.thread._size = len(s4.servers())
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
     bucket, *_ = indir.split('://')[-1].split('/')
@@ -278,4 +274,5 @@ def _map_from_n(indir, outdir, cmd):
 
 if __name__ == '__main__':
     util.log.setup(format='%(message)s')
+    pool.thread._size = len(s4.servers())
     argh.dispatch_commands([cp, ls, rm, map, map_to_n, map_from_n])
