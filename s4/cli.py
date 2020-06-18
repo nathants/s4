@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-import collections
-import pool.thread
 import argh
+import collections
 import logging
 import os
+import pool.thread
 import requests
 import s4
-import subprocess
 import sys
-import tempfile
-import time
 import util.log
 import util.net
 import util.retry
@@ -20,7 +17,11 @@ retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
 retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
 
-timeout = s4.timeout * 2 + 60
+def post(*a, **kw):
+    return requests.post(*a, timeout=s4.max_timeout, **kw)
+
+def get(*a, **kw):
+    return requests.get(*a, timeout=s4.max_timeout, **kw)
 
 def rm(prefix, recursive=False):
     _rm(prefix, recursive)
@@ -30,11 +31,11 @@ def _rm(prefix, recursive):
     assert prefix.startswith('s4://')
     if recursive:
         for address, port in s4.servers():
-            resp = requests.post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true', timeout=timeout)
+            resp = post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
             assert resp.status_code == 200, resp
     else:
         server = s4.pick_server(prefix)
-        resp = requests.post(f'http://{server}/delete?prefix={prefix}', timeout=timeout)
+        resp = post(f'http://{server}/delete?prefix={prefix}')
         assert resp.status_code == 200, resp
 
 def ls(prefix, recursive=False):
@@ -46,8 +47,7 @@ def ls(prefix, recursive=False):
 @retry
 def _ls(prefix, recursive):
     recursive = 'recursive=true' if recursive else ''
-    fs = [pool.thread.submit(requests.get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}', timeout=timeout)
-          for address, port in s4.servers()]
+    fs = [pool.thread.submit(get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
     for f in fs:
         assert f.result().status_code == 200, f.result()
     res = [f.result().json() for f in fs]
@@ -75,7 +75,7 @@ def _get(src, dst):
     temp_path = s4.new_temp_path()
     try:
         server = s4.pick_server(src)
-        resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}', timeout=timeout)
+        resp = post(f'http://{server}/prepare_get?key={src}&port={port}')
         if resp.status_code == 404:
             sys.exit(1)
         else:
@@ -89,7 +89,7 @@ def _get(src, dst):
             result = s4.run(cmd, stdout=None)
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
-            resp = requests.post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}', timeout=timeout)
+            resp = post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
             assert resp.status_code == 200, resp
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
@@ -110,7 +110,7 @@ def _put(src, dst):
             dst = os.path.join(dst, os.path.basename(src))
         server = s4.pick_server(dst)
         server_address = server.split(":")[0]
-        resp = requests.post(f'http://{server}/prepare_put?key={dst}', timeout=timeout)
+        resp = post(f'http://{server}/prepare_put?key={dst}')
         if resp.status_code == 409:
             logging.info('fatal: key already exists')
             sys.exit(1)
@@ -123,7 +123,7 @@ def _put(src, dst):
                 result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
-            resp = requests.post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}', timeout=timeout)
+            resp = post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
             assert resp.status_code == 200, resp
 
 def cp(src, dst, recursive=False):
@@ -170,7 +170,7 @@ def _map(indir, outdir, cmd):
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
-        f = pool.thread.submit(requests.post, url(inkey, outkey), timeout=timeout)
+        f = pool.thread.submit(post, url(inkey, outkey))
         fs[f] = inkey, outkey
     with util.time.timeout(s4.timeout):
         while fs:
@@ -178,7 +178,7 @@ def _map(indir, outdir, cmd):
             resp = f.result()
             if resp.status_code == 429:
                 logging.info(f'server busy, retry map: {inkey}')
-                f = pool.thread.submit(requests.post, url(inkey, outkey), timeout=timeout)
+                f = pool.thread.submit(post, url(inkey, outkey))
                 fs[f] = inkey, outkey
             elif resp.status_code == 400:
                 result = resp.json()
@@ -208,7 +208,7 @@ def _map_to_n(indir, outdir, cmd):
     for line in lines:
         date, time, size, key = line
         inkey = os.path.join(indir, key)
-        f = pool.thread.submit(requests.post, url(inkey, outdir), timeout=timeout)
+        f = pool.thread.submit(post, url(inkey, outdir))
         fs[f] = inkey, outdir
     with util.time.timeout(s4.timeout):
         while fs:
@@ -216,7 +216,7 @@ def _map_to_n(indir, outdir, cmd):
             resp = f.result()
             if resp.status_code == 429:
                 logging.info(f'server busy, retry map_to_n: {inkey}')
-                f = pool.thread.submit(requests.post, url(inkey, outdir), timeout=timeout)
+                f = pool.thread.submit(post, url(inkey, outdir))
                 fs[f] = inkey, outdir
             elif resp.status_code == 400:
                 result = resp.json()
@@ -251,7 +251,7 @@ def _map_from_n(indir, outdir, cmd):
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1
         server = servers[0]
-        f = pool.thread.submit(requests.post, url(server, outdir), json=inkeys, timeout=timeout)
+        f = pool.thread.submit(post, url(server, outdir), json=inkeys)
         fs[f] = server, outdir
     with util.time.timeout(s4.timeout):
         while fs:
@@ -259,7 +259,7 @@ def _map_from_n(indir, outdir, cmd):
             resp = f.result()
             if resp.status_code == 429:
                 logging.info(f'server busy, retry map_to_n: {server}')
-                f = pool.thread.submit(requests.post, url(server, outdir), timeout=timeout)
+                f = pool.thread.submit(post, url(server, outdir))
                 fs[f] = server, outdir
             elif resp.status_code == 400:
                 result = resp.json()

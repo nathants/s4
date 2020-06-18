@@ -1,11 +1,12 @@
-import uuid
-import shell
 import os
+import shell
 import util.cached
+import uuid
 import xxh3
 
+conf_path   = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
-conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
+max_timeout = timeout * 2 + 15 # one timeout for fifo queue, one timeout for the job once it starts, + grace period
 
 def run(*a, **kw):
     return shell.warn(*a, **kw, timeout=timeout)

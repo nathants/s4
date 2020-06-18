@@ -1,27 +1,25 @@
 #!/usr/bin/env pypy3
-import shutil
-import stat
 import argh
 import concurrent.futures
+import datetime
 import json
 import logging
 import os
 import s4
+import shutil
+import stat
 import sys
 import tempfile
 import time
+import tornado.concurrent
 import tornado.gen
 import tornado.ioloop
 import tornado.util
-import tornado.concurrent
 import util.log
 import util.misc
 import util.strings
 import uuid
 import web
-import datetime
-
-max_timeout = s4.timeout * 2 + 15 # one timeout for fifo queue, one timeout for the job once it starts, + grace period
 
 io_jobs = {}
 
@@ -285,7 +283,7 @@ async def map_handler(request):
 @util.misc.exceptions_kill_pid
 async def gc_jobs():
     for uid, job in list(io_jobs.items()):
-        if job and time.monotonic() - job['start'] > max_timeout:
+        if job and time.monotonic() - job['start'] > s4.max_timeout:
             with util.exceptions.ignore(KeyError):
                 await submit_solo(s4.delete, job['temp_path'])
             io_jobs.pop(uid, None)
@@ -311,7 +309,7 @@ def main(debug=False):
               ('/health',      {'get':  health_handler})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
-    web.app(routes, debug=debug).listen(port, idle_connection_timeout=max_timeout, body_timeout=max_timeout)
+    web.app(routes, debug=debug).listen(port, idle_connection_timeout=s4.max_timeout, body_timeout=s4.max_timeout)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
     try:
         tornado.ioloop.IOLoop.current().start()

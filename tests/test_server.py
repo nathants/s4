@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import hashlib
 import os
 import pool.proc
@@ -27,6 +28,7 @@ def start(port):
                 s4.server.main()
                 return
             except:
+                logging.exception('')
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
