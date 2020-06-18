@@ -1,3 +1,4 @@
+import uuid
 import shell
 import os
 import util.cached
@@ -7,6 +8,13 @@ timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
 conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 
 run = lambda *a, **kw: shell.warn(*a, **kw, timeout=timeout)
+
+def new_temp_path():
+    for _ in range(5):
+        temp_path = os.path.abspath(str(uuid.uuid4()))
+        assert not os.path.isfile(temp_path)
+        return temp_path
+    assert False
 
 @util.cached.disk_memoize(max_age_seconds=60 * 60 * 24)
 def local_addresses():

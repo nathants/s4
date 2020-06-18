@@ -73,7 +73,7 @@ def _put_recursive(src, dst):
 def _get(src, dst):
     server = s4.pick_server(src)
     port = util.net.free_port()
-    _, temp_path = tempfile.mkstemp(dir='.')
+    temp_path = s4.new_temp_path()
     try:
         server = s4.pick_server(src)
         resp = requests.post(f'http://{server}/prepare_get?key={src}&port={port}', timeout=timeout)
@@ -85,6 +85,7 @@ def _get(src, dst):
             if dst == '-':
                 cmd = f'recv {port} | xxh3 --stream'
             else:
+                assert not os.path.isfile(temp_path)
                 cmd = f'recv {port} | xxh3 --stream > {temp_path}'
             result = s4.run(cmd, stdout=None)
             assert result['exitcode'] == 0, result

@@ -61,16 +61,13 @@ def checksum_path(key):
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
-def new_temp_path():
-    _, temp_path = tempfile.mkstemp(dir='tempfiles')
-    return os.path.abspath(temp_path)
-
 def prepare_put(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     assert not os.path.isfile(path)
-    open(path, 'w').close()
+    assert not os.path.isfile(checksum_path(path))
+    checksum_write(path, '')
     port = util.net.free_port()
-    return new_temp_path(), port
+    return s4.new_temp_path(), port
 
 def start(func, timeout):
     future = tornado.concurrent.Future()
@@ -93,6 +90,7 @@ async def prepare_put_handler(request):
     else:
         started, s4_run = start(s4.run, s4.timeout)
         uuid = new_uuid()
+        assert not os.path.isfile(temp_path)
         io_jobs[uuid] = {'time': time.monotonic(),
                          'future': submit(s4_run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
                          'temp_path': temp_path,
