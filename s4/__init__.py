@@ -7,7 +7,8 @@ import xxh3
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
 conf_path = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 
-run = lambda *a, **kw: shell.warn(*a, **kw, timeout=timeout)
+def run(*a, **kw):
+    return shell.warn(*a, **kw, timeout=timeout)
 
 def delete(*paths):
     for path in paths:
