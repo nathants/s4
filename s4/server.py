@@ -21,20 +21,18 @@ import uuid
 import web
 import datetime
 
+max_timeout = s4.timeout * 2 + 15 # one timeout for fifo queue, one timeout for the job once it starts, + grace period
+
 io_jobs = {}
 
 num_cpus = os.cpu_count() or 1
-max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 8))
+max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 4))
 max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus))
 
 io_pool       = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
 cpu_pool      = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-checksum_pool = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+find_pool     = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
 solo_pool     = concurrent.futures.ThreadPoolExecutor(1)
-if 'S4_SERIAL_FIND' in os.environ:
-    find_pool = solo_pool
-else:
-    find_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
 
 printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 
@@ -65,9 +63,9 @@ def prepare_put(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     assert not os.path.isfile(path)
     assert not os.path.isfile(checksum_path(path))
-    checksum_write(path, '')
+    open(checksum_path(path), 'w').close()
     port = util.net.free_port()
-    return s4.new_temp_path(), port
+    return s4.new_temp_path('tempfiles'), port
 
 def start(func, timeout):
     future = tornado.concurrent.Future()
@@ -88,42 +86,50 @@ async def prepare_put_handler(request):
     except AssertionError:
         return {'code': 409}
     else:
-        started, s4_run = start(s4.run, s4.timeout)
-        uuid = new_uuid()
-        assert not os.path.isfile(temp_path)
-        io_jobs[uuid] = {'time': time.monotonic(),
-                         'future': submit(s4_run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
-                         'temp_path': temp_path,
-                         'path': path}
         try:
-            await started
-        except tornado.util.TimeoutError:
-            job = io_jobs.pop(uuid)
-            job['future'].cancel()
-            await submit(delete, checksum_path(job['path']), job['temp_path'], executor=solo_pool)
-            return {'code': 429}
-        else:
-            return {'code': 200, 'body': json.dumps([uuid, port])}
-
-def delete(*paths):
-    for path in paths:
-        os.remove(path)
+            started, s4_run = start(s4.run, s4.timeout)
+            uuid = new_uuid()
+            assert not os.path.isfile(temp_path)
+            io_jobs[uuid] = {'time': time.monotonic(),
+                             'future': submit(s4_run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
+                             'temp_path': temp_path,
+                             'path': path}
+            try:
+                await started
+            except tornado.util.TimeoutError:
+                job = io_jobs.pop(uuid)
+                job['future'].cancel()
+                await submit(s4.delete, checksum_path(path), temp_path, executor=solo_pool)
+                return {'code': 429}
+            else:
+                return {'code': 200, 'body': json.dumps([uuid, port])}
+        except:
+            s4.delete(checksum_path(path))
+            raise
 
 def confirm_put(path, temp_path, server_checksum):
-    checksum_write(path, server_checksum)
-    os.rename(temp_path, path)
-    os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    try:
+        checksum_write(path, server_checksum)
+        os.rename(temp_path, path)
+        os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    except:
+        s4.delete(path, temp_path, checksum_path(path))
+        raise
 
 async def confirm_put_handler(request):
-    uuid = request['query']['uuid']
-    client_checksum = request['query']['checksum']
-    job = io_jobs.pop(uuid)
-    result = await job['future']
-    assert result['exitcode'] == 0, result
-    server_checksum = result['stderr']
-    assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit(confirm_put, job['path'], job['temp_path'], server_checksum, executor=solo_pool)
-    return {'code': 200}
+    try:
+        uuid = request['query']['uuid']
+        client_checksum = request['query']['checksum']
+        job = io_jobs.pop(uuid)
+        result = await job['future']
+        assert result['exitcode'] == 0, result
+        server_checksum = result['stderr']
+        assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
+        await submit(confirm_put, job['path'], job['temp_path'], server_checksum, executor=solo_pool)
+        return {'code': 200}
+    except:
+        s4.delete(job['path'], job['temp_path'], checksum_path(job['path']))
+        raise
 
 async def prepare_get_handler(request):
     key = request['query']['key']
@@ -227,7 +233,7 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
         outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
         result = s4.run(f's4 cp {temp_path} {outkey}')
         assert result['exitcode'] == 0, result
-        delete(temp_path)
+        s4.delete(temp_path)
 
 async def map_from_n_handler(request):
     outdir = request['query']['outdir']
@@ -273,10 +279,10 @@ def submit(f, *a, executor, **kw):
 
 @util.misc.exceptions_kill_pid
 async def gc_jobs():
-    for job in list(io_jobs):
-        with util.exceptions.ignore(FileNotFoundError, KeyError):
-            if time.monotonic() - io_jobs[job]['time'] > s4.timeout * 2 + 60:
-                await submit(delete, io_jobs.pop(job)['temp_path'], executor=solo_pool)
+    for uid, job in list(io_jobs.items()):
+        if job and time.monotonic() - job['time'] > max_timeout:
+            await submit(s4.delete, job['temp_path'], executor=solo_pool)
+            io_jobs.pop(uid, None)
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
@@ -299,8 +305,7 @@ def main(debug=False):
               ('/health',      {'get':  health_handler})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
-    timeout = s4.timeout * 2 + 60 # one timeout for fifo queue, one timeout for the job once it starts
-    web.app(routes, debug=debug).listen(port, idle_connection_timeout=timeout, body_timeout=timeout)
+    web.app(routes, debug=debug).listen(port, idle_connection_timeout=max_timeout, body_timeout=max_timeout)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
     try:
         tornado.ioloop.IOLoop.current().start()

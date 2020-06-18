@@ -99,8 +99,7 @@ def _get(src, dst):
             if dst != '-':
                 os.rename(temp_path, dst)
     finally:
-        with util.exceptions.ignore(FileNotFoundError):
-            os.remove(temp_path)
+        s4.delete(temp_path)
 
 def _put(src, dst):
     if ' ' in src or ' ' in dst:
