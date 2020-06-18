@@ -12,6 +12,7 @@ import util.net
 import util.retry
 import util.strings
 import util.time
+from pool.thread import submit
 
 retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
@@ -47,7 +48,7 @@ def ls(prefix, recursive=False):
 @retry
 def _ls(prefix, recursive):
     recursive = 'recursive=true' if recursive else ''
-    fs = [pool.thread.submit(get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
+    fs = [submit(get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
     for f in fs:
         assert f.result().status_code == 200, f.result()
     res = [f.result().json() for f in fs]
@@ -153,33 +154,24 @@ def _cp(src, dst, recursive):
 def map(indir, outdir, cmd):
     _map(indir, outdir, cmd)
 
-@retry
-def _map(indir, outdir, cmd):
-    assert indir.endswith('/'), 'indir must be a directory'
-    assert outdir.endswith('/'), 'outdir must be a directory'
-    lines = ls(indir)
-    for line in lines:
-        date, time, size, key = line.split()
-        assert size != 'PRE', key
-        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
-    b64cmd = util.strings.b64_encode(cmd)
-    url = lambda inkey, outkey: f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={b64cmd}'
-    fs = {}
-    for line in lines:
-        date, time, size, key = line.split()
-        inkey = os.path.join(indir, key)
-        outkey = os.path.join(outdir, key)
-        assert s4.pick_server(inkey) == s4.pick_server(outkey)
-        f = pool.thread.submit(post, url(inkey, outkey))
-        fs[f] = inkey, outkey
-    with util.time.timeout(s4.timeout):
+def post_all_retrying_429(urls):
+    try:
+        fs = {submit(post, url, json=data): url for url, data in urls}
+    except ValueError:
+        fs = {submit(post, url): url for url in urls}
+    with util.time.timeout(s4.max_timeout):
         while fs:
-            f, (inkey, outkey) = fs.popitem()
+            f = next(iter(fs))
+            url = fs.pop(f)
             resp = f.result()
             if resp.status_code == 429:
-                logging.info(f'server busy, retry map: {inkey}')
-                f = pool.thread.submit(post, url(inkey, outkey))
-                fs[f] = inkey, outkey
+                logging.info(f'server busy, retry url: {url}')
+                try:
+                    url, data = url
+                except ValueError:
+                    fs[submit(post, url)] = url
+                else:
+                    fs[submit(post, url, json=data)] = url
             elif resp.status_code == 400:
                 result = resp.json()
                 logging.info('cmd failure')
@@ -189,6 +181,24 @@ def _map(indir, outdir, cmd):
                 sys.exit(1)
             else:
                 assert resp.status_code == 200
+
+@retry
+def _map(indir, outdir, cmd):
+    assert indir.endswith('/'), 'indir must be a directory'
+    assert outdir.endswith('/'), 'outdir must be a directory'
+    lines = ls(indir)
+    for line in lines:
+        date, time, size, key = line.split()
+        assert size != 'PRE', key
+        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+    urls = []
+    for line in lines:
+        date, time, size, key = line.split()
+        inkey = os.path.join(indir, key)
+        outkey = os.path.join(outdir, key)
+        assert s4.pick_server(inkey) == s4.pick_server(outkey)
+        urls.append(f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={util.strings.b64_encode(cmd)}')
+    post_all_retrying_429(urls)
 
 def map_to_n(indir, outdir, cmd):
     _map_to_n(indir, outdir, cmd)
@@ -202,31 +212,12 @@ def _map_to_n(indir, outdir, cmd):
         date, time, size, key = line
         assert size != 'PRE', key
         assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
-    b64cmd = util.strings.b64_encode(cmd)
-    url = lambda inkey, outdir: f'http://{s4.pick_server(inkey)}/map_to_n?inkey={inkey}&outdir={outdir}&b64cmd={b64cmd}'
-    fs = {}
+    urls = []
     for line in lines:
         date, time, size, key = line
         inkey = os.path.join(indir, key)
-        f = pool.thread.submit(post, url(inkey, outdir))
-        fs[f] = inkey, outdir
-    with util.time.timeout(s4.timeout):
-        while fs:
-            f, (inkey, outdir) = fs.popitem()
-            resp = f.result()
-            if resp.status_code == 429:
-                logging.info(f'server busy, retry map_to_n: {inkey}')
-                f = pool.thread.submit(post, url(inkey, outdir))
-                fs[f] = inkey, outdir
-            elif resp.status_code == 400:
-                result = resp.json()
-                logging.info('cmd failure')
-                logging.info(result['stdout'])
-                logging.info(result['stderr'])
-                logging.info(f'exitcode={result["exitcode"]}')
-                sys.exit(1)
-            else:
-                assert resp.status_code == 200
+        urls.append(f'http://{s4.pick_server(inkey)}/map_to_n?inkey={inkey}&outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}')
+    post_all_retrying_429(urls)
 
 def map_from_n(indir, outdir, cmd):
     _map_from_n(indir, outdir, cmd)
@@ -244,32 +235,13 @@ def _map_from_n(indir, outdir, cmd):
         _indir, _inkey, bucket_num = key.split('/')
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
         buckets[bucket_num].append(os.path.join(f's4://{bucket}', key))
-    b64cmd = util.strings.b64_encode(cmd)
-    url = lambda server, outdir: f'http://{server}/map_from_n?outdir={outdir}&b64cmd={b64cmd}'
-    fs = {}
+    urls = []
     for bucket_num, inkeys in buckets.items():
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1
         server = servers[0]
-        f = pool.thread.submit(post, url(server, outdir), json=inkeys)
-        fs[f] = server, outdir
-    with util.time.timeout(s4.timeout):
-        while fs:
-            f, (server, outdir) = fs.popitem()
-            resp = f.result()
-            if resp.status_code == 429:
-                logging.info(f'server busy, retry map_to_n: {server}')
-                f = pool.thread.submit(post, url(server, outdir))
-                fs[f] = server, outdir
-            elif resp.status_code == 400:
-                result = resp.json()
-                logging.info('cmd failure')
-                logging.info(result['stdout'])
-                logging.info(result['stderr'])
-                logging.info(f'exitcode={result["exitcode"]}')
-                sys.exit(1)
-            else:
-                assert resp.status_code == 200
+        urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', inkeys))
+    post_all_retrying_429(urls)
 
 if __name__ == '__main__':
     util.log.setup(format='%(message)s')
