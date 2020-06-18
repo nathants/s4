@@ -25,14 +25,22 @@ max_timeout = s4.timeout * 2 + 15 # one timeout for fifo queue, one timeout for 
 
 io_jobs = {}
 
+# setup pool sizes
 num_cpus = os.cpu_count() or 1
-max_io_jobs = int(os.environ.get('S4_IO_JOBS', num_cpus * 4))
+max_io_jobs  = int(os.environ.get('S4_IO_JOBS',  num_cpus * 4))
 max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus))
 
-io_pool       = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
-cpu_pool      = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-find_pool     = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-solo_pool     = concurrent.futures.ThreadPoolExecutor(1)
+# setup pools
+io_pool   = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+cpu_pool  = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+find_pool = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+solo_pool = concurrent.futures.ThreadPoolExecutor(1)
+
+# pool submit fns
+submit_io   = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(io_pool,   lambda: f(*a, **kw)) # type: ignore # noqa
+submit_cpu  = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(cpu_pool,  lambda: f(*a, **kw)) # type: ignore # noqa
+submit_find = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(find_pool, lambda: f(*a, **kw)) # type: ignore # noqa
+submit_solo = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(solo_pool, lambda: f(*a, **kw)) # type: ignore # noqa
 
 printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 
@@ -40,7 +48,7 @@ def new_uuid():
     for _ in range(10):
         val = str(uuid.uuid4())
         if val not in io_jobs:
-            io_jobs[val] = None
+            io_jobs[val] = {'start': time.monotonic()}
             return val
     assert False
 
@@ -82,7 +90,7 @@ async def prepare_put_handler(request):
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
     try:
-        temp_path, port = await submit(prepare_put, path, executor=solo_pool)
+        temp_path, port = await submit_solo(prepare_put, path)
     except AssertionError:
         return {'code': 409}
     else:
@@ -90,8 +98,8 @@ async def prepare_put_handler(request):
             started, s4_run = start(s4.run, s4.timeout)
             uuid = new_uuid()
             assert not os.path.isfile(temp_path)
-            io_jobs[uuid] = {'time': time.monotonic(),
-                             'future': submit(s4_run, f'recv {port} | xxh3 --stream > {temp_path}', executor=io_pool),
+            io_jobs[uuid] = {'start': time.monotonic(),
+                             'future': submit_io(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
                              'temp_path': temp_path,
                              'path': path}
             try:
@@ -99,7 +107,7 @@ async def prepare_put_handler(request):
             except tornado.util.TimeoutError:
                 job = io_jobs.pop(uuid)
                 job['future'].cancel()
-                await submit(s4.delete, checksum_path(path), temp_path, executor=solo_pool)
+                await submit_solo(s4.delete, checksum_path(path), temp_path)
                 return {'code': 429}
             else:
                 return {'code': 200, 'body': json.dumps([uuid, port])}
@@ -125,7 +133,7 @@ async def confirm_put_handler(request):
         assert result['exitcode'] == 0, result
         server_checksum = result['stderr']
         assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-        await submit(confirm_put, job['path'], job['temp_path'], server_checksum, executor=solo_pool)
+        await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
         return {'code': 200}
     except:
         s4.delete(job['path'], job['temp_path'], checksum_path(job['path']))
@@ -137,14 +145,14 @@ async def prepare_get_handler(request):
     remote = request['remote']
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
-    if not await submit(exists, path, executor=solo_pool):
+    if not await submit_solo(exists, path):
         return {'code': 404}
     else:
         started, s4_run = start(s4.run, s4.timeout)
         uuid = new_uuid()
-        io_jobs[uuid] = {'time': time.monotonic(),
-                         'future': submit(s4_run, f'< {path} xxh3 --stream | send {remote} {port}', executor=io_pool),
-                         'disk_checksum': await submit(checksum_read, path, executor=solo_pool)}
+        io_jobs[uuid] = {'start': time.monotonic(),
+                         'future': submit_io(s4_run, f'< {path} xxh3 --stream | send {remote} {port}'),
+                         'disk_checksum': await submit_solo(checksum_read, path)}
         try:
             await started
         except tornado.util.TimeoutError:
@@ -173,7 +181,7 @@ async def list_handler(request):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        result = await submit(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}", executor=find_pool)
+        result = await submit_find(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         xs = [x.split() for x in result['stdout'].splitlines()]
         xs = [[date, time.split('.')[0], size, '/'.join(path.split('/')[1:])] for date, time, size, path in xs]
@@ -183,10 +191,10 @@ async def list_handler(request):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        result = await submit(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}", executor=find_pool)
+        result = await submit_find(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = result['stdout']
-        result = await submit(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}", executor=find_pool)
+        result = await submit_find(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines() if x.strip()]
@@ -199,9 +207,9 @@ async def delete_handler(request):
     prefix = prefix.split('s4://')[-1]
     recursive = request['query'].get('recursive') == 'true'
     if recursive:
-        result = await submit(s4.run, 'rm -rf', prefix + '*', executor=solo_pool)
+        result = await submit_solo(s4.run, 'rm -rf', prefix + '*')
     else:
-        result = await submit(s4.run, 'rm -f', prefix, checksum_path(prefix), executor=solo_pool)
+        result = await submit_solo(s4.run, 'rm -f', prefix, checksum_path(prefix))
     assert result['exitcode'] == 0, result
     return {'code': 200}
 
@@ -215,16 +223,16 @@ async def map_to_n_handler(request):
     assert outdir.startswith('s4://') and outdir.endswith('/')
     inpath = os.path.abspath(inkey.split('s4://')[-1])
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
-    tempdir, result = await submit(run_in_persisted_tempdir, f'< {inpath} {cmd}', executor=cpu_pool)
+    tempdir, result = await submit_cpu(run_in_persisted_tempdir, f'< {inpath} {cmd}')
     try:
         if result['exitcode'] != 0:
             return {'code': 400, 'body': json.dumps(result)}
         else:
             temp_paths = result['stdout'].splitlines()
-            await submit(confirm_to_n, inpath, outdir, tempdir, temp_paths, executor=io_pool)
+            await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
             return {'code': 200}
     finally:
-        result = await submit(s4.run, 'rm -rf', tempdir, executor=solo_pool)
+        result = await submit_solo(s4.run, 'rm -rf', tempdir)
         assert result['exitcode'] == 0, result
 
 def confirm_to_n(inpath, outdir, tempdir, temp_paths):
@@ -244,7 +252,7 @@ async def map_from_n_handler(request):
     outpath = os.path.join(outdir, bucket_num)
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
     inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
-    result = await submit(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', executor=cpu_pool, stdin='\n'.join(inpaths) + '\n')
+    result = await submit_cpu(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', stdin='\n'.join(inpaths) + '\n')
     if result['exitcode'] != 0:
         return {'code': 400, 'body': json.dumps(result)}
     else:
@@ -268,20 +276,18 @@ async def map_handler(request):
     assert s4.on_this_server(outkey)
     inpath = os.path.abspath(inkey.split('s4://')[-1])
     cmd = util.strings.b64_decode(request['query']['b64cmd'])
-    result = await submit(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}', executor=cpu_pool)
+    result = await submit_cpu(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}')
     if result['exitcode'] != 0:
         return {'code': 400, 'body': json.dumps(result)}
     else:
         return {'code': 200}
 
-def submit(f, *a, executor, **kw):
-    return tornado.ioloop.IOLoop.current().run_in_executor(executor, lambda: f(*a, **kw))
-
 @util.misc.exceptions_kill_pid
 async def gc_jobs():
     for uid, job in list(io_jobs.items()):
-        if job and time.monotonic() - job['time'] > max_timeout:
-            await submit(s4.delete, job['temp_path'], executor=solo_pool)
+        if job and time.monotonic() - job['start'] > max_timeout:
+            with util.exceptions.ignore(KeyError):
+                await submit_solo(s4.delete, job['temp_path'])
             io_jobs.pop(uid, None)
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
