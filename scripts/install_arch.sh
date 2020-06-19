@@ -28,10 +28,10 @@ fi
     if [ ! -f ~/.s4.requirements.done ]; then
         sudo python -m pip install -r requirements.txt
         sudo pypy3  -m pip install -r requirements.txt
+        sudo python setup.py develop
+        sudo pypy3  setup.py develop
         touch ~/.s4.requirements.done
     fi
-    sudo python setup.py develop
-    sudo pypy3  setup.py develop
 )
 
 if ! which xxh3 &>/dev/null; then
