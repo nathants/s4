@@ -3,6 +3,7 @@ set -xeuo pipefail
 
 if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
     sudo pacman --noconfirm --noprogressbar -Sy \
+         entr \
          gcc \
          git \
          man \
@@ -10,8 +11,8 @@ if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
          python
 fi
 
-if ! sudo python3 -m pip; then
-    sudo python3 -m ensurepip
+if ! sudo python -m pip; then
+    sudo python -m ensurepip
 fi
 
 if ! sudo pypy3 -m pip; then
@@ -26,12 +27,12 @@ cd /mnt
     fi
     cd s4
     if [ ! -f /tmp/requirements.done ]; then
-        sudo python3 -m pip install -r requirements.txt
-        sudo pypy3   -m pip install -r requirements.txt
+        sudo python -m pip install -r requirements.txt
+        sudo pypy3  -m pip install -r requirements.txt
         touch /tmp/requirements.done
     fi
-    sudo python3 setup.py develop
-    sudo pypy3   setup.py develop
+    sudo python setup.py develop
+    sudo pypy3  setup.py develop
 )
 
 if ! which xxh3 &>/dev/null; then
