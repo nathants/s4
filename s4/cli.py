@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argh
+import shell
+import concurrent.futures
 import collections
 import logging
 import os
@@ -16,43 +18,60 @@ from pool.thread import submit
 
 retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
-retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
+_retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
 
-def post(*a, **kw):
+def _http_post(*a, **kw):
     return requests.post(*a, timeout=s4.max_timeout, **kw)
 
-def get(*a, **kw):
+def _http_get(*a, **kw):
     return requests.get(*a, timeout=s4.max_timeout, **kw)
 
 def rm(prefix, recursive=False):
+    assert prefix.startswith('s4://')
     _rm(prefix, recursive)
 
-@retry
+@_retry
 def _rm(prefix, recursive):
-    assert prefix.startswith('s4://')
     if recursive:
         for address, port in s4.servers():
-            resp = post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
+            resp = _http_post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
             assert resp.status_code == 200, resp
     else:
         server = s4.pick_server(prefix)
-        resp = post(f'http://{server}/delete?prefix={prefix}')
+        resp = _http_post(f'http://{server}/delete?prefix={prefix}')
         assert resp.status_code == 200, resp
 
+@argh.arg('prefix', nargs='?', default=None)
 def ls(prefix, recursive=False):
-    lines = _ls(prefix, recursive)
-    if not lines:
-        sys.exit(1)
-    return [' '.join(line) for line in lines]
+    assert not prefix or prefix.startswith('s4://'), 'fatal: prefix must start with s4://'
+    if prefix:
+        lines = _ls(prefix, recursive)
+    else:
+        lines = _ls_buckets()
+    assert lines
+    just = max(len(size) for date, time, size, path in lines)
+    for date, time, size, path in lines:
+        print(date.ljust(10), time.ljust(8), size.rjust(just), path)
 
-@retry
+@_retry
 def _ls(prefix, recursive):
     recursive = 'recursive=true' if recursive else ''
-    fs = [submit(get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
+    fs = [submit(_http_get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
     for f in fs:
         assert f.result().status_code == 200, f.result()
     res = [f.result().json() for f in fs]
     return sorted([line for lines in res for line in lines], key=lambda x: x[-1])
+
+@_retry
+def _ls_buckets():
+    fs = [submit(_http_get, f'http://{address}:{port}/list_buckets') for address, port in s4.servers()]
+    for f in fs:
+        assert f.result().status_code == 200, f.result()
+    buckets = {}
+    for f in fs:
+        for date, time, size, path in f.result().json():
+            buckets[path] = date, time, size, path
+    return [buckets[path] for path in sorted(buckets)]
 
 def _get_recursive(src, dst):
     bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
@@ -76,7 +95,7 @@ def _get(src, dst):
     temp_path = s4.new_temp_path()
     try:
         server = s4.pick_server(src)
-        resp = post(f'http://{server}/prepare_get?key={src}&port={port}')
+        resp = _http_post(f'http://{server}/prepare_get?key={src}&port={port}')
         if resp.status_code == 404:
             sys.exit(1)
         else:
@@ -90,7 +109,7 @@ def _get(src, dst):
             result = s4.run(cmd, stdout=None)
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
-            resp = post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
+            resp = _http_post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
             assert resp.status_code == 200, resp
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
@@ -103,62 +122,56 @@ def _get(src, dst):
         s4.delete(temp_path)
 
 def _put(src, dst):
-    if ' ' in src or ' ' in dst:
-        logging.info('spaces in keys are not allowed')
+    if dst.endswith('/'):
+        dst = os.path.join(dst, os.path.basename(src))
+    server = s4.pick_server(dst)
+    server_address = server.split(":")[0]
+    resp = _http_post(f'http://{server}/prepare_put?key={dst}')
+    if resp.status_code == 409:
+        logging.info('fatal: key already exists')
         sys.exit(1)
     else:
-        if dst.endswith('/'):
-            dst = os.path.join(dst, os.path.basename(src))
-        server = s4.pick_server(dst)
-        server_address = server.split(":")[0]
-        resp = post(f'http://{server}/prepare_put?key={dst}')
-        if resp.status_code == 409:
-            logging.info('fatal: key already exists')
-            sys.exit(1)
+        assert resp.status_code == 200, resp
+        uuid, port = resp.json()
+        if src == '-':
+            result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
         else:
-            assert resp.status_code == 200, resp
-            uuid, port = resp.json()
-            if src == '-':
-                result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
-            else:
-                result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
-            assert result['exitcode'] == 0, result
-            client_checksum = result['stderr']
-            resp = post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
-            assert resp.status_code == 200, resp
+            result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
+        assert result['exitcode'] == 0, result
+        client_checksum = result['stderr']
+        resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+        assert resp.status_code == 200, resp
 
 def cp(src, dst, recursive=False):
+    assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
+    assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
+    assert not dst.startswith('s4://') or not dst.split('s4://')[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
+    assert not src.startswith('s4://') or not src.split('s4://')[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
     _cp(src, dst, recursive)
 
-@retry
+@_retry
 def _cp(src, dst, recursive):
+
     if recursive:
         if src.startswith('s4://'):
             _get_recursive(src, dst)
         elif dst.startswith('s4://'):
             _put_recursive(src, dst)
         else:
-            logging.info(f'src or dst needs s4://, got: {src} {dst}')
+            logging.info(f'fatal: src or dst needs s4://, got: {src} {dst}')
             sys.exit(1)
-    elif src.startswith('s4://') and dst.startswith('s4://'):
-        logging.info('there is no move, there is only cp and rm.', file=sys.stderr)
-        sys.exit(1)
     elif src.startswith('s4://'):
         _get(src, dst)
     elif dst.startswith('s4://'):
         _put(src, dst)
     else:
-        logging.info('src or dst needs s4://')
-        sys.exit(1)
+        assert False, 'fatal: src or dst needs s4://'
 
-def map(indir, outdir, cmd):
-    _map(indir, outdir, cmd)
-
-def post_all_retrying_429(urls):
+def _post_all_retrying_429(urls):
     try:
-        fs = {submit(post, url, json=data): url for url, data in urls}
+        fs = {submit(_http_post, url, json=data): url for url, data in urls}
     except ValueError:
-        fs = {submit(post, url): url for url in urls}
+        fs = {submit(_http_post, url): url for url in urls}
     with util.time.timeout(s4.max_timeout):
         while fs:
             f = next(iter(fs))
@@ -169,12 +182,12 @@ def post_all_retrying_429(urls):
                 try:
                     url, data = url
                 except ValueError:
-                    fs[submit(post, url)] = url
+                    fs[submit(_http_post, url)] = url
                 else:
-                    fs[submit(post, url, json=data)] = url
+                    fs[submit(_http_post, url, json=data)] = url
             elif resp.status_code == 400:
                 result = resp.json()
-                logging.info('cmd failure')
+                logging.info('fatal: cmd failure')
                 logging.info(result['stdout'])
                 logging.info(result['stderr'])
                 logging.info(f'exitcode={result["exitcode"]}')
@@ -182,31 +195,35 @@ def post_all_retrying_429(urls):
             else:
                 assert resp.status_code == 200
 
-@retry
-def _map(indir, outdir, cmd):
+
+def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    lines = ls(indir)
+    _map(indir, outdir, cmd)
+
+@_retry
+def _map(indir, outdir, cmd):
+    lines = _ls(indir, recursive=False)
     for line in lines:
-        date, time, size, key = line.split()
+        date, time, size, key = line
         assert size != 'PRE', key
         assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
     urls = []
     for line in lines:
-        date, time, size, key = line.split()
+        date, time, size, key = line
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
         urls.append(f'http://{s4.pick_server(inkey)}/map?inkey={inkey}&outkey={outkey}&b64cmd={util.strings.b64_encode(cmd)}')
-    post_all_retrying_429(urls)
+    _post_all_retrying_429(urls)
 
 def map_to_n(indir, outdir, cmd):
-    _map_to_n(indir, outdir, cmd)
-
-@retry
-def _map_to_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
+    _map_to_n(indir, outdir, cmd)
+
+@_retry
+def _map_to_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=False)
     for line in lines:
         date, time, size, key = line
@@ -217,15 +234,15 @@ def _map_to_n(indir, outdir, cmd):
         date, time, size, key = line
         inkey = os.path.join(indir, key)
         urls.append(f'http://{s4.pick_server(inkey)}/map_to_n?inkey={inkey}&outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}')
-    post_all_retrying_429(urls)
+    _post_all_retrying_429(urls)
 
 def map_from_n(indir, outdir, cmd):
-    _map_from_n(indir, outdir, cmd)
-
-@retry
-def _map_from_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
+    _map_from_n(indir, outdir, cmd)
+
+@_retry
+def _map_from_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
     bucket, *_ = indir.split('://')[-1].split('/')
@@ -241,9 +258,34 @@ def _map_from_n(indir, outdir, cmd):
         assert len(set(servers)) == 1
         server = servers[0]
         urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', inkeys))
-    post_all_retrying_429(urls)
+    _post_all_retrying_429(urls)
+
+def servers():
+    return [':'.join(x) for x in s4.servers()]
+
+def health():
+    fs = {}
+    for addr, port in s4.servers():
+        f = submit(requests.get, f'http://{addr}:{port}/health', timeout=2)
+        fs[f] = addr, port
+    for f in concurrent.futures.as_completed(fs):
+        addr, port = fs[f]
+        try:
+            resp = f.result()
+        except:
+            print(f'unhealthy: {addr}:{port}')
+        else:
+            if resp.status_code == 200:
+                print(f'healthy:   {addr}:{port}')
+            else:
+                print(f'unhealthy: {addr}:{port}')
 
 if __name__ == '__main__':
     util.log.setup(format='%(message)s')
     pool.thread._size = len(s4.servers())
-    argh.dispatch_commands([cp, ls, rm, map, map_to_n, map_from_n])
+    try:
+        shell.dispatch_commands(globals(), __name__)
+    except AssertionError as e:
+        if e.args:
+            logging.info(util.colors.red(e.args[0]))
+        sys.exit(1)

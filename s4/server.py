@@ -71,7 +71,7 @@ def prepare_put(path):
     assert not os.path.isfile(checksum_path(path))
     open(checksum_path(path), 'w').close()
     port = util.net.free_port()
-    return s4.new_temp_path('tempfiles'), port
+    return s4.new_temp_path('_tempfiles'), port
 
 def start(func, timeout):
     future = tornado.concurrent.Future()
@@ -87,6 +87,7 @@ async def prepare_put_handler(request):
     assert ' ' not in key
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
+    assert not path.startswith('_')
     try:
         temp_path, port = await submit_solo(prepare_put, path)
     except AssertionError:
@@ -169,6 +170,13 @@ async def confirm_get_handler(request):
     assert job['disk_checksum'] == client_checksum == server_checksum, [job['disk_checksum'], client_checksum, server_checksum]
     return {'code': 200}
 
+async def list_buckets_handler(request):
+    result = await submit_find(s4.run, f'find -maxdepth 1 -mindepth 1 -type d ! -name "_*" {printf}')
+    assert result['exitcode'] == 0, result
+    xs = [x.split() for x in result['stdout'].splitlines()]
+    xs = [[date, time.split('.')[0], size, os.path.basename(path)] for date, time, size, path in xs]
+    return {'code': 200, 'body': json.dumps(xs)}
+
 async def list_handler(request):
     prefix = request['query']['prefix']
     assert prefix.startswith('s4://')
@@ -195,8 +203,9 @@ async def list_handler(request):
         result = await submit_find(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
-        dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines() if x.strip()]
+        dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
         xs = [[date, time.split(".")[0], size, path.split(_prefix)[-1]] for date, time, size, path in files + dirs]
+        xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
     return {'code': 200, 'body': json.dumps(xs)}
 
 async def delete_handler(request):
@@ -257,14 +266,14 @@ async def map_from_n_handler(request):
         return {'code': 200}
 
 def run_in_tempdir(*a, **kw):
-    tempdir = tempfile.mkdtemp(dir='tempdirs')
+    tempdir = tempfile.mkdtemp(dir='_tempdirs')
     try:
         return s4.run(f'cd {tempdir};', *a, **kw)
     finally:
         shutil.rmtree(tempdir)
 
 def run_in_persisted_tempdir(*a, **kw):
-    tempdir = tempfile.mkdtemp(dir='tempdirs')
+    tempdir = tempfile.mkdtemp(dir='_tempdirs')
     return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
 
 async def map_handler(request):
@@ -293,20 +302,21 @@ async def gc_jobs():
 def main(debug=False):
     util.log.setup(format='%(message)s')
     if not os.path.basename(os.getcwd()) == 's4_data':
-        os.makedirs('s4_data/tempfiles', exist_ok=True)
-        os.makedirs('s4_data/tempdirs',  exist_ok=True)
+        os.makedirs('s4_data/_tempfiles', exist_ok=True)
+        os.makedirs('s4_data/_tempdirs',  exist_ok=True)
         os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
-    routes = [('/prepare_put', {'post': prepare_put_handler}),
-              ('/confirm_put', {'post': confirm_put_handler}),
-              ('/prepare_get', {'post': prepare_get_handler}),
-              ('/confirm_get', {'post': confirm_get_handler}),
-              ('/delete',      {'post': delete_handler}),
-              ('/map',         {'post': map_handler}),
-              ('/map_to_n',    {'post': map_to_n_handler}),
-              ('/map_from_n',  {'post': map_from_n_handler}),
-              ('/list',        {'get':  list_handler}),
-              ('/health',      {'get':  health_handler})]
+    routes = [('/prepare_put',  {'post': prepare_put_handler}),
+              ('/confirm_put',  {'post': confirm_put_handler}),
+              ('/prepare_get',  {'post': prepare_get_handler}),
+              ('/confirm_get',  {'post': confirm_get_handler}),
+              ('/delete',       {'post': delete_handler}),
+              ('/map',          {'post': map_handler}),
+              ('/map_to_n',     {'post': map_to_n_handler}),
+              ('/map_from_n',   {'post': map_from_n_handler}),
+              ('/list',         {'get':  list_handler}),
+              ('/list_buckets', {'get':  list_buckets_handler}),
+              ('/health',       {'get':  health_handler})]
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
     web.app(routes, debug=debug).listen(port, idle_connection_timeout=s4.max_timeout, body_timeout=s4.max_timeout)

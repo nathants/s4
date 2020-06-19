@@ -103,7 +103,7 @@ def test_basic():
         run('s4 cp file.txt s4://bucket/basic/dir/file.txt')
         run('echo 345 > file2.txt')
         run('s4 cp file2.txt s4://bucket/basic/dir/')
-        assert run('s4 ls -r s4://bucket/ | cut -d" " -f4').splitlines() == [
+        assert run("s4 ls -r s4://bucket/ | awk '{print $NF}'").splitlines() == [
             'basic/dir/file.txt',
             'basic/dir/file2.txt',
         ]
@@ -114,6 +114,7 @@ def test_basic():
         run('mkdir foo/')
         run('s4 cp s4://bucket/basic/dir/file.txt foo/')
         assert run('cat foo/file.txt') == "123"
+        assert run("s4 ls | awk '{print $NF}'").splitlines() == ['bucket']
 
 def test_cp_file_to_dot():
     with servers():
@@ -127,7 +128,7 @@ def test_cp_dir_to_dot():
         run('echo | s4 cp - s4://bucket/dir1/file1.txt')
         run('echo | s4 cp - s4://bucket/dir2/file2.txt')
         run('echo | s4 cp - s4://bucket/dir2/file3.txt')
-        assert run('s4 ls -r s4://bucket | cut -d" " -f4').splitlines() == [
+        assert run("s4 ls -r s4://bucket | awk '{print $NF}'").splitlines() == [
             'dir1/file1.txt',
             'dir2/file2.txt',
             'dir2/file3.txt',
@@ -157,7 +158,7 @@ def test_cp_dot_to_dot():
             run('mkdir dir1 dir2')
             run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
             run('s4 cp -r . s4://bucket')
-        assert run('s4 ls -r s4://bucket | cut -d" " -f4').splitlines() == [
+        assert run("s4 ls -r s4://bucket | awk '{print $NF}'").splitlines() == [
             'dir1/file1.txt',
             'dir2/file2.txt',
             'dir2/file3.txt',
@@ -201,7 +202,7 @@ def test_cp():
             2.txt
             3/
         """)
-        assert run('s4 ls -r s4://bucket/cp/dst/ | cut -d" " -f4') == rm_whitespace("""
+        assert run("s4 ls -r s4://bucket/cp/dst/ | awk '{print $NF}'") == rm_whitespace("""
             cp/dst/1.txt
             cp/dst/2.txt
             cp/dst/3/4.txt
@@ -225,7 +226,7 @@ def test_cp():
             2.txt
             3/
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/cp/dst2/ | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
             cp/dst2/1.txt
             cp/dst2/2.txt
             cp/dst2/3/4.txt
@@ -242,7 +243,7 @@ def test_ls():
         run('echo | s4 cp - s4://bucket/other-listing/key0.txt')
         run('echo | s4 cp - s4://bucket/listing/dir1/key1.txt')
         run('echo | s4 cp - s4://bucket/listing/dir1/dir2/key2.txt')
-        assert run('s4 ls s4://bucket/listing/dir1/ke | cut -d" " -f4') == rm_whitespace("""
+        assert run("s4 ls s4://bucket/listing/dir1/ke | awk '{print $NF}'") == rm_whitespace("""
             key1.txt
         """)
         assert rm_whitespace(run("s4 ls s4://bucket/listing/dir1/ | awk '{print $NF}'")) == rm_whitespace("""
@@ -255,15 +256,15 @@ def test_ls():
         assert rm_whitespace(run('s4 ls s4://bucket/listing/')) == rm_whitespace("""
               PRE dir1/
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/listing | awk '{print $NF}'")) == rm_whitespace("""
             listing/dir1/dir2/key2.txt
             listing/dir1/key1.txt
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/ | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/listing/ | awk '{print $NF}'")) == rm_whitespace("""
             listing/dir1/dir2/key2.txt
             listing/dir1/key1.txt
         """)
-        assert rm_whitespace(run('s4 ls -r s4://bucket/listing/d | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/listing/d | awk '{print $NF}'")) == rm_whitespace("""
             listing/dir1/dir2/key2.txt
             listing/dir1/key1.txt
         """)
@@ -274,12 +275,12 @@ def test_rm():
     with servers():
         run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
         run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
-        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/ | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
             rm/dir1/dir2/key2.txt
             rm/dir1/key1.txt
         """)
         run('s4 rm s4://bucket/rm/dir1/key1.txt')
-        assert rm_whitespace(run('s4 ls -r s4://bucket/rm/ | cut -d" " -f4')) == rm_whitespace("""
+        assert rm_whitespace(run("s4 ls -r s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
             rm/dir1/dir2/key2.txt
         """)
         run('s4 rm -r s4://bucket/rm/di')
@@ -313,10 +314,10 @@ def test_map():
             i, chunk = arg
             run(f's4 cp - {src}{i:05}', stdin="\n".join(chunk) + "\n")
         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-        assert run(f's4 ls {src} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {src} | awk '{{print $NF}}' ").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {src}/00000 - | head -n5').splitlines() == ['Abelson', 'Aberdeen', 'Allison', 'Amsterdam', 'Apollos']
         run(f's4 map {src} {dst} "tr A-Z a-z"')
-        assert run(f's4 ls {dst} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {dst} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {dst}/00000 - | head -n5').splitlines() == ['abelson', 'aberdeen', 'allison', 'amsterdam', 'apollos']
         run(f's4 cp -r {dst} result')
         assert run('cat result/*', stream=False) == '\n'.join(words).lower()
@@ -364,12 +365,12 @@ def test_map_to_n():
             i, chunk = arg
             run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-        assert run(f's4 ls {step1} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
-        assert run(f's4 ls {step2} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
-        assert run(f's4 ls -r {step3} | cut -d" " -f4').splitlines() == [
+        assert run(f"s4 ls -r {step3} | awk '{{print $NF}}'").splitlines() == [
             # $outdir/$file_num/$bucket_num
             'step3/00000/00000',
             'step3/00000/00001',
@@ -412,13 +413,13 @@ def test_map_from_n():
             i, chunk = arg
             run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-        assert run(f's4 ls {step1} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
-        assert run(f's4 ls {step2} | cut -d" " -f4').splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
         run(f"s4 map-from-n {step3} {step4} 'while read filename; do cat $filename; done'")
-        assert run(f's4 ls -r {step4} | cut -d" " -f4').splitlines() == [
+        assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
             'step4/00000',
             'step4/00001',
             'step4/00002',
