@@ -1,5 +1,5 @@
 #!/bin/bash
-set -xeuo pipefail
+set -euo pipefail
 
 if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
     sudo pacman --noconfirm --noprogressbar -Syu
@@ -12,11 +12,11 @@ if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
          python
 fi
 
-if ! sudo python -m pip; then
+if ! sudo python -m pip &>/dev/null; then
     sudo python -m ensurepip
 fi
 
-if ! sudo pypy3 -m pip; then
+if ! sudo pypy3 -m pip &>/dev/null; then
     sudo pypy3 -m ensurepip
 fi
 
