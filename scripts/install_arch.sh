@@ -2,6 +2,7 @@
 set -xeuo pipefail
 
 if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
+    sudo pacman --noconfirm --noprogressbar -Syu
     sudo pacman --noconfirm --noprogressbar -Sy \
          entr \
          gcc \
@@ -19,17 +20,15 @@ if ! sudo pypy3 -m pip; then
     sudo pypy3 -m ensurepip
 fi
 
-cd /mnt
-
 (
     if [ ! -d s4 ]; then
         git clone https://github.com/nathants/s4
     fi
     cd s4
-    if [ ! -f /tmp/requirements.done ]; then
+    if [ ! -f ~/.s4.requirements.done ]; then
         sudo python -m pip install -r requirements.txt
         sudo pypy3  -m pip install -r requirements.txt
-        touch /tmp/requirements.done
+        touch ~/.s4.requirements.done
     fi
     sudo python setup.py develop
     sudo pypy3  setup.py develop
