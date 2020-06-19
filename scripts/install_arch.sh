@@ -3,7 +3,7 @@ set -xeuo pipefail
 
 if (! which gcc || ! which pypy3 || ! which nc || ! which git) &>/dev/null; then
     sudo pacman --noconfirm --noprogressbar -Syu
-    sudo pacman --noconfirm --noprogressbar -Sy \
+    sudo pacman --needed --noconfirm --noprogressbar -Sy \
          entr \
          gcc \
          git \
