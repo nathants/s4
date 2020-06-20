@@ -14,6 +14,9 @@ if [ ! -f ~/.s4.requirements.done ]; then
              python
     fi
 
+    curl -s https://raw.githubusercontent.com/nathants/bootstraps/master/scripts/set_opt.sh | sudo tee /usr/local/bin/set-opt >/dev/null && sudo chmod +x /usr/local/bin/set-opt
+    curl -s https://raw.githubusercontent.com/nathants/bootstraps/master/scripts/limits.sh | bash
+
     if ! sudo python -m pip &>/dev/null; then
         sudo python -m ensurepip
     fi
