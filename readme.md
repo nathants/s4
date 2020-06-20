@@ -22,22 +22,19 @@ an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_ser
 
 on every server:
 
-- install s4
+- install
   ```
-  git clone https://github.com/nathants/s4
-  cd s4
-  pip install -r requirements.txt .
+  curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_arch.sh | bash
   ```
 
-- configure s4 conf with the ipv4:port of every server. make sure to use the ipv4 local to the machine, as the conf file defines the hash ring, and each server recognizes itself in the conf by comparing its ipv4 as reported by ifconfig.
-   ```
-   rm ~/.s4.conf
-   echo $server1:$port1 >> ~/.s4.conf
-   echo $server2:$port2 >> ~/.s4.conf
-   ...
-   ```
-
-- start the server.
+- configure
   ```
-  s4-server
+  echo $server1:$port1 >  ~/.s4.conf
+  echo $server2:$port2 >> ~/.s4.conf
+  ...
+  ```
+
+- start
+  ```
+  PYPY_GC_MAX=1GB s4-server
   ```
