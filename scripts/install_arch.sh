@@ -26,6 +26,7 @@ if [ ! -f ~/.s4.requirements.done ]; then
     fi
 
     (
+        cd ~
         if [ ! -d s4 ]; then
             git clone https://github.com/nathants/s4
         fi
@@ -36,14 +37,15 @@ if [ ! -f ~/.s4.requirements.done ]; then
         sudo pypy3  setup.py develop
     )
 
-    if ! which xxh3 &>/dev/null; then
-        git clone https://github.com/nathants/bsv
-        (
+    (
+        cd ~
+        if ! which xxh3 &>/dev/null; then
+            git clone https://github.com/nathants/bsv
             cd bsv
             make
             sudo mv -fv bin/* /usr/local/bin
-        )
-    fi
+        fi
+    )
 
     touch ~/.s4.requirements.done
 fi
