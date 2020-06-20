@@ -82,8 +82,8 @@ def start(func, timeout):
     future = tornado.gen.with_timeout(datetime.timedelta(seconds=timeout), future)
     return future, fn
 
-async def prepare_put_handler(request):
-    key = request['query']['key']
+async def prepare_put_handler(request: web.Request) -> web.Response:
+    [key] = request['query']['key']
     assert ' ' not in key
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
@@ -123,10 +123,10 @@ def confirm_put(path, temp_path, server_checksum):
         s4.delete(path, temp_path, checksum_path(path))
         raise
 
-async def confirm_put_handler(request):
+async def confirm_put_handler(request: web.Request) -> web.Response:
     try:
-        uuid = request['query']['uuid']
-        client_checksum = request['query']['checksum']
+        [uuid] = request['query']['uuid']
+        [client_checksum] = request['query']['checksum']
         job = io_jobs.pop(uuid)
         result = await job['future']
         assert result['exitcode'] == 0, result
@@ -138,9 +138,9 @@ async def confirm_put_handler(request):
         s4.delete(job['path'], job['temp_path'], checksum_path(job['path']))
         raise
 
-async def prepare_get_handler(request):
-    key = request['query']['key']
-    port = request['query']['port']
+async def prepare_get_handler(request: web.Request) -> web.Response:
+    [key] = request['query']['key']
+    [port] = request['query']['port']
     remote = request['remote']
     assert s4.on_this_server(key)
     path = key.split('s4://')[-1]
@@ -160,9 +160,9 @@ async def prepare_get_handler(request):
         else:
             return {'code': 200, 'body': uuid}
 
-async def confirm_get_handler(request):
-    uuid = request['query']['uuid']
-    client_checksum = request['query']['checksum']
+async def confirm_get_handler(request: web.Request) -> web.Response:
+    [uuid] = request['query']['uuid']
+    [client_checksum] = request['query']['checksum']
     job = io_jobs.pop(uuid)
     result = await job['future']
     assert result['exitcode'] == 0, result
@@ -170,20 +170,20 @@ async def confirm_get_handler(request):
     assert job['disk_checksum'] == client_checksum == server_checksum, [job['disk_checksum'], client_checksum, server_checksum]
     return {'code': 200}
 
-async def list_buckets_handler(request):
+async def list_buckets_handler(request: web.Request) -> web.Response:
     result = await submit_find(s4.run, f'find -maxdepth 1 -mindepth 1 -type d ! -name "_*" {printf}')
     assert result['exitcode'] == 0, result
     xs = [x.split() for x in result['stdout'].splitlines()]
     xs = [[date, time.split('.')[0], size, os.path.basename(path)] for date, time, size, path in xs]
     return {'code': 200, 'body': json.dumps(xs)}
 
-async def list_handler(request):
-    prefix = request['query']['prefix']
+async def list_handler(request: web.Request) -> web.Response:
+    [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
     _prefix = prefix = prefix.split('s4://')[-1]
     if not _prefix.endswith('/'):
         _prefix = os.path.dirname(_prefix) + '/'
-    recursive = request['query'].get('recursive') == 'true'
+    recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
@@ -208,11 +208,11 @@ async def list_handler(request):
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
     return {'code': 200, 'body': json.dumps(xs)}
 
-async def delete_handler(request):
-    prefix = request['query']['prefix']
+async def delete_handler(request: web.Request) -> web.Response:
+    [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
     prefix = prefix.split('s4://')[-1]
-    recursive = request['query'].get('recursive') == 'true'
+    recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         result = await submit_solo(s4.run, 'rm -rf', prefix + '*')
     else:
@@ -220,16 +220,16 @@ async def delete_handler(request):
     assert result['exitcode'] == 0, result
     return {'code': 200}
 
-async def health_handler(request):
+async def health_handler(request: web.Request) -> web.Response:
     return {'code': 200}
 
-async def map_to_n_handler(request):
-    inkey = request['query']['inkey']
-    outdir = request['query']['outdir']
+async def map_to_n_handler(request: web.Request) -> web.Response:
+    [inkey] = request['query']['inkey']
+    [outdir] = request['query']['outdir']
     assert s4.on_this_server(inkey)
     assert outdir.startswith('s4://') and outdir.endswith('/')
     inpath = os.path.abspath(inkey.split('s4://')[-1])
-    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     tempdir, result = await submit_cpu(run_in_persisted_tempdir, f'< {inpath} {cmd}')
     try:
         if result['exitcode'] != 0:
@@ -250,14 +250,14 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
         assert result['exitcode'] == 0, result
         s4.delete(temp_path)
 
-async def map_from_n_handler(request):
-    outdir = request['query']['outdir']
+async def map_from_n_handler(request: web.Request) -> web.Response:
+    [outdir] = request['query']['outdir']
     assert outdir.startswith('s4://') and outdir.endswith('/')
     inkeys = json.loads(request['body'])
     assert all(s4.on_this_server(key) for key in inkeys)
     bucket_num = inkeys[0].split('/')[-1]
     outpath = os.path.join(outdir, bucket_num)
-    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
     result = await submit_cpu(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', stdin='\n'.join(inpaths) + '\n')
     if result['exitcode'] != 0:
@@ -276,13 +276,13 @@ def run_in_persisted_tempdir(*a, **kw):
     tempdir = tempfile.mkdtemp(dir='_tempdirs')
     return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
 
-async def map_handler(request):
-    inkey = request['query']['inkey']
-    outkey = request['query']['outkey']
+async def map_handler(request: web.Request) -> web.Response:
+    [inkey] = request['query']['inkey']
+    [outkey] = request['query']['outkey']
     assert s4.on_this_server(inkey)
     assert s4.on_this_server(outkey)
     inpath = os.path.abspath(inkey.split('s4://')[-1])
-    cmd = util.strings.b64_decode(request['query']['b64cmd'])
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     result = await submit_cpu(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}')
     if result['exitcode'] != 0:
         return {'code': 400, 'body': json.dumps(result)}
