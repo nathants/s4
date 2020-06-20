@@ -2,6 +2,7 @@
 import argh
 import concurrent.futures
 import datetime
+import gc
 import json
 import logging
 import os
@@ -299,6 +300,17 @@ async def gc_jobs():
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
 
+@util.misc.exceptions_kill_pid
+async def pypy_gc_subprocess_fds():
+    try:
+        _ = sys.pypy_version_info
+    except AttributeError:
+        pass
+    else:
+        gc.collect_step()
+        await tornado.gen.sleep(1)
+        tornado.ioloop.IOLoop.current().add_callback(pypy_gc_subprocess_fds)
+
 def main(debug=False):
     util.log.setup(format='%(message)s')
     if not os.path.basename(os.getcwd()) == 's4_data':
@@ -321,6 +333,7 @@ def main(debug=False):
     logging.info(f'starting s4 server on port: {port}')
     web.app(routes, debug=debug).listen(port, idle_connection_timeout=s4.max_timeout, body_timeout=s4.max_timeout)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
+    tornado.ioloop.IOLoop.current().add_callback(pypy_gc_subprocess_fds)
     try:
         tornado.ioloop.IOLoop.current().start()
     except KeyboardInterrupt:
