@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 import argh
-import shell
-import concurrent.futures
 import collections
+import concurrent.futures
+import json
 import logging
 import os
 import pool.thread
-import requests
 import s4
+import shell
 import sys
+import urllib.error
+import urllib.request
 import util.log
 import util.net
 import util.retry
@@ -20,11 +22,25 @@ retry_max_seconds = int(os.environ.get('S4_RETRY_MAX_SECONDS', 60))
 retry_exponent = float(os.environ.get('S4_EXPONENT', 1.5))
 _retry = lambda f: util.retry.retry(f, SystemExit, max_seconds=retry_max_seconds, exponent=retry_exponent)
 
-def _http_post(*a, **kw):
-    return requests.post(*a, timeout=s4.max_timeout, **kw)
+def _http_post(url, data='', timeout=s4.max_timeout):
+    try:
+        with urllib.request.urlopen(url, data.encode(), timeout=timeout) as resp:
+            body = resp.read().decode()
+            code = resp.status
+    except urllib.error.HTTPError as e:
+        return {'body': e.msg, 'code': e.code}
+    else:
+        return {'body': body, 'code': code}
 
-def _http_get(*a, **kw):
-    return requests.get(*a, timeout=s4.max_timeout, **kw)
+def _http_get(url, timeout=s4.max_timeout):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            body = resp.read().decode()
+            code = resp.status
+    except urllib.error.HTTPError as e:
+        return {'body': e.msg, 'code': e.code}
+    else:
+        return {'body': body, 'code': code}
 
 def rm(prefix, recursive=False):
     assert prefix.startswith('s4://')
@@ -35,11 +51,11 @@ def _rm(prefix, recursive):
     if recursive:
         for address, port in s4.servers():
             resp = _http_post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
-            assert resp.status_code == 200, resp
+            assert resp['code'] == 200, resp
     else:
         server = s4.pick_server(prefix)
         resp = _http_post(f'http://{server}/delete?prefix={prefix}')
-        assert resp.status_code == 200, resp
+        assert resp['code'] == 200, resp
 
 @argh.arg('prefix', nargs='?', default=None)
 def ls(prefix, recursive=False):
@@ -58,18 +74,18 @@ def _ls(prefix, recursive):
     recursive = 'recursive=true' if recursive else ''
     fs = [submit(_http_get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
     for f in fs:
-        assert f.result().status_code == 200, f.result()
-    res = [f.result().json() for f in fs]
+        assert f.result()['code'] == 200, f.result()
+    res = [json.loads(f.result()['body']) for f in fs]
     return sorted([line for lines in res for line in lines], key=lambda x: x[-1])
 
 @_retry
 def _ls_buckets():
     fs = [submit(_http_get, f'http://{address}:{port}/list_buckets') for address, port in s4.servers()]
     for f in fs:
-        assert f.result().status_code == 200, f.result()
+        assert f.result()['code'] == 200, f.result()
     buckets = {}
     for f in fs:
-        for date, time, size, path in f.result().json():
+        for date, time, size, path in json.loads(f.result()['body']):
             buckets[path] = date, time, size, path
     return [buckets[path] for path in sorted(buckets)]
 
@@ -96,11 +112,11 @@ def _get(src, dst):
     try:
         server = s4.pick_server(src)
         resp = _http_post(f'http://{server}/prepare_get?key={src}&port={port}')
-        if resp.status_code == 404:
+        if resp['code'] == 404:
             sys.exit(1)
         else:
-            assert resp.status_code == 200, resp
-            uuid = resp.text
+            assert resp['code'] == 200, resp
+            uuid = resp['body']
             if dst == '-':
                 cmd = f'recv {port} | xxh3 --stream'
             else:
@@ -110,7 +126,7 @@ def _get(src, dst):
             assert result['exitcode'] == 0, result
             client_checksum = result['stderr']
             resp = _http_post(f'http://{server}/confirm_get?&uuid={uuid}&checksum={client_checksum}')
-            assert resp.status_code == 200, resp
+            assert resp['code'] == 200, resp
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
                 dst = os.path.join(dst, os.path.basename(src))
@@ -127,12 +143,12 @@ def _put(src, dst):
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
     resp = _http_post(f'http://{server}/prepare_put?key={dst}')
-    if resp.status_code == 409:
+    if resp['code'] == 409:
         logging.info('fatal: key already exists')
         sys.exit(1)
     else:
-        assert resp.status_code == 200, resp
-        uuid, port = resp.json()
+        assert resp['code'] == 200, resp
+        uuid, port = json.loads(resp['body'])
         if src == '-':
             result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
         else:
@@ -140,7 +156,7 @@ def _put(src, dst):
         assert result['exitcode'] == 0, result
         client_checksum = result['stderr']
         resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
-        assert resp.status_code == 200, resp
+        assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
@@ -169,7 +185,7 @@ def _cp(src, dst, recursive):
 
 def _post_all_retrying_429(urls):
     try:
-        fs = {submit(_http_post, url, json=data): url for url, data in urls}
+        fs = {submit(_http_post, url, data): url for url, data in urls}
     except ValueError:
         fs = {submit(_http_post, url): url for url in urls}
     with util.time.timeout(s4.max_timeout):
@@ -177,24 +193,23 @@ def _post_all_retrying_429(urls):
             f = next(iter(fs))
             url = fs.pop(f)
             resp = f.result()
-            if resp.status_code == 429:
+            if resp['code'] == 429:
                 logging.info(f'server busy, retry url: {url}')
                 try:
                     url, data = url
                 except ValueError:
                     fs[submit(_http_post, url)] = url
                 else:
-                    fs[submit(_http_post, url, json=data)] = url
-            elif resp.status_code == 400:
-                result = resp.json()
+                    fs[submit(_http_post, url, data)] = url
+            elif resp['code'] == 400:
+                result = json.loads(resp['body'])
                 logging.info('fatal: cmd failure')
                 logging.info(result['stdout'])
                 logging.info(result['stderr'])
                 logging.info(f'exitcode={result["exitcode"]}')
                 sys.exit(1)
             else:
-                assert resp.status_code == 200
-
+                assert resp['code'] == 200
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -257,7 +272,7 @@ def _map_from_n(indir, outdir, cmd):
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1
         server = servers[0]
-        urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', inkeys))
+        urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)))
     _post_all_retrying_429(urls)
 
 def servers():
@@ -266,7 +281,7 @@ def servers():
 def health():
     fs = {}
     for addr, port in s4.servers():
-        f = submit(requests.get, f'http://{addr}:{port}/health', timeout=2)
+        f = submit(_http_get, f'http://{addr}:{port}/health', timeout=2)
         fs[f] = addr, port
     for f in concurrent.futures.as_completed(fs):
         addr, port = fs[f]
@@ -275,7 +290,7 @@ def health():
         except:
             print(f'unhealthy: {addr}:{port}')
         else:
-            if resp.status_code == 200:
+            if resp['code'] == 200:
                 print(f'healthy:   {addr}:{port}')
             else:
                 print(f'unhealthy: {addr}:{port}')

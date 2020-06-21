@@ -2,8 +2,7 @@ import setuptools
 import os
 import sys
 import subprocess
-from os import listdir
-from os.path import isfile, isdir, basename, dirname, join, abspath
+from os.path import dirname, join, abspath
 
 # install deps
 setuptools.setup(
@@ -15,8 +14,7 @@ setuptools.setup(
     url='http://github.com/nathants/s4',
     description='stupid simple storage service',
     python_requires='>=3.6',
-    install_requires=['argh >0.26, <0.27',
-                      'requests >2, <3'],
+    install_requires=['argh >0.26, <0.27'],
     packages=['s4'],
 )
 
