@@ -24,7 +24,7 @@ on every server:
 
 - install
   ```
-  curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_arch.sh | bash
+  curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
   ```
 
 - configure
@@ -36,5 +36,5 @@ on every server:
 
 - start
   ```
-  PYPY_GC_MAX=1GB s4-server
+  s4-server
   ```
