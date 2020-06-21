@@ -26,8 +26,8 @@ io_jobs = {}
 
 # setup pool sizes
 num_cpus = os.cpu_count() or 1
-max_io_jobs  = int(os.environ.get('S4_IO_JOBS',  num_cpus * 4))
-max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus))
+max_io_jobs  = int(os.environ.get('S4_IO_JOBS',  num_cpus * 8))
+max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus * 2))
 
 # setup pools
 io_pool   = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
