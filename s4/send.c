@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define ASSERT(cond, ...) if (!(cond)) { fprintf(stderr, ##__VA_ARGS__); exit(1); }
-#define TIMEOUT_SECONDS 5
+#define TIMEOUT_SECONDS 15
 #define BUFFER_SIZE 1024 * 1024 * 5
 typedef int32_t i32;
 typedef uint8_t u8;
