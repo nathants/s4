@@ -42,7 +42,7 @@ if [ ! -f ~/.s4.requirements.done ]; then
         if ! which xxh3 &>/dev/null; then
             git clone https://github.com/nathants/bsv
             cd bsv
-            make
+            make -j
             sudo mv -fv bin/* /usr/local/bin
         fi
     )
