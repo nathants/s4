@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,9 +14,17 @@
 typedef int32_t i32;
 typedef uint8_t u8;
 
+void alarm_handler(int sig) {
+    ASSERT(0, "fatal: timeout\n");
+}
+
 i32 main(i32 argc, char *argv[]) {
     // show usage and exit
     ASSERT(argc == 3 && argc > 1 && strcmp(argv[1], "-h") != 0 && strcmp(argv[1], "--help") != 0, "usage: cat data | send ADDR PORT\n");
+
+    // setup timeout
+    signal(SIGALRM, alarm_handler);
+    alarm(TIMEOUT_SECONDS);
 
     // setup buffer
     u8 *buffer = malloc(BUFFER_SIZE);
@@ -31,13 +40,12 @@ i32 main(i32 argc, char *argv[]) {
     addr.sin_addr.s_addr = inet_addr(argv[1]);
     addr.sin_port = htons(atoi(argv[2]));
 
-    // retry connect, waiting TIMEOUT_SECONDS for server to come up
+    // retry connect
     i32 count = 0;
     while (1) {
         if (connect(sock, &addr, sizeof(addr)) >= 0)
             break;
         usleep(10000);
-        ASSERT(++count < TIMEOUT_SECONDS * 100, "fatal: connect timeout errno: %d\n", errno);
     }
 
     // copy from stdin to socket
@@ -45,6 +53,8 @@ i32 main(i32 argc, char *argv[]) {
     setvbuf(stream, NULL, _IONBF, 0);
     i32 size;
     while (1) {
+        // set timeout
+        alarm(TIMEOUT_SECONDS);
         // read from stdin
         size = fread_unlocked(buffer, 1, BUFFER_SIZE, stdin);
         if (size > 0) {

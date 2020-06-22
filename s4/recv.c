@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,13 +9,22 @@
 #include <unistd.h>
 
 #define ASSERT(cond, ...) if (!(cond)) { fprintf(stderr, ##__VA_ARGS__); exit(1); }
+#define TIMEOUT_SECONDS 5
 #define BUFFER_SIZE 1024 * 1024 * 5
 typedef int32_t i32;
 typedef uint8_t u8;
 
+void alarm_handler(int sig) {
+    ASSERT(0, "fatal: timeout\n");
+}
+
 i32 main(i32 argc, char *argv[]) {
     // show usage and exit
     ASSERT(argc == 2 && argc > 1 && strcmp(argv[1], "-h") != 0 && strcmp(argv[1], "--help") != 0, "usage: recv PORT > data\n");
+
+    // setup timeout
+    signal(SIGALRM, alarm_handler);
+    alarm(TIMEOUT_SECONDS);
 
     // setup buffer
     char *buffer = malloc(BUFFER_SIZE);
@@ -40,6 +50,8 @@ i32 main(i32 argc, char *argv[]) {
     setvbuf(stream, NULL, _IONBF, 0);
     i32 size;
     while(1) {
+        // set timeout
+        alarm(TIMEOUT_SECONDS);
         // read size of bytes from socket
         switch (fread_unlocked(&size, 1, sizeof(i32), stream)) {
             // close and exit
