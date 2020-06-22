@@ -76,7 +76,7 @@ def _ls(prefix, recursive):
     for f in fs:
         assert f.result()['code'] == 200, f.result()
     res = [json.loads(f.result()['body']) for f in fs]
-    return sorted([line for lines in res for line in lines], key=lambda x: x[-1])
+    return sorted(set(tuple(line) for lines in res for line in lines), key=lambda x: x[-1])
 
 @_retry
 def _ls_buckets():
