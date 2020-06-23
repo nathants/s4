@@ -295,7 +295,7 @@ async def gc_jobs():
     for uid, job in list(io_jobs.items()):
         if job and time.monotonic() - job['start'] > s4.max_timeout:
             with util.exceptions.ignore(KeyError):
-                await submit_solo(s4.delete, job['temp_path'])
+                await submit_solo(s4.delete, checksum_path(job['path']), job['temp_path'])
             io_jobs.pop(uid, None)
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
