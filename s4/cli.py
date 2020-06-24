@@ -279,6 +279,7 @@ def servers():
     return [':'.join(x) for x in s4.servers()]
 
 def health():
+    fail = False
     fs = {}
     for addr, port in s4.servers():
         f = submit(_http_get, f'http://{addr}:{port}/health', timeout=2)
@@ -288,12 +289,16 @@ def health():
         try:
             resp = f.result()
         except:
+            fail = True
             print(f'unhealthy: {addr}:{port}')
         else:
             if resp['code'] == 200:
                 print(f'healthy:   {addr}:{port}')
             else:
+                fail = True
                 print(f'unhealthy: {addr}:{port}')
+    if fail:
+        sys.exit(1)
 
 if __name__ == '__main__':
     util.log.setup(format='%(message)s')
