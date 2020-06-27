@@ -227,14 +227,16 @@ def map(indir, outdir, cmd):
 
 @_retry
 def _map(indir, outdir, cmd):
-    lines = _ls(indir, recursive=False)
-    for line in lines:
-        date, time, size, key = line
-        assert size != 'PRE', key
-        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+    lines = _ls(indir, recursive=True)
     urls = []
+    proto, path = indir.split('://')
+    bucket, path = path.split('/', 1)
     for line in lines:
         date, time, size, key = line
+        key = key.split(path)[-1]
+        if size == 'PRE':
+            continue
+        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
@@ -249,13 +251,11 @@ def map_to_n(indir, outdir, cmd):
 @_retry
 def _map_to_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=False)
+    urls = []
     for line in lines:
         date, time, size, key = line
         assert size != 'PRE', key
         assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
-    urls = []
-    for line in lines:
-        date, time, size, key = line
         inkey = os.path.join(indir, key)
         urls.append(f'http://{s4.pick_server(inkey)}/map_to_n?inkey={inkey}&outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}')
     _post_all_retrying_429(urls)
