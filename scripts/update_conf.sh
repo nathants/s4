@@ -10,7 +10,7 @@ fi
 
 echo
 echo make sure instances are accessible via internal ipv4
-aws-ec2-ssh s4-cluster -qiyc whoami >/dev/null
+aws-ec2-wait-for-ssh $name -iy
 
 echo
 echo update instances confs
