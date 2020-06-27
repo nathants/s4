@@ -97,6 +97,11 @@ def test_updates_are_not_allowed():
         run('s4 rm', path)
         run(f'echo | s4 cp - {path}')
 
+def test_eval():
+    with servers():
+        run('echo 123 | s4 cp - s4://bucket/file.txt')
+        assert '123' == run('s4 eval s4://bucket/file.txt "cat -"')
+
 def test_basic():
     with servers():
         run('echo 123 > file.txt')

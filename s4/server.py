@@ -139,6 +139,18 @@ async def confirm_put_handler(request: web.Request) -> web.Response:
         s4.delete(job['path'], job['temp_path'], checksum_path(job['path']))
         raise
 
+async def eval_handler(request: web.Request) -> web.Response:
+    [key] = request['query']['key']
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    assert s4.on_this_server(key)
+    path = key.split('s4://')[-1]
+    if not await submit_solo(exists, path):
+        return {'code': 404}
+    else:
+        result = await submit_io(s4.run, f'< {path} {cmd} | head -n 1000')
+        assert result['exitcode'] == 0, result
+        return {'code': 200, 'body': result['stdout']}
+
 async def prepare_get_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     [port] = request['query']['port']
@@ -234,7 +246,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
     tempdir, result = await submit_cpu(run_in_persisted_tempdir, f'< {inpath} {cmd}')
     try:
         if result['exitcode'] != 0:
-            return {'code': 400, 'body': json.dumps(result)}
+            return {'code': 400, 'reason': json.dumps(result)}
         else:
             temp_paths = result['stdout'].splitlines()
             await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
@@ -262,7 +274,7 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
     result = await submit_cpu(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', stdin='\n'.join(inpaths) + '\n')
     if result['exitcode'] != 0:
-        return {'code': 400, 'body': json.dumps(result)}
+        return {'code': 400, 'reason': json.dumps(result)}
     else:
         return {'code': 200}
 
@@ -286,7 +298,7 @@ async def map_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     result = await submit_cpu(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}')
     if result['exitcode'] != 0:
-        return {'code': 400, 'body': json.dumps(result)}
+        return {'code': 400, 'reason': json.dumps(result)}
     else:
         return {'code': 200}
 
@@ -326,6 +338,7 @@ def main(debug=False):
               ('/map',          {'post': map_handler}),
               ('/map_to_n',     {'post': map_to_n_handler}),
               ('/map_from_n',   {'post': map_from_n_handler}),
+              ('/eval',         {'post': eval_handler}),
               ('/list',         {'get':  list_handler}),
               ('/list_buckets', {'get':  list_buckets_handler}),
               ('/health',       {'get':  health_handler})]

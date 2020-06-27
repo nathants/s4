@@ -57,6 +57,13 @@ def _rm(prefix, recursive):
         resp = _http_post(f'http://{server}/delete?prefix={prefix}')
         assert resp['code'] == 200, resp
 
+def eval(key, cmd):
+    resp = _http_post(f'http://{s4.pick_server(key)}/eval?key={key}&b64cmd={util.strings.b64_encode(cmd)}')
+    if resp['code'] == 404:
+        sys.exit(1)
+    else:
+        print(resp['body'])
+
 @argh.arg('prefix', nargs='?', default=None)
 def ls(prefix, recursive=False):
     assert not prefix or prefix.startswith('s4://'), 'fatal: prefix must start with s4://'
@@ -167,7 +174,6 @@ def cp(src, dst, recursive=False):
 
 @_retry
 def _cp(src, dst, recursive):
-
     if recursive:
         if src.startswith('s4://'):
             _get_recursive(src, dst)
@@ -184,6 +190,8 @@ def _cp(src, dst, recursive):
         assert False, 'fatal: src or dst needs s4://'
 
 def _post_all_retrying_429(urls):
+    pool.thread._size = max(len(urls), 128)
+    pool.thread._pool.clear_cache()
     try:
         fs = {submit(_http_post, url, data): url for url, data in urls}
     except ValueError:
@@ -209,6 +217,7 @@ def _post_all_retrying_429(urls):
                 logging.info(f'exitcode={result["exitcode"]}')
                 sys.exit(1)
             else:
+                logging.info(url)
                 assert resp['code'] == 200
 
 def map(indir, outdir, cmd):
