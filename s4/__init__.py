@@ -64,7 +64,8 @@ def pick_server(key):
     assert key.startswith('s4://'), key
     key = key.split('s4://')[-1]
     if key.split('/')[-1].isdigit():
-        key = key.split('/')[-1]
-    index = xxh3.oneshot_int(key.encode()) % len(servers())
+        index = int(key.split('/')[-1]) % len(servers())
+    else:
+        index = xxh3.oneshot_int(key.encode()) % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'
