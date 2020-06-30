@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import asyncio
 import argh
 import concurrent.futures
 import datetime
@@ -237,23 +238,29 @@ async def health_handler(request: web.Request) -> web.Response:
     return {'code': 200}
 
 async def map_to_n_handler(request: web.Request) -> web.Response:
-    [inkey] = request['query']['inkey']
-    [outdir] = request['query']['outdir']
-    assert s4.on_this_server(inkey)
-    assert outdir.startswith('s4://') and outdir.endswith('/')
-    inpath = os.path.abspath(inkey.split('s4://')[-1])
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-    tempdir, result = await submit_cpu(run_in_persisted_tempdir, f'< {inpath} {cmd}')
+    data = json.loads(request['body'])
+    fs = []
+    for inkey, outdir in data:
+        assert s4.on_this_server(inkey)
+        assert outdir.startswith('s4://') and outdir.endswith('/')
+        inpath = os.path.abspath(inkey.split('s4://')[-1])
+        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_persisted_tempdir(f'< {inpath} {cmd}')]
+        fs.append(submit_cpu(run, inpath, outdir, cmd))
     try:
-        if result['exitcode'] != 0:
-            return {'code': 400, 'reason': json.dumps(result)}
-        else:
-            temp_paths = result['stdout'].splitlines()
-            await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
-            return {'code': 200}
-    finally:
-        result = await submit_solo(s4.run, 'rm -rf', tempdir)
-        assert result['exitcode'] == 0, result
+        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+            inpath, outdir, (tempdir, result) = await f
+            if result['exitcode'] != 0:
+                for f in fs: # type: ignore
+                    f.cancel()
+                return {'code': 400, 'reason': json.dumps(result)}
+            else:
+                temp_paths = result['stdout'].splitlines()
+                await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
+    except asyncio.TimeoutError:
+        return {'code': 400, 'reason': json.dumps({'stderr': 'map-to-n timeout', 'stdout': '', 'exitcode': 1})}
+    else:
+        return {'code': 200}
 
 def confirm_to_n(inpath, outdir, tempdir, temp_paths):
     for temp_path in temp_paths:
@@ -268,11 +275,12 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     assert outdir.startswith('s4://') and outdir.endswith('/')
     inkeys = json.loads(request['body'])
     assert all(s4.on_this_server(key) for key in inkeys)
+    assert len({key.split('/')[-1] for key in inkeys}) == 1
     bucket_num = inkeys[0].split('/')[-1]
     outpath = os.path.join(outdir, bucket_num)
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
-    result = await submit_cpu(run_in_tempdir, f'{cmd} | s4 cp - {outpath}', stdin='\n'.join(inpaths) + '\n')
+    result = await submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n')
     if result['exitcode'] != 0:
         return {'code': 400, 'reason': json.dumps(result)}
     else:
@@ -290,27 +298,48 @@ def run_in_persisted_tempdir(*a, **kw):
     return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
 
 async def map_handler(request: web.Request) -> web.Response:
-    [inkey] = request['query']['inkey']
-    [outkey] = request['query']['outkey']
-    assert s4.on_this_server(inkey)
-    assert s4.on_this_server(outkey)
-    inpath = os.path.abspath(inkey.split('s4://')[-1])
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-    result = await submit_cpu(run_in_tempdir, f'< {inpath} {cmd} | s4 cp - {outkey}')
-    if result['exitcode'] != 0:
-        return {'code': 400, 'reason': json.dumps(result)}
+    data = json.loads(request['body'])
+    fs = []
+    for inkey, outkey in data:
+        assert s4.on_this_server(inkey)
+        assert s4.on_this_server(outkey)
+        inpath = os.path.abspath(inkey.split('s4://')[-1])
+        fs.append(submit_cpu(run_in_tempdir, f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
+    try:
+        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+            result = await f
+            if result['exitcode'] != 0:
+                for f in fs: # type: ignore
+                    f.cancel()
+                return {'code': 400, 'reason': json.dumps(result)}
+    except asyncio.TimeoutError:
+        return {'code': 400, 'reason': json.dumps({'stderr': 'map timeout', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
 
 @util.misc.exceptions_kill_pid
-async def gc_jobs():
+async def gc_expired_data():
     for uid, job in list(io_jobs.items()):
         if job and time.monotonic() - job['start'] > s4.max_timeout:
+            logging.info(f'gc expired job: {job}')
             with util.exceptions.ignore(KeyError):
                 await submit_solo(s4.delete, checksum_path(job['path']), job['temp_path'])
             io_jobs.pop(uid, None)
+    result = await submit_find(s4.run, f'find _tempfiles/ -mindepth 1 -maxdepth 1 -type f -cmin +{int(s4.max_timeout / 60) + 1}')
+    assert result['exitcode'] == 0, result
+    tempfiles = result['stdout'].splitlines()
+    for path in tempfiles:
+        logging.info(f'gc expired tempfile: {path}')
+        await submit_solo(s4.delete, path)
+    result = await submit_find(s4.run, f'find _tempdirs/  -mindepth 1 -maxdepth 1 -type d -cmin +{int(s4.max_timeout / 60) + 1}')
+    assert result['exitcode'] == 0, result
+    tempdirs = result['stdout'].splitlines()
+    for tempdir in tempdirs:
+        logging.info(f'gc expired tempdir: {tempdir}')
+        await submit_solo(shutil.rmtree, tempdir)
     await tornado.gen.sleep(5)
-    tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
+    tornado.ioloop.IOLoop.current().add_callback(gc_expired_data)
 
 @util.misc.exceptions_kill_pid
 async def pypy_gc_subprocess_fds():
@@ -345,7 +374,7 @@ def main(debug=False):
     port = s4.http_port()
     logging.info(f'starting s4 server on port: {port}')
     web.app(routes, debug=debug).listen(port, idle_connection_timeout=s4.max_timeout, body_timeout=s4.max_timeout)
-    tornado.ioloop.IOLoop.current().add_callback(gc_jobs)
+    tornado.ioloop.IOLoop.current().add_callback(gc_expired_data)
     tornado.ioloop.IOLoop.current().add_callback(pypy_gc_subprocess_fds)
     try:
         tornado.ioloop.IOLoop.current().start()
