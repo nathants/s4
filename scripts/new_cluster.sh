@@ -1,6 +1,8 @@
 #!/bin/bash
 set -eou pipefail
 
+cd $(dirname $0)
+
 name=$1
 
 if ! which aws-ec2-new &>/dev/null; then
@@ -59,10 +61,5 @@ aws-ec2-ssh $name --no-tty -yc "
 # make sure all servers are running
 aws-ec2-ssh $name -yc 'ps -ef | grep s4-server | grep -v grep'
 
-# echo sshuttle command to access cluster internal network
-id=$(aws-ec2-id $name | head -n1)
-user=$(aws-ec2-ls $id | grep -Eo "ssh-user=[a-z]+" | cut -d= -f2)
-remote=$(aws-ec2-ip $id)
-network=$(aws-ec2-ip-private $id|cut -d. -f1)
-echo "forward traffic to $name: sshuttle -r $user@$remote $network.0.0.0/8"
-echo "wait for ssh on internal address: aws-ec2-wait-for-ssh -yi $name"
+# setup local and cluster conf
+bash ./update_conf.sh $name
