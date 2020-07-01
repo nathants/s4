@@ -10,7 +10,7 @@ if ! which aws-ec2-new &>/dev/null; then
     exit 1
 fi
 
-# make new instances if they don't exist
+# make new instances if they don't exist. for faster startup use normal ami: https://github.com/nathants/bootstraps/blob/master/amis/normal.sh
 if ! aws-ec2-ls $name -s running; then
     aws-ec2-new $name \
                 --seconds-timeout ${timeout:-$((60*60))} \
