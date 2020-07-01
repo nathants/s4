@@ -1,10 +1,20 @@
 ## why
 
-s3 is awesome, but can be expensive, slow, and doesn't expose data locality.
+s3 is awesome, but can be expensive, slow, and doesn't expose data local compute or efficient data shuffle.
 
 ## what
 
-an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) storage cluster that's cheap, fast, and exposes data local compute. use this for ephemeral data.
+an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) storage cluster that is cheap and fast. exposes data local compute and efficient data shuffle.
+
+use this for maximum performance processing of ephemeral data, with durable inputs, outputs, and checkpoints going to s3.
+
+## how
+
+a ring of servers store files on disk placed via consistent hashing.
+
+a single metadata controller per server orchestrates out of process operations for data transfer, query, and compute.
+
+a thicker client allows the metadata controller to be thinner.
 
 ## non goals
 
@@ -12,7 +22,7 @@ an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_ser
 
 - high durability. data lives on a single disk, and is as durable as that disk.
 
-- security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with wireguard if needed.
+- security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with [wireguard](https://www.wireguard.com/) if needed.
 
 - fine granularity performance. data should be medium to coarse granularity.
 
@@ -20,21 +30,31 @@ an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_ser
 
 ## install
 
-on every server:
-
 - install
   ```
   curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
+  ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
+  ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
   ```
 
 - configure
   ```
-  echo $server1:$port1 >  ~/.s4.conf
-  echo $server2:$port2 >> ~/.s4.conf
-  ...
+  echo $server1:8080 >  ~/.s4.conf
+  echo $server2:8080 >> ~/.s4.conf
+  scp ~/.s4.conf $server1:
+  scp ~/.s4.conf $server2:
   ```
 
 - start
   ```
-  s4-server
+  ssh $server1 s4-server
+  ssh $server2 s4-server
+  ```
+
+- use
+  ```
+  echo hello world | s4 cp - s4://bucket/data.txt
+  s4 cp s4://bucket/data.txt -
+  s4 ls s4://bucket --recursive
+  s4 --help
   ```
