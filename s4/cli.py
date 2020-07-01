@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import pprint
 import argh
 import collections
 import concurrent.futures
@@ -198,8 +199,8 @@ def _post_all_retrying_429(urls):
                     logging.info(f'exitcode={result["exitcode"]}')
                     sys.exit(1)
                 else:
-                    logging.info(url.split('?')[-1].replace('&', ' '))
-                    assert resp['code'] == 200
+                    assert resp['code'] == 200, pprint.pformat([url, resp])
+                    logging.info(f'ok {url.split("://")[1].split("/")[0]}')
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -250,17 +251,18 @@ def map_from_n(indir, outdir, cmd):
 def _map_from_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
-    bucket, *_ = indir.split('://')[-1].split('/')
+    bucket, indir = indir.split('://')[-1].split('/', 1)
     for line in lines:
         date, time, size, key = line
-        assert len(key.split('/')) == 3, key
-        _indir, _inkey, bucket_num = key.split('/')
+        key = key.split(indir)[-1]
+        assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
+        _inkey, bucket_num = key.split('/')
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
-        buckets[bucket_num].append(os.path.join(f's4://{bucket}', key))
+        buckets[bucket_num].append(os.path.join(f's4://{bucket}', indir, key))
     urls = []
     for bucket_num, inkeys in buckets.items():
         servers = [s4.pick_server(k) for k in inkeys]
-        assert len(set(servers)) == 1
+        assert len(set(servers)) == 1, set(servers)
         server = servers[0]
         urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)))
     _post_all_retrying_429(urls)
