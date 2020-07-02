@@ -142,21 +142,34 @@ def _put(src, dst):
         dst = os.path.join(dst, os.path.basename(src))
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
-    resp = _http_post(f'http://{server}/prepare_put?key={dst}')
-    if resp['code'] == 409:
-        logging.info(f'fatal: key already exists: {dst}')
-        sys.exit(1)
-    else:
-        assert resp['code'] == 200, resp
-        uuid, port = json.loads(resp['body'])
+    local = server_address == '0.0.0.0' and 'S4_NO_LOCAL' not in os.environ
+    if local:
+        temp_path = s4.new_temp_path()
         if src == '-':
-            result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
+            result = s4.run(f'cat - > {temp_path}', stdin=sys.stdin)
+        elif 'S4_MV_OK' in os.environ:
+            result = s4.run(f'mv {src} {temp_path}')
         else:
-            result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
+            result = s4.run(f'cp {src} {temp_path}')
         assert result['exitcode'] == 0, result
-        client_checksum = result['stderr']
-        resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+        resp = _http_post(f'http://{server}/local_put?key={dst}&temp_path={temp_path}')
         assert resp['code'] == 200, resp
+    else:
+        resp = _http_post(f'http://{server}/prepare_put?key={dst}&local={str(local).lower()}')
+        if resp['code'] == 409:
+            logging.info(f'fatal: key already exists: {dst}')
+            sys.exit(1)
+        else:
+            assert resp['code'] == 200, resp
+            uuid, port = json.loads(resp['body'])
+            if src == '-':
+                result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
+            else:
+                result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
+            assert result['exitcode'] == 0, result
+            client_checksum = result['stderr']
+            resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+            assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
@@ -181,26 +194,21 @@ def _cp(src, dst, recursive):
     else:
         assert False, 'fatal: src or dst needs s4://'
 
-def _post_all_retrying_429(urls):
+def _post_all(urls):
     fs = {submit(_http_post, url, data): (url, data) for url, data in urls}
-    with util.time.timeout(s4.max_timeout):
-        while fs:
-            for f in concurrent.futures.as_completed(list(fs)):
-                url, data = fs.pop(f)
-                resp = f.result()
-                if resp['code'] == 429:
-                    logging.info(f'server busy, retry url: {url}')
-                    fs[submit(_http_post, url, data)] = url, data
-                elif resp['code'] == 400:
-                    result = json.loads(resp['body'])
-                    logging.info(f'fatal: cmd failure {url}')
-                    logging.info(result['stdout'])
-                    logging.info(result['stderr'])
-                    logging.info(f'exitcode={result["exitcode"]}')
-                    sys.exit(1)
-                else:
-                    assert resp['code'] == 200, pprint.pformat([url, resp])
-                    logging.info(f'ok {url.split("://")[1].split("/")[0]}')
+    for f in concurrent.futures.as_completed(list(fs)):
+        url, data = fs.pop(f)
+        resp = f.result()
+        if resp['code'] == 400:
+            result = json.loads(resp['body'])
+            logging.info(f'fatal: cmd failure {url}')
+            logging.info(result['stdout'])
+            logging.info(result['stderr'])
+            logging.info(f'exitcode={result["exitcode"]}')
+            sys.exit(1)
+        else:
+            assert resp['code'] == 200, pprint.pformat([url, resp])
+            logging.info(f'ok {url.split("://")[1].split("/")[0]}')
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -223,7 +231,7 @@ def _map(indir, outdir, cmd):
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
         datas[s4.pick_server(inkey)].append([inkey, outkey])
     urls = [(f'http://{server}/map?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
-    _post_all_retrying_429(urls)
+    _post_all(urls)
 
 def map_to_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -241,7 +249,7 @@ def _map_to_n(indir, outdir, cmd):
         inkey = os.path.join(indir, key)
         datas[s4.pick_server(inkey)].append((inkey, outdir))
     urls = [(f'http://{server}/map_to_n?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
-    _post_all_retrying_429(urls)
+    _post_all(urls)
 
 def map_from_n(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -265,7 +273,7 @@ def _map_from_n(indir, outdir, cmd):
         assert len(set(servers)) == 1, set(servers)
         server = servers[0]
         urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)))
-    _post_all_retrying_429(urls)
+    _post_all(urls)
 
 def servers():
     return [':'.join(x) for x in s4.servers()]

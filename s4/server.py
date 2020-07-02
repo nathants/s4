@@ -2,7 +2,6 @@
 import asyncio
 import argh
 import concurrent.futures
-import datetime
 import gc
 import json
 import logging
@@ -67,6 +66,31 @@ def checksum_path(path):
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
+def local_put(temp_path, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    assert not os.path.isfile(path)
+    assert not os.path.isfile(checksum_path(path))
+    result = s4.run(f'< {temp_path} xxh3 | tr -d "\n" > {checksum_path(path)}')
+    if result['exitcode'] != 0:
+        raise Exception(result)
+    os.rename(temp_path, path)
+    os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+
+async def local_put_handler(request: web.Request) -> web.Response:
+    [key] = request['query']['key']
+    [temp_path] = request['query']['temp_path']
+    assert ' ' not in key
+    assert s4.on_this_server(key)
+    path = key.split('s4://')[-1]
+    assert not path.startswith('_')
+    try:
+        await submit_solo(local_put, temp_path, path)
+    except AssertionError:
+        return {'code': 409}
+    else:
+        return {'code': 200}
+
 def prepare_put(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     assert not os.path.isfile(path)
@@ -75,13 +99,12 @@ def prepare_put(path):
     port = util.net.free_port()
     return s4.new_temp_path('_tempfiles'), port
 
-def start(func, timeout):
+def start(func):
     future = tornado.concurrent.Future()
     add_callback = tornado.ioloop.IOLoop.current().add_callback
     def fn(*a, **kw):
         add_callback(future.set_result, None)
         return func(*a, **kw)
-    future = tornado.gen.with_timeout(datetime.timedelta(seconds=timeout), future)
     return future, fn
 
 async def prepare_put_handler(request: web.Request) -> web.Response:
@@ -96,22 +119,15 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
         return {'code': 409}
     else:
         try:
-            started, s4_run = start(s4.run, s4.timeout)
+            started, s4_run = start(s4.run)
             uuid = new_uuid()
             assert not os.path.isfile(temp_path)
             io_jobs[uuid] = {'start': time.monotonic(),
                              'future': submit_io(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
                              'temp_path': temp_path,
                              'path': path}
-            try:
-                await started
-            except tornado.util.TimeoutError:
-                job = io_jobs.pop(uuid)
-                job['future'].cancel()
-                await submit_solo(s4.delete, checksum_path(path), temp_path)
-                return {'code': 429}
-            else:
-                return {'code': 200, 'body': json.dumps([uuid, port])}
+            await started
+            return {'code': 200, 'body': json.dumps([uuid, port])}
         except:
             s4.delete(checksum_path(path))
             raise
@@ -120,6 +136,7 @@ def confirm_put(path, temp_path, server_checksum):
     try:
         checksum_write(path, server_checksum)
         os.rename(temp_path, path)
+        os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
         os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     except:
         s4.delete(path, temp_path, checksum_path(path))
@@ -161,18 +178,13 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        started, s4_run = start(s4.run, s4.timeout)
+        started, s4_run = start(s4.run)
         uuid = new_uuid()
         io_jobs[uuid] = {'start': time.monotonic(),
                          'future': submit_io(s4_run, f'< {path} xxh3 --stream | send {remote} {port}'),
                          'disk_checksum': await submit_solo(checksum_read, path)}
-        try:
-            await started
-        except tornado.util.TimeoutError:
-            io_jobs.pop(uuid)['future'].cancel()
-            return {'code': 429}
-        else:
-            return {'code': 200, 'body': uuid}
+        await started
+        return {'code': 200, 'body': uuid}
 
 async def confirm_get_handler(request: web.Request) -> web.Response:
     [uuid] = request['query']['uuid']
@@ -359,7 +371,9 @@ def main(debug=False):
         os.makedirs('s4_data/_tempdirs',  exist_ok=True)
         os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
-    routes = [('/prepare_put',  {'post': prepare_put_handler}),
+    os.environ['S4_MV_OK'] = 'true'
+    routes = [('/local_put',  {'post': local_put_handler}),
+              ('/prepare_put',  {'post': prepare_put_handler}),
               ('/confirm_put',  {'post': confirm_put_handler}),
               ('/prepare_get',  {'post': prepare_get_handler}),
               ('/confirm_get',  {'post': confirm_get_handler}),
