@@ -1,7 +1,8 @@
 #!/usr/bin/env pypy3
-import asyncio
 import argh
+import asyncio
 import concurrent.futures
+import datetime
 import gc
 import json
 import logging
@@ -99,12 +100,13 @@ def prepare_put(path):
     port = util.net.free_port()
     return s4.new_temp_path('_tempfiles'), port
 
-def start(func):
+def start(func, timeout):
     future = tornado.concurrent.Future()
     add_callback = tornado.ioloop.IOLoop.current().add_callback
     def fn(*a, **kw):
         add_callback(future.set_result, None)
         return func(*a, **kw)
+    future = tornado.gen.with_timeout(datetime.timedelta(seconds=timeout), future)
     return future, fn
 
 async def prepare_put_handler(request: web.Request) -> web.Response:
@@ -119,15 +121,22 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
         return {'code': 409}
     else:
         try:
-            started, s4_run = start(s4.run)
+            started, s4_run = start(s4.run, s4.timeout)
             uuid = new_uuid()
             assert not os.path.isfile(temp_path)
             io_jobs[uuid] = {'start': time.monotonic(),
                              'future': submit_io(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
                              'temp_path': temp_path,
                              'path': path}
-            await started
-            return {'code': 200, 'body': json.dumps([uuid, port])}
+            try:
+                await started
+            except tornado.util.TimeoutError:
+                job = io_jobs.pop(uuid)
+                job['future'].cancel()
+                await submit_solo(s4.delete, checksum_path(path), temp_path)
+                return {'code': 429, 'reason': 'server busy timeout, please retry'}
+            else:
+                return {'code': 200, 'body': json.dumps([uuid, port])}
         except:
             s4.delete(checksum_path(path))
             raise
@@ -178,13 +187,19 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        started, s4_run = start(s4.run)
+        started, s4_run = start(s4.run, s4.timeout)
         uuid = new_uuid()
         io_jobs[uuid] = {'start': time.monotonic(),
                          'future': submit_io(s4_run, f'< {path} xxh3 --stream | send {remote} {port}'),
                          'disk_checksum': await submit_solo(checksum_read, path)}
-        await started
-        return {'code': 200, 'body': uuid}
+        try:
+            await started
+        except tornado.util.TimeoutError:
+            job = io_jobs.pop(uuid)
+            job['future'].cancel()
+            return {'code': 429, 'reason': 'server busy timeout, please retry'}
+        else:
+            return {'code': 200, 'body': uuid}
 
 async def confirm_get_handler(request: web.Request) -> web.Response:
     [uuid] = request['query']['uuid']
@@ -260,14 +275,14 @@ async def map_handler(request: web.Request) -> web.Response:
         env = f'export filename={os.path.basename(inpath)}; '
         fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
     try:
-        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+        for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
             result = await f
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
                 return {'code': 400, 'reason': json.dumps(result)}
     except asyncio.TimeoutError:
-        return {'code': 400, 'reason': json.dumps({'stderr': 'map timeout', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
 
@@ -282,7 +297,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
         run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_persisted_tempdir(f'< {inpath} {cmd}')]
         fs.append(submit_cpu(run, inpath, outdir, cmd))
     try:
-        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+        for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
             inpath, outdir, (tempdir, result) = await f
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
@@ -292,7 +307,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
                 temp_paths = result['stdout'].splitlines()
                 await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
     except asyncio.TimeoutError:
-        return {'code': 400, 'reason': json.dumps({'stderr': 'map-to-n timeout', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
 
@@ -319,14 +334,14 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
         inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
         fs.append(submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n'))
     try:
-        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+        for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
             result = await f
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
                 return {'code': 400, 'reason': json.dumps(result)}
     except asyncio.TimeoutError:
-        return {'code': 400, 'reason': json.dumps({'stderr': 'map-to-n timeout', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
 

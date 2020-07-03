@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import pprint
 import argh
 import collections
 import concurrent.futures
@@ -7,6 +6,7 @@ import json
 import logging
 import os
 import pool.thread
+import pprint
 import s4
 import shell
 import sys
@@ -24,7 +24,11 @@ def _http_post(url, data='', timeout=s4.max_timeout):
             body = resp.read().decode()
             code = resp.status
     except urllib.error.HTTPError as e:
-        return {'body': e.msg, 'code': e.code}
+        if e.code == 429:
+            logging.info(e.msg)
+            sys.exit(42)
+        else:
+            return {'body': e.msg, 'code': e.code}
     else:
         return {'body': body, 'code': code}
 
