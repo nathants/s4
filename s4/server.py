@@ -83,7 +83,7 @@ async def local_put_handler(request: web.Request) -> web.Response:
     [temp_path] = request['query']['temp_path']
     assert ' ' not in key
     assert s4.on_this_server(key)
-    path = key.split('s4://')[-1]
+    path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
     try:
         await submit_solo(local_put, temp_path, path)
@@ -113,7 +113,7 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     assert ' ' not in key
     assert s4.on_this_server(key)
-    path = key.split('s4://')[-1]
+    path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
     try:
         temp_path, port = await submit_solo(prepare_put, path)
@@ -170,7 +170,7 @@ async def eval_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     assert s4.on_this_server(key)
-    path = key.split('s4://')[-1]
+    path = key.split('s4://', 1)[-1]
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
@@ -183,7 +183,7 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
     [port] = request['query']['port']
     remote = request['remote']
     assert s4.on_this_server(key)
-    path = key.split('s4://')[-1]
+    path = key.split('s4://', 1)[-1]
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
@@ -221,7 +221,7 @@ async def list_buckets_handler(request: web.Request) -> web.Response:
 async def list_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
-    _prefix = prefix = prefix.split('s4://')[-1]
+    _prefix = prefix = prefix.split('s4://', 1)[-1]
     if not _prefix.endswith('/'):
         _prefix = os.path.dirname(_prefix) + '/'
     recursive = request['query'].get('recursive', [''])[0] == 'true'
@@ -245,14 +245,14 @@ async def list_handler(request: web.Request) -> web.Response:
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
-        xs = [[date, time.split(".")[0], size, path.split(_prefix)[-1]] for date, time, size, path in files + dirs]
+        xs = [[date, time.split(".")[0], size, path.split(_prefix, 1)[-1]] for date, time, size, path in files + dirs]
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
     return {'code': 200, 'body': json.dumps(xs)}
 
 async def delete_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
-    prefix = prefix.split('s4://')[-1]
+    prefix = prefix.split('s4://', 1)[-1]
     recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         result = await submit_solo(s4.run, 'rm -rf', prefix + '*')
@@ -271,7 +271,7 @@ async def map_handler(request: web.Request) -> web.Response:
     for inkey, outkey in data:
         assert s4.on_this_server(inkey)
         assert s4.on_this_server(outkey)
-        inpath = os.path.abspath(inkey.split('s4://')[-1])
+        inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
         env = f'export filename={os.path.basename(inpath)}; '
         fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
     try:
@@ -293,8 +293,9 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
     for inkey, outdir in data:
         assert s4.on_this_server(inkey)
         assert outdir.startswith('s4://') and outdir.endswith('/')
-        inpath = os.path.abspath(inkey.split('s4://')[-1])
-        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_persisted_tempdir(f'< {inpath} {cmd}')]
+        inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
+        env = f'export filename={os.path.basename(inpath)}; '
+        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_persisted_tempdir(env + f'< {inpath} {cmd}')]
         fs.append(submit_cpu(run, inpath, outdir, cmd))
     try:
         for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
@@ -318,9 +319,13 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
         result = s4.run(f's4 cp {temp_path} {outkey}')
         assert result['exitcode'] == 0, result
         s4.delete(temp_path)
+    shutil.rmtree(tempdir)
 
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    if cmd.lstrip().startswith('while read'):
+        cmd = f'cat - | {cmd}'
     assert outdir.startswith('s4://') and outdir.endswith('/')
     data = json.loads(request['body'])
     fs = []
@@ -330,8 +335,7 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
         bucket_num = s4.key_bucket_num(inkeys[0])
         assert bucket_num.isdigit()
         outpath = os.path.join(outdir, bucket_num)
-        cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-        inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
+        inpaths = [os.path.abspath(inkey.split('s4://', 1)[-1]) for inkey in inkeys]
         fs.append(submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n'))
     try:
         for f in asyncio.as_completed(fs, timeout=s4.max_timeout):

@@ -66,7 +66,7 @@ def pick_server(key):
     # partitioning data, and we want all of the partitions for the same bucket
     # to be on the same server. otherwise hash the whole key.
     assert key.startswith('s4://'), key
-    key = key.split('s4://')[-1]
+    key = key.split('s4://', 1)[-1]
     digits = key_bucket_num(key)
     if digits.isdigit():
         index = int(digits) % len(servers())

@@ -65,9 +65,17 @@ def eval(key, cmd):
 
 @argh.arg('prefix', nargs='?', default=None)
 def ls(prefix, recursive=False):
-    assert not prefix or prefix.startswith('s4://'), 'fatal: prefix must start with s4://'
+    if prefix and '://' not in prefix:
+        prefix = f's4://{prefix}'
+    lines = []
     if prefix:
-        lines = _ls(prefix, recursive)
+        if not recursive and prefix.split('://', 1)[-1].count('/') == 0:
+            for line in _ls_buckets():
+                if prefix.split('://', 1)[-1] in line:
+                    lines = [line]
+                    break
+        else:
+            lines = _ls(prefix, recursive)
     else:
         lines = _ls_buckets()
     assert lines
@@ -94,18 +102,18 @@ def _ls_buckets():
     return [buckets[path] for path in sorted(buckets)]
 
 def _get_recursive(src, dst):
-    bucket, *parts = src.split('s4://')[-1].rstrip('/').split('/')
+    bucket, *parts = src.split('s4://', 1)[-1].rstrip('/').split('/')
     prefix = '/'.join(parts) or bucket + '/'
     for line in _ls(src, recursive=True):
         date, time, size, key = line
         token = os.path.dirname(prefix) if dst == '.' else prefix
-        path = os.path.join(dst, key.split(token or None)[-1].lstrip(' /'))
+        path = os.path.join(dst, key.split(token or None, 1)[-1].lstrip(' /'))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         cp('s4://' + os.path.join(bucket, key), path)
 
 def _put_recursive(src, dst):
     for dirpath, dirs, files in os.walk(src):
-        path = dirpath.split(src)[-1].lstrip('/')
+        path = dirpath.split(src, 1)[-1].lstrip('/')
         for file in files:
             cp(os.path.join(dirpath, file), os.path.join(dst, path, file))
 
@@ -178,8 +186,8 @@ def _put(src, dst):
 def cp(src, dst, recursive=False):
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
-    assert not dst.startswith('s4://') or not dst.split('s4://')[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
-    assert not src.startswith('s4://') or not src.split('s4://')[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
+    assert not dst.startswith('s4://') or not dst.split('s4://', 1)[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
+    assert not src.startswith('s4://') or not src.split('s4://', 1)[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
     _cp(src, dst, recursive)
 
 def _cp(src, dst, recursive):
@@ -212,7 +220,7 @@ def _post_all(urls):
             sys.exit(1)
         else:
             assert resp['code'] == 200, pprint.pformat([url, resp])
-            logging.info(f'ok {url.split("://")[1].split("/")[0]}')
+            logging.info(f'ok {url.split("://", 1)[1].split("/")[0]}')
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -226,10 +234,10 @@ def _map(indir, outdir, cmd):
     datas = collections.defaultdict(list)
     for line in lines:
         date, time, size, key = line
-        key = key.split(path)[-1]
+        key = key.split(path or None, 1)[-1]
         if size == 'PRE':
             continue
-        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+        assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
@@ -249,7 +257,7 @@ def _map_to_n(indir, outdir, cmd):
     for line in lines:
         date, time, size, key = line
         assert size != 'PRE', key
-        assert key.split('/')[-1].isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {key.split("/")[-1]}'
+        assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         inkey = os.path.join(indir, key)
         datas[s4.pick_server(inkey)].append((inkey, outdir))
     urls = [(f'http://{server}/map_to_n?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
@@ -263,10 +271,11 @@ def map_from_n(indir, outdir, cmd):
 def _map_from_n(indir, outdir, cmd):
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
-    bucket, indir = indir.split('://')[-1].split('/', 1)
+    bucket, indir = indir.split('://', 1)[-1].split('/', 1)
     for line in lines:
+        logging.info(line)
         date, time, size, key = line
-        key = key.split(indir)[-1]
+        key = key.split(indir, 1)[-1]
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
         bucket_num = s4.key_bucket_num(key)
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
@@ -305,6 +314,7 @@ def health():
         sys.exit(1)
 
 if __name__ == '__main__':
+    shell.ignore_closed_pipes()
     util.log.setup(format='%(message)s')
     pool.thread._size = len(s4.servers())
     try:
