@@ -57,6 +57,9 @@ def server_num():
             return i
     assert False, [servers(), http_port()]
 
+def key_bucket_num(key):
+    return key.split('/')[-1].split('_')[0]
+
 def pick_server(key):
     # when path is like s4://bucket/job/worker/001, hash only the last
     # component of the path, in this case: 001. this naming scheme is used for
@@ -64,7 +67,7 @@ def pick_server(key):
     # to be on the same server. otherwise hash the whole key.
     assert key.startswith('s4://'), key
     key = key.split('s4://')[-1]
-    digits = key.split('/')[-1].split('_')[0]
+    digits = key_bucket_num(key)
     if digits.isdigit():
         index = int(digits) % len(servers())
     else:

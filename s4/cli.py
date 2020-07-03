@@ -264,15 +264,15 @@ def _map_from_n(indir, outdir, cmd):
         date, time, size, key = line
         key = key.split(indir)[-1]
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
-        _inkey, bucket_num = key.split('/')
+        bucket_num = s4.key_bucket_num(key)
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
         buckets[bucket_num].append(os.path.join(f's4://{bucket}', indir, key))
-    urls = []
+    datas = collections.defaultdict(list)
     for bucket_num, inkeys in buckets.items():
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1, set(servers)
-        server = servers[0]
-        urls.append((f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)))
+        datas[servers[0]].append(inkeys)
+    urls = [(f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)) for server, inkeys in datas.items()]
     _post_all(urls)
 
 def servers():

@@ -307,16 +307,26 @@ def confirm_to_n(inpath, outdir, tempdir, temp_paths):
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
     assert outdir.startswith('s4://') and outdir.endswith('/')
-    inkeys = json.loads(request['body'])
-    assert all(s4.on_this_server(key) for key in inkeys)
-    assert len({key.split('/')[-1] for key in inkeys}) == 1
-    bucket_num = inkeys[0].split('/')[-1]
-    outpath = os.path.join(outdir, bucket_num)
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-    inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
-    result = await submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n')
-    if result['exitcode'] != 0:
-        return {'code': 400, 'reason': json.dumps(result)}
+    data = json.loads(request['body'])
+    fs = []
+    for inkeys in data:
+        assert all(s4.on_this_server(key) for key in inkeys)
+        assert len({s4.key_bucket_num(key) for key in inkeys}) == 1
+        bucket_num = s4.key_bucket_num(inkeys[0])
+        assert bucket_num.isdigit()
+        outpath = os.path.join(outdir, bucket_num)
+        cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+        inpaths = [os.path.abspath(inkey.split('s4://')[-1]) for inkey in inkeys]
+        fs.append(submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n'))
+    try:
+        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+            result = await f
+            if result['exitcode'] != 0:
+                for f in fs: # type: ignore
+                    f.cancel()
+                return {'code': 400, 'reason': json.dumps(result)}
+    except asyncio.TimeoutError:
+        return {'code': 400, 'reason': json.dumps({'stderr': 'map-to-n timeout', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
 
