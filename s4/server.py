@@ -317,7 +317,8 @@ async def map_handler(request: web.Request) -> web.Response:
         assert s4.on_this_server(inkey)
         assert s4.on_this_server(outkey)
         inpath = os.path.abspath(inkey.split('s4://')[-1])
-        fs.append(submit_cpu(run_in_tempdir, f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
+        env = f'export filename={os.path.basename(inpath)}; '
+        fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
     try:
         for f in asyncio.as_completed(fs, timeout=s4.timeout):
             result = await f
