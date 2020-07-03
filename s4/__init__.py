@@ -1,8 +1,9 @@
 import os
 import shell
+import util.exceptions
 import util.cached
 import uuid
-import xxh3
+import hashlib
 
 conf_path   = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
@@ -63,9 +64,10 @@ def pick_server(key):
     # to be on the same server. otherwise hash the whole key.
     assert key.startswith('s4://'), key
     key = key.split('s4://')[-1]
-    if key.split('/')[-1].isdigit():
-        index = int(key.split('/')[-1]) % len(servers())
+    digits = key.split('/')[-1].split('_')[0]
+    if digits.isdigit():
+        index = int(digits) % len(servers())
     else:
-        index = xxh3.oneshot_int(key.encode()) % len(servers())
+        index = int.from_bytes(hashlib.blake2s(key.encode()).digest(), "little") % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'

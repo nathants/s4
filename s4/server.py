@@ -249,6 +249,28 @@ async def delete_handler(request: web.Request) -> web.Response:
 async def health_handler(request: web.Request) -> web.Response:
     return {'code': 200}
 
+async def map_handler(request: web.Request) -> web.Response:
+    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    data = json.loads(request['body'])
+    fs = []
+    for inkey, outkey in data:
+        assert s4.on_this_server(inkey)
+        assert s4.on_this_server(outkey)
+        inpath = os.path.abspath(inkey.split('s4://')[-1])
+        env = f'export filename={os.path.basename(inpath)}; '
+        fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
+    try:
+        for f in asyncio.as_completed(fs, timeout=s4.timeout):
+            result = await f
+            if result['exitcode'] != 0:
+                for f in fs: # type: ignore
+                    f.cancel()
+                return {'code': 400, 'reason': json.dumps(result)}
+    except asyncio.TimeoutError:
+        return {'code': 400, 'reason': json.dumps({'stderr': 'map timeout', 'stdout': '', 'exitcode': 1})}
+    else:
+        return {'code': 200}
+
 async def map_to_n_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     data = json.loads(request['body'])
@@ -308,28 +330,6 @@ def run_in_tempdir(*a, **kw):
 def run_in_persisted_tempdir(*a, **kw):
     tempdir = tempfile.mkdtemp(dir='_tempdirs')
     return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
-
-async def map_handler(request: web.Request) -> web.Response:
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-    data = json.loads(request['body'])
-    fs = []
-    for inkey, outkey in data:
-        assert s4.on_this_server(inkey)
-        assert s4.on_this_server(outkey)
-        inpath = os.path.abspath(inkey.split('s4://')[-1])
-        env = f'export filename={os.path.basename(inpath)}; '
-        fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
-    try:
-        for f in asyncio.as_completed(fs, timeout=s4.timeout):
-            result = await f
-            if result['exitcode'] != 0:
-                for f in fs: # type: ignore
-                    f.cancel()
-                return {'code': 400, 'reason': json.dumps(result)}
-    except asyncio.TimeoutError:
-        return {'code': 400, 'reason': json.dumps({'stderr': 'map timeout', 'stdout': '', 'exitcode': 1})}
-    else:
-        return {'code': 200}
 
 @util.misc.exceptions_kill_pid
 async def gc_expired_data():
