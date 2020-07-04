@@ -10,4 +10,6 @@ network=$(aws-ec2-ip-private $id|cut -d. -f1)
 
 aws-ec2-wait-for-ssh -yi $name
 
+ssh-keyscan $remote >> ~/.ssh/known_hosts 2>/dev/null
+
 sshuttle -r $user@$remote $network.0.0.0/8
