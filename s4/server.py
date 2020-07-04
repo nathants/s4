@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import s4
+import s4.cli
 import shutil
 import stat
 import sys
@@ -67,30 +68,27 @@ def checksum_path(path):
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
 
-def local_put(temp_path, path):
+def confirm_local_put(temp_path, path, checksum):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     assert not os.path.isfile(path)
     assert not os.path.isfile(checksum_path(path))
-    result = s4.run(f'< {temp_path} xxh3 | tr -d "\n" > {checksum_path(path)}')
-    if result['exitcode'] != 0:
-        raise Exception(result)
     os.rename(temp_path, path)
+    checksum_write(path, checksum)
     os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
 
-async def local_put_handler(request: web.Request) -> web.Response:
-    [key] = request['query']['key']
-    [temp_path] = request['query']['temp_path']
+def xxh3_checksum(path):
+    result = s4.run(f'< {path} xxh3')
+    assert result['exitcode'] == 0, result
+    return result['stdout']
+
+async def local_put(temp_path, key):
     assert ' ' not in key
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
-    try:
-        await submit_solo(local_put, temp_path, path)
-    except AssertionError:
-        return {'code': 409}
-    else:
-        return {'code': 200}
+    checksum = await submit_io(xxh3_checksum, temp_path)
+    await submit_solo(confirm_local_put, temp_path, path, checksum)
 
 def prepare_put(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -264,6 +262,9 @@ async def delete_handler(request: web.Request) -> web.Response:
 async def health_handler(request: web.Request) -> web.Response:
     return {'code': 200}
 
+def create_task(fn):
+    return asyncio.get_event_loop().create_task(fn)
+
 async def map_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     data = json.loads(request['body'])
@@ -273,18 +274,28 @@ async def map_handler(request: web.Request) -> web.Response:
         assert s4.on_this_server(outkey)
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
         env = f'export filename={os.path.basename(inpath)}; '
-        fs.append(submit_cpu(run_in_tempdir, env + f'< {inpath} {cmd} > output && s4 cp output {outkey}'))
+        run = lambda inpath, outkey, cmd: [outkey, run_in_tempdir(env + f'< {inpath} {cmd} > output')]
+        fs.append(submit_cpu(run, inpath, outkey, cmd))
+    tempdirs = []
     try:
+        put_fs = []
         for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
-            result = await f
+            outkey, (tempdir, result) = await f
+            tempdirs.append(tempdir)
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
                 return {'code': 400, 'reason': json.dumps(result)}
+            else:
+                temp_path = os.path.join(tempdir, 'output')
+                put_fs.append(create_task(local_put(temp_path, outkey)))
+        await asyncio.gather(*put_fs)
     except asyncio.TimeoutError:
         return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
+    finally:
+        await submit_io(s4.delete_dirs, tempdirs)
 
 async def map_to_n_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
@@ -295,31 +306,34 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
         assert outdir.startswith('s4://') and outdir.endswith('/')
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
         env = f'export filename={os.path.basename(inpath)}; '
-        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_persisted_tempdir(env + f'< {inpath} {cmd}')]
+        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_tempdir(env + f'< {inpath} {cmd}')]
         fs.append(submit_cpu(run, inpath, outdir, cmd))
+    tempdirs = []
     try:
+        put_fs = []
         for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
             inpath, outdir, (tempdir, result) = await f
+            tempdirs.append(tempdir)
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
                 return {'code': 400, 'reason': json.dumps(result)}
             else:
-                temp_paths = result['stdout'].splitlines()
-                await submit_io(confirm_to_n, inpath, outdir, tempdir, temp_paths)
+                for temp_path in result['stdout'].splitlines():
+                    temp_path = os.path.join(tempdir, temp_path)
+                    outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
+                    if s4.on_this_server(outkey):
+                        task = create_task(local_put(temp_path, outkey))
+                    else:
+                        task = submit_io(s4.cli._put, temp_path, outkey) # type: ignore
+                    put_fs.append(task)
+        await asyncio.gather(*put_fs)
     except asyncio.TimeoutError:
         return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
-
-def confirm_to_n(inpath, outdir, tempdir, temp_paths):
-    for temp_path in temp_paths:
-        temp_path = os.path.join(tempdir, temp_path)
-        outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
-        result = s4.run(f's4 cp {temp_path} {outkey}')
-        assert result['exitcode'] == 0, result
-        s4.delete(temp_path)
-    shutil.rmtree(tempdir)
+    finally:
+        await submit_io(s4.delete_dirs, tempdirs)
 
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
@@ -334,29 +348,32 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
         assert len({s4.key_bucket_num(key) for key in inkeys}) == 1
         bucket_num = s4.key_bucket_num(inkeys[0])
         assert bucket_num.isdigit()
-        outpath = os.path.join(outdir, bucket_num)
+        outkey = os.path.join(outdir, bucket_num)
         inpaths = [os.path.abspath(inkey.split('s4://', 1)[-1]) for inkey in inkeys]
-        fs.append(submit_cpu(run_in_tempdir, f'{cmd} > output && s4 cp output {outpath}', stdin='\n'.join(inpaths) + '\n'))
+        run = lambda inpaths, outkey, cmd: [outkey, run_in_tempdir(f'{cmd} > output', stdin='\n'.join(inpaths) + '\n')]
+        fs.append(submit_cpu(run, inpaths, outkey, cmd))
+    tempdirs = []
     try:
+        put_fs = []
         for f in asyncio.as_completed(fs, timeout=s4.max_timeout):
-            result = await f
+            outkey, (tempdir, result) = await f
+            tempdirs.append(tempdir)
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
                 return {'code': 400, 'reason': json.dumps(result)}
+            else:
+                temp_path = os.path.join(tempdir, 'output')
+                put_fs.append(create_task(local_put(temp_path, outkey)))
+        await asyncio.gather(*put_fs)
     except asyncio.TimeoutError:
         return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
+    finally:
+        await submit_io(s4.delete_dirs, tempdirs)
 
 def run_in_tempdir(*a, **kw):
-    tempdir = tempfile.mkdtemp(dir='_tempdirs')
-    try:
-        return s4.run(f'cd {tempdir};', *a, **kw)
-    finally:
-        shutil.rmtree(tempdir)
-
-def run_in_persisted_tempdir(*a, **kw):
     tempdir = tempfile.mkdtemp(dir='_tempdirs')
     return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
 
@@ -402,8 +419,7 @@ def main(debug=False):
         os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
     os.environ['S4_MV_OK'] = 'true'
-    routes = [('/local_put',  {'post': local_put_handler}),
-              ('/prepare_put',  {'post': prepare_put_handler}),
+    routes = [('/prepare_put',  {'post': prepare_put_handler}),
               ('/confirm_put',  {'post': confirm_put_handler}),
               ('/prepare_get',  {'post': prepare_get_handler}),
               ('/confirm_get',  {'post': confirm_get_handler}),

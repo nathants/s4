@@ -48,8 +48,10 @@ def rm(prefix, recursive=False):
 
 def _rm(prefix, recursive):
     if recursive:
-        for address, port in s4.servers():
-            resp = _http_post(f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
+        fs = [pool.thread.submit(_http_post, f'http://{address}:{port}/delete?prefix={prefix}&recursive=true')
+              for address, port in s4.servers()]
+        for f in concurrent.futures.as_completed(fs):
+            resp = f.result()
             assert resp['code'] == 200, resp
     else:
         server = s4.pick_server(prefix)
@@ -154,34 +156,21 @@ def _put(src, dst):
         dst = os.path.join(dst, os.path.basename(src))
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
-    local = server_address == '0.0.0.0' and 'S4_NO_LOCAL' not in os.environ
-    if local:
-        temp_path = s4.new_temp_path()
-        if src == '-':
-            result = s4.run(f'cat - > {temp_path}', stdin=sys.stdin)
-        elif 'S4_MV_OK' in os.environ:
-            result = s4.run(f'mv {src} {temp_path}')
-        else:
-            result = s4.run(f'cp {src} {temp_path}')
-        assert result['exitcode'] == 0, result
-        resp = _http_post(f'http://{server}/local_put?key={dst}&temp_path={temp_path}')
-        assert resp['code'] == 200, resp
+    resp = _http_post(f'http://{server}/prepare_put?key={dst}')
+    if resp['code'] == 409:
+        logging.info(f'fatal: key already exists: {dst}')
+        sys.exit(1)
     else:
-        resp = _http_post(f'http://{server}/prepare_put?key={dst}&local={str(local).lower()}')
-        if resp['code'] == 409:
-            logging.info(f'fatal: key already exists: {dst}')
-            sys.exit(1)
+        assert resp['code'] == 200, resp
+        uuid, port = json.loads(resp['body'])
+        if src == '-':
+            result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
         else:
-            assert resp['code'] == 200, resp
-            uuid, port = json.loads(resp['body'])
-            if src == '-':
-                result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
-            else:
-                result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
-            assert result['exitcode'] == 0, result
-            client_checksum = result['stderr']
-            resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
-            assert resp['code'] == 200, resp
+            result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
+        assert result['exitcode'] == 0, result
+        client_checksum = result['stderr']
+        resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
+        assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
@@ -220,7 +209,8 @@ def _post_all(urls):
             sys.exit(1)
         else:
             assert resp['code'] == 200, pprint.pformat([url, resp])
-            logging.info(f'ok {url.split("://", 1)[1].split("/")[0]}')
+            print('ok', end=' ', file=sys.stderr, flush=True)
+    print('', file=sys.stderr, flush=True)
 
 def map(indir, outdir, cmd):
     assert indir.endswith('/'), 'indir must be a directory'
@@ -273,7 +263,6 @@ def _map_from_n(indir, outdir, cmd):
     buckets = collections.defaultdict(list)
     bucket, indir = indir.split('://', 1)[-1].split('/', 1)
     for line in lines:
-        logging.info(line)
         date, time, size, key = line
         key = key.split(indir, 1)[-1]
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'

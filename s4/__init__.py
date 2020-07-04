@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 import os
 import shell
 import util.cached
@@ -11,6 +12,10 @@ max_timeout = timeout * 2 + 15 # one timeout for fifo queue on server, one timeo
 
 def run(*a, **kw):
     return shell.warn(*a, **kw, timeout=timeout)
+
+def delete_dirs(dirs):
+    for dir in dirs:
+        shutil.rmtree(dir)
 
 def delete(*paths):
     for path in paths:
@@ -48,7 +53,8 @@ def http_port():
 
 def on_this_server(key):
     assert key.startswith('s4://')
-    return '0.0.0.0' == pick_server(key).split(':')[0], key
+    server, port = pick_server(key).split(':')
+    return server == '0.0.0.0' and port == str(http_port())
 
 @util.cached.func
 def server_num():
