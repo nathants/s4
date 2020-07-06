@@ -13,11 +13,17 @@ cd $(dirname $(dirname $0))
 # reinstall bsv
 aws-ec2-ssh $name -yc "curl -s https://raw.githubusercontent.com/nathants/bsv/master/scripts/install_archlinux.sh | bash"
 
+# push code
+aws-ec2-rsync . :s4/ $name -y
+
 # reinstall s4
 aws-ec2-ssh $name -yc "
     cd ~/s4
+    sudo python -m pip install -IU -r requirements.txt
+    sudo pypy3 -m pip install -IU -r requirements.txt
     sudo python setup.py develop
     sudo pypy3 setup.py develop
+
 "
 
 # kill any running servers

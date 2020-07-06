@@ -23,25 +23,30 @@ import util.misc
 import util.strings
 import uuid
 import web
+import util.retry
+
+retry = lambda f: util.retry.retry(f, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
 
 io_jobs = {}
 
 # setup pool sizes
 num_cpus = os.cpu_count() or 1
-max_io_jobs  = int(os.environ.get('S4_IO_JOBS',  num_cpus * 8))
+max_io_jobs  = int(os.environ.get('S4_IO_JOBS', num_cpus * 4))
 max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus + 2))
 
 # setup pools
-io_pool   = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
-cpu_pool  = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-find_pool = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-solo_pool = concurrent.futures.ThreadPoolExecutor(1)
+io_send_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+io_recv_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+cpu_pool     = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+misc_pool    = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+solo_pool    = concurrent.futures.ThreadPoolExecutor(1)
 
 # pool submit fns
-submit_io   = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(io_pool,   lambda: f(*a, **kw)) # type: ignore # noqa
-submit_cpu  = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(cpu_pool,  lambda: f(*a, **kw)) # type: ignore # noqa
-submit_find = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(find_pool, lambda: f(*a, **kw)) # type: ignore # noqa
-submit_solo = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(solo_pool, lambda: f(*a, **kw)) # type: ignore # noqa
+submit_io_send = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(io_send_pool, lambda: f(*a, **kw)) # type: ignore # noqa
+submit_io_recv = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(io_recv_pool, lambda: f(*a, **kw)) # type: ignore # noqa
+submit_cpu     = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(cpu_pool,     lambda: f(*a, **kw)) # type: ignore # noqa
+submit_misc    = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(misc_pool,    lambda: f(*a, **kw)) # type: ignore # noqa
+submit_solo    = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(solo_pool,    lambda: f(*a, **kw)) # type: ignore # noqa
 
 printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 
@@ -87,14 +92,10 @@ async def local_put(temp_path, key):
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
-    checksum = await submit_io(xxh3_checksum, temp_path)
+    checksum = await submit_misc(xxh3_checksum, temp_path)
     await submit_solo(confirm_local_put, temp_path, path, checksum)
 
 def prepare_put(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    assert not os.path.isfile(path)
-    assert not os.path.isfile(checksum_path(path))
-    open(checksum_path(path), 'w').close()
     port = util.net.free_port()
     return s4.new_temp_path('_tempfiles'), port
 
@@ -113,34 +114,33 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
+    temp_path, port = await submit_solo(prepare_put, path)
     try:
-        temp_path, port = await submit_solo(prepare_put, path)
-    except AssertionError:
-        return {'code': 409}
-    else:
+        started, s4_run = start(s4.run, s4.timeout)
+        uuid = new_uuid()
+        assert not os.path.isfile(temp_path)
+        io_jobs[uuid] = {'start': time.monotonic(),
+                         'future': submit_io_recv(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
+                         'temp_path': temp_path,
+                         'path': path}
         try:
-            started, s4_run = start(s4.run, s4.timeout)
-            uuid = new_uuid()
-            assert not os.path.isfile(temp_path)
-            io_jobs[uuid] = {'start': time.monotonic(),
-                             'future': submit_io(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
-                             'temp_path': temp_path,
-                             'path': path}
-            try:
-                await started
-            except tornado.util.TimeoutError:
-                job = io_jobs.pop(uuid)
-                job['future'].cancel()
-                await submit_solo(s4.delete, checksum_path(path), temp_path)
-                return {'code': 429, 'reason': 'server busy timeout, please retry'}
-            else:
-                return {'code': 200, 'body': json.dumps([uuid, port])}
-        except:
-            s4.delete(checksum_path(path))
-            raise
+            await started
+        except tornado.util.TimeoutError:
+            job = io_jobs.pop(uuid)
+            job['future'].cancel()
+            await submit_solo(s4.delete, checksum_path(path), temp_path)
+            return {'code': 429, 'reason': 'server busy timeout, please retry'}
+        else:
+            return {'code': 200, 'body': json.dumps([uuid, port])}
+    except:
+        s4.delete(checksum_path(path))
+        raise
 
 def confirm_put(path, temp_path, server_checksum):
     try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        assert not os.path.isfile(path)
+        assert not os.path.isfile(checksum_path(path))
         checksum_write(path, server_checksum)
         os.rename(temp_path, path)
         os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
@@ -150,19 +150,19 @@ def confirm_put(path, temp_path, server_checksum):
         raise
 
 async def confirm_put_handler(request: web.Request) -> web.Response:
+    [uuid] = request['query']['uuid']
+    [client_checksum] = request['query']['checksum']
+    job = io_jobs.pop(uuid)
+    result = await job['future']
+    assert result['exitcode'] == 0, result
+    server_checksum = result['stderr']
+    assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
     try:
-        [uuid] = request['query']['uuid']
-        [client_checksum] = request['query']['checksum']
-        job = io_jobs.pop(uuid)
-        result = await job['future']
-        assert result['exitcode'] == 0, result
-        server_checksum = result['stderr']
-        assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
         await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
+    except AssertionError:
+        return {'code': 409}
+    else:
         return {'code': 200}
-    except:
-        s4.delete(job['path'], job['temp_path'], checksum_path(job['path']))
-        raise
 
 async def eval_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
@@ -172,7 +172,7 @@ async def eval_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        result = await submit_io(s4.run, f'< {path} {cmd} | head -n 1000')
+        result = await submit_cpu(s4.run, f'< {path} {cmd} | head -n 1000')
         assert result['exitcode'] == 0, result
         return {'code': 200, 'body': result['stdout']}
 
@@ -188,7 +188,7 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
         started, s4_run = start(s4.run, s4.timeout)
         uuid = new_uuid()
         io_jobs[uuid] = {'start': time.monotonic(),
-                         'future': submit_io(s4_run, f'< {path} xxh3 --stream | send {remote} {port}'),
+                         'future': submit_io_send(s4_run, f'< {path} xxh3 --stream | send {remote} {port}'),
                          'disk_checksum': await submit_solo(checksum_read, path)}
         try:
             await started
@@ -210,7 +210,7 @@ async def confirm_get_handler(request: web.Request) -> web.Response:
     return {'code': 200}
 
 async def list_buckets_handler(request: web.Request) -> web.Response:
-    result = await submit_find(s4.run, f'find -maxdepth 1 -mindepth 1 -type d ! -name "_*" {printf}')
+    result = await submit_misc(s4.run, f'find -maxdepth 1 -mindepth 1 -type d ! -name "_*" {printf}')
     assert result['exitcode'] == 0, result
     xs = [x.split() for x in result['stdout'].splitlines()]
     xs = [[date, time.split('.')[0], size, os.path.basename(path)] for date, time, size, path in xs]
@@ -226,7 +226,7 @@ async def list_handler(request: web.Request) -> web.Response:
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        result = await submit_find(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}")
+        result = await submit_misc(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         xs = [x.split() for x in result['stdout'].splitlines()]
         xs = [[date, time.split('.')[0], size, '/'.join(path.split('/')[1:])] for date, time, size, path in xs]
@@ -236,10 +236,10 @@ async def list_handler(request: web.Request) -> web.Response:
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        result = await submit_find(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}")
+        result = await submit_misc(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = result['stdout']
-        result = await submit_find(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
+        result = await submit_misc(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
@@ -273,8 +273,7 @@ async def map_handler(request: web.Request) -> web.Response:
         assert s4.on_this_server(inkey)
         assert s4.on_this_server(outkey)
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
-        env = f'export filename={os.path.basename(inpath)}; '
-        run = lambda inpath, outkey, cmd: [outkey, run_in_tempdir(env + f'< {inpath} {cmd} > output')]
+        run = lambda inpath, outkey, cmd: [outkey, run_in_tempdir(f'< {inpath} {cmd} > output', env={'filename': os.path.basename(inpath)})]
         fs.append(submit_cpu(run, inpath, outkey, cmd))
     tempdirs = []
     try:
@@ -295,7 +294,7 @@ async def map_handler(request: web.Request) -> web.Response:
     else:
         return {'code': 200}
     finally:
-        await submit_io(s4.delete_dirs, tempdirs)
+        await submit_misc(s4.delete_dirs, tempdirs)
 
 async def map_to_n_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
@@ -305,8 +304,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
         assert s4.on_this_server(inkey)
         assert outdir.startswith('s4://') and outdir.endswith('/')
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
-        env = f'export filename={os.path.basename(inpath)}; '
-        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_tempdir(env + f'< {inpath} {cmd}')]
+        run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_tempdir(f'< {inpath} {cmd}', env={'filename': os.path.basename(inpath)})]
         fs.append(submit_cpu(run, inpath, outdir, cmd))
     tempdirs = []
     try:
@@ -325,7 +323,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
                     if s4.on_this_server(outkey):
                         task = create_task(local_put(temp_path, outkey))
                     else:
-                        task = submit_io(s4.cli._put, temp_path, outkey) # type: ignore
+                        task = submit_io_send(retry(s4.cli._put), temp_path, outkey)
                     put_fs.append(task)
         await asyncio.gather(*put_fs)
     except asyncio.TimeoutError:
@@ -333,7 +331,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
     else:
         return {'code': 200}
     finally:
-        await submit_io(s4.delete_dirs, tempdirs)
+        await submit_misc(s4.delete_dirs, tempdirs)
 
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
@@ -371,11 +369,11 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     else:
         return {'code': 200}
     finally:
-        await submit_io(s4.delete_dirs, tempdirs)
+        await submit_misc(s4.delete_dirs, tempdirs)
 
 def run_in_tempdir(*a, **kw):
     tempdir = tempfile.mkdtemp(dir='_tempdirs')
-    return tempdir, s4.run(f'cd {tempdir};', *a, **kw)
+    return tempdir, s4.run(*a, **kw, cwd=tempdir)
 
 @util.misc.exceptions_kill_pid
 async def gc_expired_data():
@@ -383,20 +381,20 @@ async def gc_expired_data():
         if job and time.monotonic() - job['start'] > s4.max_timeout:
             logging.info(f'gc expired job: {job}')
             with util.exceptions.ignore(KeyError):
-                await submit_solo(s4.delete, checksum_path(job['path']), job['temp_path'])
+                await submit_misc(s4.delete, checksum_path(job['path']), job['temp_path'])
             io_jobs.pop(uid, None)
-    result = await submit_find(s4.run, f'find _tempfiles/ -mindepth 1 -maxdepth 1 -type f -cmin +{int(s4.max_timeout / 60) + 1}')
-    assert result['exitcode'] == 0, result
-    tempfiles = result['stdout'].splitlines()
-    for path in tempfiles:
-        logging.info(f'gc expired tempfile: {path}')
-        await submit_solo(s4.delete, path)
-    result = await submit_find(s4.run, f'find _tempdirs/  -mindepth 1 -maxdepth 1 -type d -cmin +{int(s4.max_timeout / 60) + 1}')
-    assert result['exitcode'] == 0, result
-    tempdirs = result['stdout'].splitlines()
-    for tempdir in tempdirs:
-        logging.info(f'gc expired tempdir: {tempdir}')
-        await submit_solo(shutil.rmtree, tempdir)
+    result = await submit_misc(s4.run, f'find _tempfiles/ -mindepth 1 -maxdepth 1 -type f -cmin +{int(s4.max_timeout / 60) + 1}')
+    if result['exitcode'] == 0:
+        tempfiles = result['stdout'].splitlines()
+        for path in tempfiles:
+            logging.info(f'gc expired tempfile: {path}')
+            await submit_misc(s4.delete, path)
+    result = await submit_misc(s4.run, f'find _tempdirs/  -mindepth 1 -maxdepth 1 -type d -cmin +{int(s4.max_timeout / 60) + 1}')
+    if result['exitcode'] == 0:
+        tempdirs = result['stdout'].splitlines()
+        for tempdir in tempdirs:
+            logging.info(f'gc expired tempdir: {tempdir}')
+            await submit_misc(shutil.rmtree, tempdir)
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_expired_data)
 

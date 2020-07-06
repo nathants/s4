@@ -16,6 +16,7 @@ import util.log
 import util.net
 import util.strings
 import util.time
+
 from pool.thread import submit
 
 def _http_post(url, data='', timeout=s4.max_timeout):
@@ -86,8 +87,8 @@ def ls(prefix, recursive=False):
         print(date.ljust(10), time.ljust(8), size.rjust(just), path)
 
 def _ls(prefix, recursive):
-    recursive = 'recursive=true' if recursive else ''
-    fs = [submit(_http_get, f'http://{address}:{port}/list?prefix={prefix}&{recursive}') for address, port in s4.servers()]
+    recursive = '&recursive=true' if recursive else ''
+    fs = [submit(_http_get, f'http://{address}:{port}/list?prefix={prefix}{recursive}') for address, port in s4.servers()]
     for f in fs:
         assert f.result()['code'] == 200, f.result()
     res = [json.loads(f.result()['body']) for f in fs]
@@ -264,7 +265,7 @@ def _map_from_n(indir, outdir, cmd):
     bucket, indir = indir.split('://', 1)[-1].split('/', 1)
     for line in lines:
         date, time, size, key = line
-        key = key.split(indir, 1)[-1]
+        key = key.split(indir or None, 1)[-1]
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
         bucket_num = s4.key_bucket_num(key)
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'

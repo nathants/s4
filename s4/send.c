@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define ASSERT(cond, ...) if (!(cond)) { fprintf(stderr, ##__VA_ARGS__); exit(1); }
-#define TIMEOUT_SECONDS 15
+#define TIMEOUT_SECONDS 5
 #define BUFFER_SIZE 1024 * 1024 * 5
 typedef int32_t i32;
 typedef uint8_t u8;
@@ -40,8 +40,7 @@ i32 main(i32 argc, char *argv[]) {
     addr.sin_addr.s_addr = inet_addr(argv[1]);
     addr.sin_port = htons(atoi(argv[2]));
 
-    // retry connect
-    i32 count = 0;
+    // retry connect, alaram() handles timeout
     while (1) {
         if (connect(sock, &addr, sizeof(addr)) >= 0)
             break;

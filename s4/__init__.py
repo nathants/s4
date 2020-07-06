@@ -15,7 +15,7 @@ def run(*a, **kw):
 
 def delete_dirs(dirs):
     for dir in dirs:
-        shutil.rmtree(dir)
+        shutil.rmtree(dir, ignore_errors=True)
 
 def delete(*paths):
     for path in paths:

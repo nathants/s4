@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define ASSERT(cond, ...) if (!(cond)) { fprintf(stderr, ##__VA_ARGS__); exit(1); }
-#define TIMEOUT_SECONDS 15
+#define TIMEOUT_SECONDS 5
 #define BUFFER_SIZE 1024 * 1024 * 5
 typedef int32_t i32;
 typedef uint8_t u8;
@@ -34,14 +34,24 @@ i32 main(i32 argc, char *argv[]) {
     i32 sock = socket(AF_INET, SOCK_STREAM, 0);
     ASSERT(sock >= 0, "fatal: socket errno: %d\n", errno);
     i32 buffsize = BUFFER_SIZE;
-    ASSERT(0 == setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffsize, sizeof(buffsize)), "fatal: setsockopt\n");
+    ASSERT(0 == setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffsize, sizeof(buffsize)), "fatal: setsockopt bufsize\n");
+    i32 enable = 1;
+    ASSERT(0 == setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)), "fatal: setsockopt reuse\n");
+
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(atoi(argv[1]));
 
     // bind, listen and accept
-    ASSERT(bind(sock, &addr, sizeof(addr)) >= 0, "fatal: bind errno %d\n", errno);
+
+    // retry bind, alaram() handles timeout
+    while (1) {
+        if (bind(sock, &addr, sizeof(addr)) >= 0)
+            break;
+        usleep(10000);
+    }
+
     ASSERT(listen(sock, 1) >= 0, "fatal: listen errno: %d\n", errno);
     i32 conn = accept(sock, NULL, NULL);
 
