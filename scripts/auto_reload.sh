@@ -10,9 +10,6 @@ fi
 
 cd $(dirname $(dirname $0))
 
-# reinstall bsv
-aws-ec2-ssh $name -yc "curl -s https://raw.githubusercontent.com/nathants/bsv/master/scripts/install_archlinux.sh | bash"
-
 # push code
 aws-ec2-rsync . :s4/ $name -y
 
@@ -26,10 +23,7 @@ aws-ec2-ssh $name -yc "
 "
 
 # kill any running servers
-aws-ec2-ssh $name -yc "
-    killall -r pypy3 || true
-    killall -r entr  || true
-"
+aws-ec2-ssh $name -yc "(ps -ef | grep -e entr -e pypy3 | grep s4-server | grep -v grep | awk '{print \$2}' | xargs kill) || true"
 
 # setup the server reloader
 aws-ec2-ssh $name --no-tty -yc "
