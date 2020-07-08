@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import argh
 import collections
 import concurrent.futures
@@ -213,12 +214,12 @@ def _post_all(urls):
             print('ok', end=' ', file=sys.stderr, flush=True)
     print('', file=sys.stderr, flush=True)
 
-def map(indir, outdir, cmd):
+def map(indir, outdir, cmd, regex=None):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map(indir, outdir, cmd)
+    _map(indir, outdir, cmd, regex)
 
-def _map(indir, outdir, cmd):
+def _map(indir, outdir, cmd, regex):
     lines = _ls(indir, recursive=True)
     proto, path = indir.split('://')
     bucket, path = path.split('/', 1)
@@ -228,6 +229,8 @@ def _map(indir, outdir, cmd):
         key = key.split(path or None, 1)[-1]
         if size == 'PRE':
             continue
+        if regex and not re.search(regex, key):
+            continue
         assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
@@ -236,30 +239,32 @@ def _map(indir, outdir, cmd):
     urls = [(f'http://{server}/map?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
     _post_all(urls)
 
-def map_to_n(indir, outdir, cmd):
+def map_to_n(indir, outdir, cmd, regex=None):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map_to_n(indir, outdir, cmd)
+    _map_to_n(indir, outdir, cmd, regex)
 
-def _map_to_n(indir, outdir, cmd):
-    lines = _ls(indir, recursive=False)
+def _map_to_n(indir, outdir, cmd, regex):
+    lines = _ls(indir, recursive=True)
     urls = []
     datas = collections.defaultdict(list)
     for line in lines:
         date, time, size, key = line
         assert size != 'PRE', key
         assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
+        if regex and not re.search(regex, key):
+            continue
         inkey = os.path.join(indir, key)
         datas[s4.pick_server(inkey)].append((inkey, outdir))
     urls = [(f'http://{server}/map_to_n?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
     _post_all(urls)
 
-def map_from_n(indir, outdir, cmd):
+def map_from_n(indir, outdir, cmd, regex=None):
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map_from_n(indir, outdir, cmd)
+    _map_from_n(indir, outdir, cmd, regex)
 
-def _map_from_n(indir, outdir, cmd):
+def _map_from_n(indir, outdir, cmd, regex):
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
     bucket, indir = indir.split('://', 1)[-1].split('/', 1)
@@ -269,6 +274,8 @@ def _map_from_n(indir, outdir, cmd):
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
         bucket_num = s4.key_bucket_num(key)
         assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
+        if regex and not re.search(regex, key):
+            continue
         buckets[bucket_num].append(os.path.join(f's4://{bucket}', indir, key))
     datas = collections.defaultdict(list)
     for bucket_num, inkeys in buckets.items():
