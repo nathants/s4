@@ -159,19 +159,19 @@ def _put(src, dst):
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
     resp = _http_post(f'http://{server}/prepare_put?key={dst}')
+    assert resp['code'] == 200, resp
+    uuid, port = json.loads(resp['body'])
+    if src == '-':
+        result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
+    else:
+        result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
+    assert result['exitcode'] == 0, result
+    client_checksum = result['stderr']
+    resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
     if resp['code'] == 409:
         logging.info(f'fatal: key already exists: {dst}')
         sys.exit(1)
     else:
-        assert resp['code'] == 200, resp
-        uuid, port = json.loads(resp['body'])
-        if src == '-':
-            result = s4.run(f'xxh3 --stream | send {server_address} {port}', stdin=sys.stdin)
-        else:
-            result = s4.run(f'< {src} xxh3 --stream | send {server_address} {port}')
-        assert result['exitcode'] == 0, result
-        client_checksum = result['stderr']
-        resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
         assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
