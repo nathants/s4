@@ -246,10 +246,13 @@ def map_to_n(indir, outdir, cmd, regex=None):
 
 def _map_to_n(indir, outdir, cmd, regex):
     lines = _ls(indir, recursive=True)
+    proto, path = indir.split('://')
+    bucket, path = path.split('/', 1)
     urls = []
     datas = collections.defaultdict(list)
     for line in lines:
         date, time, size, key = line
+        key = key.split(path or None, 1)[-1]
         assert size != 'PRE', key
         assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         if regex and not re.search(regex, key):
