@@ -2,9 +2,9 @@
 
 on a 10 node i3en.xlarge cluster, after importing the dataset to local disk:
 
-- hive: 35 seconds
+- [hive](./count_rides_by_passengers.hql): 35 seconds
 
-- s4: 5 seconds
+- [s4](./count_rides_by_passengers.sh): 5 seconds
 
 - result:
   ```
