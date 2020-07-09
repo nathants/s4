@@ -327,6 +327,20 @@ def test_map():
         run(f's4 cp -r {dst} result')
         assert run('cat result/*', stream=False) == '\n'.join(words).lower()
 
+def test_map_glob():
+    with servers(1_000_000):
+        src = 's4://bucket/data_in/'
+        dst = 's4://bucket/data_out/'
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {src}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f"s4 ls {src} | awk '{{print $NF}}' ").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {src}/00000 - | head -n5').splitlines() == ['Abelson', 'Aberdeen', 'Allison', 'Amsterdam', 'Apollos']
+        run(f's4 map {src}/*4 {dst} "tr A-Z a-z"')
+        assert run(f"s4 ls {dst} | awk '{{print $NF}}'").splitlines() == ['00004']
+        assert run(f's4 cp {dst}/00004 - | head -n5').splitlines() == ['mistreat', 'ml', 'modernize', 'modishly', 'molars']
+
 # utils for map tests
 with open('/tmp/bucket.py', 'w') as f:
     f.write("""
