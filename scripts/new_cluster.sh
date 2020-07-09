@@ -15,7 +15,7 @@ if ! aws-ec2-ls $name -s running; then
     aws-ec2-new $name \
                 --seconds-timeout ${timeout:-$((60*60))} \
                 --num ${num:-3} \
-                --type ${type:-i3en.large} \
+                --type ${type:-i3en.xlarge} \
                 --ami ${ami:-arch} \
                 --spot ${spot:-1} \
                 ${extra:-}
