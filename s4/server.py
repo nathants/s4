@@ -172,9 +172,11 @@ async def eval_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        result = await submit_cpu(s4.run, f'< {path} {cmd} | head -n 1000')
-        assert result['exitcode'] == 0, result
-        return {'code': 200, 'body': result['stdout']}
+        result = await submit_cpu(s4.run, f'< {path} {cmd}', timeout=5)
+        if result['exitcode'] == 0:
+            return {'code': 200, 'body': result['stdout']}
+        else:
+            return {'code': 400, 'reason': json.dumps(result)}
 
 async def prepare_get_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']

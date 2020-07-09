@@ -63,8 +63,17 @@ def _rm(prefix, recursive):
 def eval(key, cmd):
     resp = _http_post(f'http://{s4.pick_server(key)}/eval?key={key}&b64cmd={util.strings.b64_encode(cmd)}')
     if resp['code'] == 404:
+        logging.info('fatal: no such key')
+        sys.exit(1)
+    elif resp['code'] == 400:
+        result = json.loads(resp['body'])
+        logging.info(f'fatal: cmd failure {url}')
+        logging.info(result['stdout'])
+        logging.info(result['stderr'])
+        logging.info(f'exitcode={result["exitcode"]}')
         sys.exit(1)
     else:
+        assert resp['code'] == 200, result
         print(resp['body'])
 
 @argh.arg('prefix', nargs='?', default=None)
@@ -129,6 +138,7 @@ def _get(src, dst):
         server = s4.pick_server(src)
         resp = _http_post(f'http://{server}/prepare_get?key={src}&port={port}')
         if resp['code'] == 404:
+            logging.info('fatal: no such key')
             sys.exit(1)
         else:
             assert resp['code'] == 200, resp

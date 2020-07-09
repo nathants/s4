@@ -10,7 +10,7 @@ conf_path   = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
 max_timeout = timeout * 2 + 15 # one timeout for fifo queue on server, one timeout for the job once it starts, + grace period
 
-def run(*a, **kw):
+def run(*a, timeout=timeout, **kw):
     return shell.warn(*a, **kw, timeout=timeout)
 
 def delete_dirs(dirs):
