@@ -4,7 +4,7 @@ s3 is awesome, but can be expensive, slow, and doesn't expose data local compute
 
 ## what
 
-an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) storage cluster that is cheap and fast. exposes data local compute and efficient data shuffle.
+an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) storage cluster that is cheap and fast, with data local compute and efficient shuffle.
 
 use this for maximum performance processing of ephemeral data, with durable inputs, outputs, and checkpoints going to s3.
 
