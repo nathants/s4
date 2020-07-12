@@ -1,16 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 cd $(dirname $0)
-export TIMEFORMAT=$'%R seconds\n'
 
-bash ./schema.sh
+source ./schema.sh
+
+s4 rm -r s4://tmp/
 
 time (
-    i=s4://cols # input
-    d=s4://tmp  # data
     set -x
-    s4 rm -r $d/
-    time s4 map-to-n   $i/     $d/01/ 'bcounteachhash | bpartition 1' --regex '_3$'
-    time s4 map-from-n $d/01/  $d/02/ 'xargs cat | bsumeachhashu64 | bschema u64:a,u64:a | csv'
-    time s4 eval       $d/02/0        'cat | tr , " " | sort -nrk2 | head -n9'
+    time   s4   map-to-n     s4://cols/*/*_4   s4://tmp/01/   'bcounteach-hash | bpartition 1'
+    time   s4   map-from-n   s4://tmp/01/      s4://tmp/02/   'xargs cat | bsumeach-hash i64 | bschema i64:a,i64:a | csv'
+    time   s4   eval         s4://tmp/02/0                    'tr , " " | sort -nrk2 | head -n9'
 )

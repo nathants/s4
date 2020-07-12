@@ -1,3 +1,3 @@
-INSERT INTO TABLE yellow_orc
+INSERT INTO TABLE taxi
 SELECT *
-FROM yellow;
+FROM taxi_csv;
