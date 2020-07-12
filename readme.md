@@ -18,43 +18,43 @@ a thicker client allows the metadata controller to be thinner.
 
 ## non goals
 
-- high availability. every key lives on one and only one server.
+high availability. every key lives on one and only one server.
 
-- high durability. data lives on a single disk, and is as durable as that disk.
+high durability. data lives on a single disk, and is as durable as that disk.
 
-- security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with [wireguard](https://www.wireguard.com/) if needed.
+security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with [wireguard](https://www.wireguard.com/) if needed.
 
-- fine granularity performance. data should be medium to coarse granularity.
+fine granularity performance. data should be medium to coarse granularity.
 
-- safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
+safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
 
 ## install
 
-- install
-  ```
-  curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
-  ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
-  ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
-  ```
+install
+```
+curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
+ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
+ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
+```
 
-- configure
-  ```
-  echo $server1:8080 >  ~/.s4.conf
-  echo $server2:8080 >> ~/.s4.conf
-  scp ~/.s4.conf $server1:
-  scp ~/.s4.conf $server2:
-  ```
+configure
+```
+echo $server1:8080 >  ~/.s4.conf
+echo $server2:8080 >> ~/.s4.conf
+scp ~/.s4.conf $server1:
+scp ~/.s4.conf $server2:
+```
 
-- start
-  ```
-  ssh $server1 s4-server
-  ssh $server2 s4-server
-  ```
+start
+```
+ssh $server1 s4-server
+ssh $server2 s4-server
+```
 
-- use
-  ```
-  echo hello world | s4 cp - s4://bucket/data.txt
-  s4 cp s4://bucket/data.txt -
-  s4 ls s4://bucket --recursive
-  s4 --help
-  ```
+use
+```
+echo hello world | s4 cp - s4://bucket/data.txt
+s4 cp s4://bucket/data.txt -
+s4 ls s4://bucket --recursive
+s4 --help
+```
