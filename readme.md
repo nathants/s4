@@ -1,6 +1,6 @@
 ## why
 
-s3 is awesome, but can be expensive, slow, and doesn't expose data local compute or efficient data shuffle.
+s3 is awesome, but can be expensive, slow, and doesn't expose data local compute or efficient shuffle.
 
 ## what
 
