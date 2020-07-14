@@ -67,13 +67,12 @@ def eval(key, cmd):
         sys.exit(1)
     elif resp['code'] == 400:
         result = json.loads(resp['body'])
-        logging.info(f'fatal: cmd failure {url}')
         logging.info(result['stdout'])
         logging.info(result['stderr'])
         logging.info(f'exitcode={result["exitcode"]}')
         sys.exit(1)
     else:
-        assert resp['code'] == 200, result
+        assert resp['code'] == 200, resp
         print(resp['body'])
 
 @argh.arg('prefix', nargs='?', default=None)
