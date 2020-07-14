@@ -12,4 +12,6 @@ aws-ec2-wait-for-ssh -yi $name
 
 ssh-keyscan $remote >> ~/.ssh/known_hosts 2>/dev/null
 
+which sshuttle || python3 -m pip install sshuttle
+
 sshuttle -r $user@$remote $network.0.0.0/8

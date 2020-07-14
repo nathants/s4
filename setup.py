@@ -14,8 +14,7 @@ setuptools.setup(
     url='http://github.com/nathants/s4',
     description='stupid simple storage service',
     python_requires='>=3.6',
-    install_requires=['argh >0.26, <0.27',
-                      'sshuttle >1, <2'],
+    install_requires=['argh >0.26, <0.27'],
     packages=['s4'],
 )
 
