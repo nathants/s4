@@ -97,6 +97,8 @@ async def local_put(temp_path, key):
 
 def prepare_put(path):
     port = util.net.free_port()
+    assert not os.path.isfile(path)
+    assert not os.path.isfile(checksum_path(path))
     return s4.new_temp_path('_tempfiles'), port
 
 def start(func, timeout):
@@ -114,27 +116,31 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     assert not path.startswith('_')
-    temp_path, port = await submit_solo(prepare_put, path)
     try:
-        started, s4_run = start(s4.run, s4.timeout)
-        uuid = new_uuid()
-        assert not os.path.isfile(temp_path)
-        io_jobs[uuid] = {'start': time.monotonic(),
-                         'future': submit_io_recv(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
-                         'temp_path': temp_path,
-                         'path': path}
+        temp_path, port = await submit_solo(prepare_put, path)
+    except AssertionError:
+        return {'code': 409}
+    else:
         try:
-            await started
-        except tornado.util.TimeoutError:
-            job = io_jobs.pop(uuid)
-            job['future'].cancel()
-            await submit_solo(s4.delete, checksum_path(path), temp_path)
-            return {'code': 429, 'reason': 'server busy timeout, please retry'}
-        else:
-            return {'code': 200, 'body': json.dumps([uuid, port])}
-    except:
-        s4.delete(checksum_path(path))
-        raise
+            started, s4_run = start(s4.run, s4.timeout)
+            uuid = new_uuid()
+            assert not os.path.isfile(temp_path)
+            io_jobs[uuid] = {'start': time.monotonic(),
+                             'future': submit_io_recv(s4_run, f'recv {port} | xxh3 --stream > {temp_path}'),
+                             'temp_path': temp_path,
+                             'path': path}
+            try:
+                await started
+            except tornado.util.TimeoutError:
+                job = io_jobs.pop(uuid)
+                job['future'].cancel()
+                await submit_solo(s4.delete, checksum_path(path), temp_path)
+                return {'code': 429, 'reason': 'server busy timeout, please retry'}
+            else:
+                return {'code': 200, 'body': json.dumps([uuid, port])}
+        except:
+            s4.delete(checksum_path(path))
+            raise
 
 def confirm_put(path, temp_path, server_checksum):
     try:
