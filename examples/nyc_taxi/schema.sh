@@ -15,17 +15,22 @@ echo; echo headers # note: only the first 5 columns are a consistent schema, so 
 (aws s3 cp "$prefix/yellow_tripdata_2019-12.csv" - || true) 2>/dev/null | head -n1 | tr , '\n' | head -n5 | cat -n
 
 echo; echo put inputs keys
-keys=$(aws s3 ls "$prefix/" | grep yellow | awk '{print $NF}' | while read key; do echo $prefix$key; done)
+keys=$(aws s3 ls "$prefix/" | grep yellow | awk '{print $NF}' | while read key; do echo "$prefix/$key"; done)
 if ! s4 ls s4://inputs; then
     i=0
     echo "$keys" | while read key; do
-        echo $key | s4 cp - s4://inputs/$(printf "%03d" $i)_$(echo $date | tr -dc 0-9)
+        num=$(printf "%03d" $i)
+        yearmonth=$(echo $key | tr -dc 0-9 | tail -n6)
+        echo $key | s4 cp - s4://inputs/${num}_${yearmonth} &
+        while (($(jobs | wc -l) > 3 * $(nproc))); do
+            sleep .1
+        done
         i=$((i+1))
     done
 fi
+wait
 
 set -x
-s4 ls s4://bsv  || time s4 map      s4://inputs/ s4://bsv/  'cat - > url && aws s3 cp "$(cat url)" - | tail -n+2 | bsv | blz4'
-s4 ls s4://cols || time s4 map-to-n s4://bsv/    s4://cols/ 'blz4d | bschema *,*,*,a:i64,a:f64,... --filter | bunzip $filename'
+s4 ls s4://cols || time s4 map-to-n s4://inputs/ s4://cols/ 'cat - > url && aws s3 cp "$(cat url)" - | tail -n+2 | bsv | bschema *,*,*,a:i64,a:f64,... --filter | bunzip $filename'
 
 echo
