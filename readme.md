@@ -58,3 +58,7 @@ s4 cp s4://bucket/data.txt -
 s4 ls s4://bucket --recursive
 s4 --help
 ```
+
+## examples
+
+[nyc taxi](./examples/nyc_taxi)
