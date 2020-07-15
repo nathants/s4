@@ -17,7 +17,6 @@ import util.log
 import util.net
 import util.strings
 import util.time
-
 from pool.thread import submit
 
 def _http_post(url, data='', timeout=s4.max_timeout):
@@ -45,6 +44,11 @@ def _http_get(url, timeout=s4.max_timeout):
         return {'body': body, 'code': code}
 
 def rm(prefix, recursive=False):
+    """
+    delete a key from s4.
+
+    - recursive to delete directories.
+    """
     assert prefix.startswith('s4://')
     _rm(prefix, recursive)
 
@@ -61,6 +65,9 @@ def _rm(prefix, recursive):
         assert resp['code'] == 200, resp
 
 def eval(key, cmd):
+    """
+    eval a bash cmd with key data as stdin
+    """
     resp = _http_post(f'http://{s4.pick_server(key)}/eval?key={key}&b64cmd={util.strings.b64_encode(cmd)}')
     if resp['code'] == 404:
         logging.info('fatal: no such key')
@@ -77,6 +84,9 @@ def eval(key, cmd):
 
 @argh.arg('prefix', nargs='?', default=None)
 def ls(prefix, recursive=False):
+    """
+    list keys
+    """
     if prefix and '://' not in prefix:
         prefix = f's4://{prefix}'
     lines = []
@@ -184,6 +194,17 @@ def _put(src, dst):
         assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
+    """
+    cp data to or from s4.
+
+    - paths can be:
+      - remote:       "s4://bucket/key.txt"
+      - local:        "./dir/key.txt"
+      - stdin/stdout: "-"
+    - use recursive to copy directories.
+    - keys cannot be updated, but can be deleted then recreated.
+    - note: to copy from s4, the local machine must be reachable by the s4-server, otherwise use `s4 eval`.
+    """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
     assert not dst.startswith('s4://') or not dst.split('s4://', 1)[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
@@ -242,12 +263,24 @@ def _parse_glob(indir):
     return indir, glob
 
 def map(indir, outdir, cmd):
+    """
+    process data.
+
+    - map a bash cmd 1:1 over every key in indir putting result in outdir.
+    - no network usage.
+    - cmd receives data via stdin and returns data via stdout.
+    - every key in indir will create a key with the same name in outdir.
+    - indir will be listed recursively to find keys to map.
+    - only keys on exact servers can be mapped since mapped inputs and outputs need to be on the same server.
+    - you want your key names to be monotonic integers, which round robins their server placement.
+    - server placement is based on either the full key path or a numeric key name prefix:
+      - hash full key path:     s4://bucket/dir/name.txt
+      - use numeric key prefix: s4://bucket/dir/000_name.txt
+      - use numeric key prefix: s4://bucket/dir/000
+    """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map(indir, outdir, cmd, glob)
-
-def _map(indir, outdir, cmd, glob):
     lines = _ls(indir, recursive=True)
     proto, path = indir.split('://')
     bucket, path = path.split('/', 1)
@@ -268,12 +301,24 @@ def _map(indir, outdir, cmd, glob):
     _post_all(urls)
 
 def map_to_n(indir, outdir, cmd):
+    """
+    shuffle data.
+
+    - map a bash cmd 1:n over every key in indir putting results in outdir.
+    - network usage.
+    - cmd receives data via stdin, writes files to disk, and returns file paths via stdout.
+    - every key in indir will create a directory with the same name in outdir.
+    - outdir directories contain zero or more files output by cmd.
+    - cmd runs in a tempdir which is deleted on completion.
+    - you want your outdir file paths to be monotonic integers, which round robins their server placement.
+    - server placement is based on either the full key path or a numeric key name prefix:
+      - hash full key path:     s4://bucket/dir/name.txt
+      - use numeric key prefix: s4://bucket/dir/000_name.txt
+      - use numeric key prefix: s4://bucket/dir/000
+    """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map_to_n(indir, outdir, cmd, glob)
-
-def _map_to_n(indir, outdir, cmd, glob):
     lines = _ls(indir, recursive=True)
     proto, path = indir.split('://')
     bucket, path = path.split('/', 1)
@@ -292,12 +337,17 @@ def _map_to_n(indir, outdir, cmd, glob):
     _post_all(urls)
 
 def map_from_n(indir, outdir, cmd):
+    """
+    merge shuffled data.
+
+    - map a bash cmd n:1 over every dir in indir putting result in outdir.
+    - no network usage.
+    - cmd receives file paths via stdin and returns data via stdout.
+    - each cmd receives all keys with a given numeric prefix and the output key uses that numeric prefix as its name.
+    """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    _map_from_n(indir, outdir, cmd, glob)
-
-def _map_from_n(indir, outdir, cmd, glob):
     lines = _ls(indir, recursive=True)
     buckets = collections.defaultdict(list)
     bucket, indir = indir.split('://', 1)[-1].split('/', 1)
@@ -319,13 +369,19 @@ def _map_from_n(indir, outdir, cmd, glob):
     _post_all(urls)
 
 def servers():
+    """
+    list the server addresses in the cluster
+    """
     return [':'.join(x) for x in s4.servers()]
 
 def health():
+    """
+    health check every server in the cluster
+    """
     fail = False
     fs = {}
     for addr, port in s4.servers():
-        f = submit(_http_get, f'http://{addr}:{port}/health', timeout=2)
+        f = submit(_http_get, f'http://{addr}:{port}/health', timeout=1)
         fs[f] = addr, port
     for f in concurrent.futures.as_completed(fs):
         addr, port = fs[f]
