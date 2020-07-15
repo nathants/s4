@@ -61,4 +61,6 @@ s4 --help
 
 ## examples
 
-[nyc taxi](./examples/nyc_taxi)
+[structured analysis of nyc taxi data with bsv and hive](./examples/nyc_taxi_bsv)
+
+[adhoc exploration of nyc taxi data with python](./examples/nyc_taxi_python)

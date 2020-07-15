@@ -9,7 +9,6 @@ on a 10 node i3en.xlarge cluster, after importing the dataset to local disk:
 | [sum distance by date](./sum_distance_by_date.sh) | 11.391 |
 | [sort by distance](./sort_by_distance.sh) | 34.562 |
 
-
 | hive query | seconds |
 | --- | --- |
 | [count rides by passengers](./count_rides_by_passengers.hql) | 39.808 |
@@ -24,11 +23,6 @@ install [cli-aws](https://github.com/nathants/cli-aws#installation)
 make sure region is us-east-1 since that is where the taxi data is
 ```
 >> aws-zones | grep us-east-1
-```
-
-use a shorter time format
-```
-export TIMEFORMAT=$'%R seconds\n'
 ```
 
 ### launching a hive cluster
@@ -76,7 +70,7 @@ delete the cluster
 >> aws-emr-rm $cluster_id
 ```
 
-### launching a s4 cluster
+### launching an s4 cluster
 
 launch an s4 cluster with 10 nodes spot, this costs about $1.50/hour
 ```
