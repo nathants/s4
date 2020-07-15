@@ -45,7 +45,7 @@ def _http_get(url, timeout=s4.max_timeout):
 
 def rm(prefix, recursive=False):
     """
-    delete a key from s4.
+    delete data from s4.
 
     - recursive to delete directories.
     """
@@ -195,7 +195,7 @@ def _put(src, dst):
 
 def cp(src, dst, recursive=False):
     """
-    cp data to or from s4.
+    copy data to or from s4.
 
     - paths can be:
       - remote:       "s4://bucket/key.txt"
@@ -203,7 +203,7 @@ def cp(src, dst, recursive=False):
       - stdin/stdout: "-"
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted then recreated.
-    - note: to copy from s4, the local machine must be reachable by the s4-server, otherwise use `s4 eval`.
+    - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
     """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
@@ -267,16 +267,15 @@ def map(indir, outdir, cmd):
     process data.
 
     - map a bash cmd 1:1 over every key in indir putting result in outdir.
-    - no network usage.
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - only keys on exact servers can be mapped since mapped inputs and outputs need to be on the same server.
-    - you want your key names to be monotonic integers, which round robins their server placement.
-    - server placement is based on either the full key path or a numeric key name prefix:
-      - hash full key path:     s4://bucket/dir/name.txt
-      - use numeric key prefix: s4://bucket/dir/000_name.txt
-      - use numeric key prefix: s4://bucket/dir/000
+    - only keys with a numeric prefix can be mapped since outputs need to be on the same server.
+    - key names should be monotonic integers, which distributes their server placement.
+    - server placement is based on either path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -305,16 +304,15 @@ def map_to_n(indir, outdir, cmd):
     shuffle data.
 
     - map a bash cmd 1:n over every key in indir putting results in outdir.
-    - network usage.
     - cmd receives data via stdin, writes files to disk, and returns file paths via stdout.
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - you want your outdir file paths to be monotonic integers, which round robins their server placement.
-    - server placement is based on either the full key path or a numeric key name prefix:
-      - hash full key path:     s4://bucket/dir/name.txt
-      - use numeric key prefix: s4://bucket/dir/000_name.txt
-      - use numeric key prefix: s4://bucket/dir/000
+    - outdir file paths should be monotonic integers, which distributes their server placement.
+    - server placement is based on either the path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -341,9 +339,9 @@ def map_from_n(indir, outdir, cmd):
     merge shuffled data.
 
     - map a bash cmd n:1 over every dir in indir putting result in outdir.
-    - no network usage.
     - cmd receives file paths via stdin and returns data via stdout.
-    - each cmd receives all keys with a given numeric prefix and the output key uses that numeric prefix as its name.
+    - each cmd receives all keys for a numeric prefix.
+    - output name is the numeric prefix.
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -370,13 +368,13 @@ def map_from_n(indir, outdir, cmd):
 
 def servers():
     """
-    list the server addresses in the cluster
+    list the server addresses
     """
     return [':'.join(x) for x in s4.servers()]
 
 def health():
     """
-    health check every server in the cluster
+    health check every server
     """
     fail = False
     fs = {}

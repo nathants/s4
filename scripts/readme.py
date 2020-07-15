@@ -2,7 +2,7 @@
 import os
 import subprocess
 
-os.chdir(os.path.dirname(os.path.dirname(__file__)))
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 co = lambda *a: subprocess.check_output(' '.join(map(str, a)), shell=True, executable='/bin/bash').decode('utf-8').strip()
 
 with open('readme.md') as f:
@@ -28,4 +28,4 @@ for line in co('s4 -h | tail -n+5 | head -n-3').splitlines():
     after.append(f'\n### [{name}](https://github.com/nathants/s4/search?q="def+cp")\n\n{description}\n```\n{usage.rstrip()}\n```')
 
 with open('readme.md', 'w') as f:
-    f.write('\n'.join(before + ['\n## usage\n'] + after) + '\n')
+    f.write('\n'.join(before + ['\n## usage'] + after) + '\n')

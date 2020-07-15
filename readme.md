@@ -4,17 +4,17 @@ s3 is awesome, but can be expensive, slow, and doesn't expose data local compute
 
 ## what
 
-an s3 cli [compatible](https://github.com/nathants/s4/blob/master/tests/test_server.py) storage cluster that is cheap and fast, with data local compute and efficient shuffle.
+an s3 cli compatible storage cluster that is cheap and fast, with data local compute and efficient shuffle.
 
-use this for maximum performance processing of ephemeral data, with durable inputs, outputs, and checkpoints going to s3.
+use this for processing ephemeral data, with durable inputs, outputs, and checkpoints in s3.
 
 ## how
 
-a ring of servers store files on disk placed via consistent hashing.
+a ring of servers store files on disk.
 
-a single metadata controller per server orchestrates out of process operations for data transfer, query, and compute.
+a metadata controller on each server orchestrates out of process operations for data transfer and local compute.
 
-a thicker client allows the metadata controller to be thinner.
+a cli client coordinates cluster activity.
 
 ## non goals
 
@@ -24,7 +24,7 @@ high durability. data lives on a single disk, and is as durable as that disk.
 
 security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with [wireguard](https://www.wireguard.com/) if needed.
 
-fine granularity performance. data should be medium to coarse granularity.
+fine granularity. data should be medium to coarse granularity.
 
 safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
 
@@ -67,26 +67,25 @@ s4 --help
 
 ## api
 
-- [s4 cp](#s4-cp) - cp data to or from s4
+- [s4 cp](#s4-cp) - copy data to or from s4
 - [s4 eval](#s4-eval) - eval a bash cmd with key data as stdin
-- [s4 health](#s4-health) - health check every server in the cluster
+- [s4 health](#s4-health) - health check every server
 - [s4 ls](#s4-ls) - list keys
 - [s4 map](#s4-map) - process data
 - [s4 map-from-n](#s4-map-from-n) - merge shuffled data
 - [s4 map-to-n](#s4-map-to-n) - shuffle data
-- [s4 rm](#s4-rm) - delete a key from s4
-- [s4 servers](#s4-servers) - list the server addresses in the cluster
+- [s4 rm](#s4-rm) - delete data from s4
+- [s4 servers](#s4-servers) - list the server addresses
 
 ## usage
 
-
 ### [s4 cp](https://github.com/nathants/s4/search?q="def+cp")
 
-cp data to or from s4
+copy data to or from s4
 ```
 usage: s4 cp [-h] [-r] src dst
 
-    cp data to or from s4.
+    copy data to or from s4.
 
     - paths can be:
       - remote:       "s4://bucket/key.txt"
@@ -94,7 +93,7 @@ usage: s4 cp [-h] [-r] src dst
       - stdin/stdout: "-"
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted then recreated.
-    - note: to copy from s4, the local machine must be reachable by the s4-server, otherwise use `s4 eval`.
+    - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
     
 
 positional arguments:
@@ -125,11 +124,11 @@ optional arguments:
 
 ### [s4 health](https://github.com/nathants/s4/search?q="def+cp")
 
-health check every server in the cluster
+health check every server
 ```
 usage: s4 health [-h]
 
-    health check every server in the cluster
+    health check every server
     
 
 optional arguments:
@@ -162,16 +161,15 @@ usage: s4 map [-h] indir outdir cmd
     process data.
 
     - map a bash cmd 1:1 over every key in indir putting result in outdir.
-    - no network usage.
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - only keys on exact servers can be mapped since mapped inputs and outputs need to be on the same server.
-    - you want your key names to be monotonic integers, which round robins their server placement.
-    - server placement is based on either the full key path or a numeric key name prefix:
-      - hash full key path:     s4://bucket/dir/name.txt
-      - use numeric key prefix: s4://bucket/dir/000_name.txt
-      - use numeric key prefix: s4://bucket/dir/000
+    - only keys with a numeric prefix can be mapped since outputs need to be on the same server.
+    - key names should be monotonic integers, which distributes their server placement.
+    - server placement is based on either path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
     
 
 positional arguments:
@@ -192,9 +190,9 @@ usage: s4 map-from-n [-h] indir outdir cmd
     merge shuffled data.
 
     - map a bash cmd n:1 over every dir in indir putting result in outdir.
-    - no network usage.
     - cmd receives file paths via stdin and returns data via stdout.
-    - each cmd receives all keys with a given numeric prefix and the output key uses that numeric prefix as its name.
+    - each cmd receives all keys for a numeric prefix.
+    - output name is the numeric prefix.
     
 
 positional arguments:
@@ -215,16 +213,15 @@ usage: s4 map-to-n [-h] indir outdir cmd
     shuffle data.
 
     - map a bash cmd 1:n over every key in indir putting results in outdir.
-    - network usage.
     - cmd receives data via stdin, writes files to disk, and returns file paths via stdout.
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - you want your outdir file paths to be monotonic integers, which round robins their server placement.
-    - server placement is based on either the full key path or a numeric key name prefix:
-      - hash full key path:     s4://bucket/dir/name.txt
-      - use numeric key prefix: s4://bucket/dir/000_name.txt
-      - use numeric key prefix: s4://bucket/dir/000
+    - outdir file paths should be monotonic integers, which distributes their server placement.
+    - server placement is based on either the path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
     
 
 positional arguments:
@@ -238,11 +235,11 @@ optional arguments:
 
 ### [s4 rm](https://github.com/nathants/s4/search?q="def+cp")
 
-delete a key from s4
+delete data from s4
 ```
 usage: s4 rm [-h] [-r] prefix
 
-    delete a key from s4.
+    delete data from s4.
 
     - recursive to delete directories.
     
@@ -257,11 +254,11 @@ optional arguments:
 
 ### [s4 servers](https://github.com/nathants/s4/search?q="def+cp")
 
-list the server addresses in the cluster
+list the server addresses
 ```
 usage: s4 servers [-h]
 
-    list the server addresses in the cluster
+    list the server addresses
     
 
 optional arguments:
