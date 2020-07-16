@@ -209,9 +209,6 @@ def cp(src, dst, recursive=False):
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
     assert not dst.startswith('s4://') or not dst.split('s4://', 1)[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
     assert not src.startswith('s4://') or not src.split('s4://', 1)[-1].startswith('_'), 'fatal: buckets cannot start with underscore'
-    _cp(src, dst, recursive)
-
-def _cp(src, dst, recursive):
     if recursive:
         if src.startswith('s4://'):
             _get_recursive(src, dst)
