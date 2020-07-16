@@ -25,7 +25,7 @@ for line in co('s4 -h | tail -n+5 | head -n-3').splitlines():
     name = f's4 {name}'
     usage = co(f'{name} -h')
     before.append(f'- [{name}](#{name.replace(" ", "-")}) - {description}'.strip())
-    after.append(f'\n### [{name}](https://github.com/nathants/s4/search?q="def+cp")\n\n{description}\n```\n{usage.rstrip()}\n```')
+    after.append(f'\n### [{name}](https://github.com/nathants/s4/search?l=Python&q="def+{name.split()[-1]}")\n```\n{usage.rstrip()}\n```')
 
 with open('readme.md', 'w') as f:
     f.write('\n'.join(before + ['\n## usage'] + after) + '\n')

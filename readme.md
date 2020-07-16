@@ -79,9 +79,7 @@ s4 --help
 
 ## usage
 
-### [s4 cp](https://github.com/nathants/s4/search?q="def+cp")
-
-copy data to or from s4
+### [s4 cp](https://github.com/nathants/s4/search?l=Python&q="def+cp")
 ```
 usage: s4 cp [-h] [-r] src dst
 
@@ -105,9 +103,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 eval](https://github.com/nathants/s4/search?q="def+cp")
-
-eval a bash cmd with key data as stdin
+### [s4 eval](https://github.com/nathants/s4/search?l=Python&q="def+eval")
 ```
 usage: s4 eval [-h] key cmd
 
@@ -122,9 +118,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 health](https://github.com/nathants/s4/search?q="def+cp")
-
-health check every server
+### [s4 health](https://github.com/nathants/s4/search?l=Python&q="def+health")
 ```
 usage: s4 health [-h]
 
@@ -135,9 +129,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 ls](https://github.com/nathants/s4/search?q="def+cp")
-
-list keys
+### [s4 ls](https://github.com/nathants/s4/search?l=Python&q="def+ls")
 ```
 usage: s4 ls [-h] [-r] [prefix]
 
@@ -152,9 +144,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 map](https://github.com/nathants/s4/search?q="def+cp")
-
-process data
+### [s4 map](https://github.com/nathants/s4/search?l=Python&q="def+map")
 ```
 usage: s4 map [-h] indir outdir cmd
 
@@ -181,9 +171,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 map-from-n](https://github.com/nathants/s4/search?q="def+cp")
-
-merge shuffled data
+### [s4 map-from-n](https://github.com/nathants/s4/search?l=Python&q="def+map-from-n")
 ```
 usage: s4 map-from-n [-h] indir outdir cmd
 
@@ -204,9 +192,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 map-to-n](https://github.com/nathants/s4/search?q="def+cp")
-
-shuffle data
+### [s4 map-to-n](https://github.com/nathants/s4/search?l=Python&q="def+map-to-n")
 ```
 usage: s4 map-to-n [-h] indir outdir cmd
 
@@ -233,9 +219,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 rm](https://github.com/nathants/s4/search?q="def+cp")
-
-delete data from s4
+### [s4 rm](https://github.com/nathants/s4/search?l=Python&q="def+rm")
 ```
 usage: s4 rm [-h] [-r] prefix
 
@@ -252,9 +236,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 servers](https://github.com/nathants/s4/search?q="def+cp")
-
-list the server addresses
+### [s4 servers](https://github.com/nathants/s4/search?l=Python&q="def+servers")
 ```
 usage: s4 servers [-h]
 
