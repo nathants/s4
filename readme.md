@@ -31,14 +31,14 @@ safety for all inputs. service access should be considered to be at the level of
 ## install
 
 install
-```
+```bash
 curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
 ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
 ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
 ```
 
 configure
-```
+```bash
 echo $server1:8080 >  ~/.s4.conf
 echo $server2:8080 >> ~/.s4.conf
 scp ~/.s4.conf $server1:
@@ -46,13 +46,13 @@ scp ~/.s4.conf $server2:
 ```
 
 start
-```
+```bash
 ssh $server1 s4-server
 ssh $server2 s4-server
 ```
 
 use
-```
+```bash
 echo hello world | s4 cp - s4://bucket/data.txt
 s4 cp s4://bucket/data.txt -
 s4 ls s4://bucket --recursive
@@ -61,21 +61,23 @@ s4 --help
 
 ## examples
 
-[structured analysis of nyc taxi data with bsv and hive](./examples/nyc_taxi_bsv)
+[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_bsv)
 
-[adhoc exploration of nyc taxi data with python](./examples/nyc_taxi_python)
+[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_python)
 
 ## api
 
-- [s4 cp](#s4-cp) - copy data to or from s4
-- [s4 eval](#s4-eval) - eval a bash cmd with key data as stdin
-- [s4 health](#s4-health) - health check every server
-- [s4 ls](#s4-ls) - list keys
-- [s4 map](#s4-map) - process data
-- [s4 map-from-n](#s4-map-from-n) - merge shuffled data
-- [s4 map-to-n](#s4-map-to-n) - shuffle data
-- [s4 rm](#s4-rm) - delete data from s4
-- [s4 servers](#s4-servers) - list the server addresses
+| name | description |
+| -- | -- |
+| [s4 cp](#s4-cp) | copy data to or from s4 |
+| [s4 eval](#s4-eval) | eval a bash cmd with key data as stdin |
+| [s4 health](#s4-health) | health check every server |
+| [s4 ls](#s4-ls) | list keys |
+| [s4 map](#s4-map) | process data |
+| [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
+| [s4 map-to-n](#s4-map-to-n) | shuffle data |
+| [s4 rm](#s4-rm) | delete data from s4 |
+| [s4 servers](#s4-servers) | list the server addresses |
 
 ## usage
 

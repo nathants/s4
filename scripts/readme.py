@@ -15,6 +15,9 @@ for x in xs:
         before.append('')
         break
 
+before.append('| name | description |')
+before.append('| -- | -- |')
+
 after = []
 for line in co('s4 -h | tail -n+5 | head -n-3').splitlines():
     try:
@@ -24,7 +27,7 @@ for line in co('s4 -h | tail -n+5 | head -n-3').splitlines():
         raise
     name = f's4 {name}'
     usage = co(f'{name} -h')
-    before.append(f'- [{name}](#{name.replace(" ", "-")}) - {description}'.strip())
+    before.append(f'| [{name}](#{name.replace(" ", "-")}) | {description.rstrip()} |'.strip())
     after.append(f'\n### [{name}](https://github.com/nathants/s4/search?l=Python&q="def+{name.split()[-1]}")\n```\n{usage.rstrip()}\n```')
 
 with open('readme.md', 'w') as f:
