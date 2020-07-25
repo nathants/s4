@@ -18,7 +18,7 @@ sudo python -m ensurepip
 sudo pypy3 -m ensurepip
 
 cd ~
-rm -rf s4
+sudo rm -rf s4
 git clone https://github.com/nathants/s4
 cd s4
 sudo python -m pip install -r requirements.txt
