@@ -178,7 +178,7 @@ async def eval_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        result = await submit_cpu(s4.run, f'< {path} {cmd}', timeout=5)
+        result = await submit_cpu(s4.run, f'< {path} {cmd}', timeout=s4.timeout)
         if result['exitcode'] == 0:
             return {'code': 200, 'body': result['stdout']}
         else:
