@@ -17,11 +17,13 @@ curl -s https://raw.githubusercontent.com/nathants/bsv/master/scripts/install_ar
 sudo python -m ensurepip
 sudo pypy3 -m ensurepip
 
+sudo python -m pip install --progress-bar off awscli
+
 cd ~
 sudo rm -rf s4
 git clone https://github.com/nathants/s4
 cd s4
-sudo python -m pip install -r requirements.txt
-sudo pypy3  -m pip install -r requirements.txt
+sudo python -m pip install --progress-bar off -r requirements.txt
+sudo pypy3  -m pip install --progress-bar off -r requirements.txt
 sudo python setup.py develop
 sudo pypy3  setup.py develop
