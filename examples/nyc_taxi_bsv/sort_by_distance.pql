@@ -1,0 +1,4 @@
+INSERT INTO sorted
+SELECT distance
+FROM taxi
+ORDER BY distance desc;

@@ -7,14 +7,16 @@ on a 10 node i3en.xlarge cluster, after importing the dataset to local disk:
 | [count rides by passengers](./count_rides_by_passengers.sh) | 4.152 |
 | [count rides by date](./count_rides_by_date.sh) | 5.958 |
 | [sum distance by date](./sum_distance_by_date.sh) | 11.391 |
-| [sort by distance](./sort_by_distance.sh) | 34.562 |
+| [top n by distance](./top_n_by_distance.sh) | 4.159 |
+| [sort by distance](./sort_by_distance.sh) | 162.052 |
 
-| hive query | seconds |
+| presto query | seconds |
 | --- | --- |
-| [count rides by passengers](./count_rides_by_passengers.hql) | 39.808 |
-| [count rides by date](./count_rides_by_date.hql) | 53.473 |
-| [sum distance by date](./sum_distance_by_date.hql) | 54.825 |
-| [sort by distance](./sort_by_distance.hql) | 56.859 |
+| [count rides by passengers](./count_rides_by_passengers.pql) | 7.834 |
+| [count rides by date](./count_rides_by_date.pql) | 14.138 |
+| [sum distance by date](./sum_distance_by_date.pql) | 15.497 |
+| [top n by distance](./top_n_by_distance.pql) | 8.965 |
+| [sort by distance](./sort_by_distance.pql) | 700.628 |
 
 ### setup
 
@@ -25,11 +27,11 @@ make sure region is us-east-1 since that is where the taxi data is
 >> aws-zones | grep us-east-1
 ```
 
-### launching a hive cluster
+### launching a presto cluster
 
 launch an emr cluster with 10 nodes spot, this costs about $1.50/hour
 ```bash
->> cluster_id=$(aws-emr-new --count 10 hive)
+>> cluster_id=$(aws-emr-new --count 10 test-cluster)
 ```
 
 wait for the cluster to become ready
@@ -44,25 +46,35 @@ pull the csv data from s3 to hdfs
 292.210 seconds
 ```
 
+create the tables
+```bash
+>> time aws-emr-hive -i $cluster_id schema.hql
+```
+
+
 convert csv to orc
 ```bash
->> time aws-emr-script $cluster_id schema.hql csv_to_orc.hql --interactive
-492.626 seconds
+>> time aws-emr-presto -i $cluster_id csv_to_orc.pql
+309.197 seconds
 ```
 
 run queries
 ```bash
->> aws-emr-script --interactive $cluster_id schema.hql count_rides_by_passengers.hql
-39.808 seconds
+>> aws-emr-presto -i $cluster_id count_rides_by_passengers.pql
+7.834 seconds
 
->> aws-emr-script --interactive $cluster_id schema.hql count_rides_by_date.hql
-53.473 seconds
+>> aws-emr-presto -i $cluster_id count_rides_by_date.pql
+14.138 seconds
 
->> aws-emr-script --interactive $cluster_id schema.hql sum_distance_by_date.hql
-54.825 seconds
+>> aws-emr-presto -i $cluster_id sum_distance_by_date.pql
+15.497 seconds
 
->> aws-emr-script --interactive $cluster_id schema.hql sort_by_distance.hql
-56.859 seconds
+>> aws-emr-presto -i $cluster_id top_n_by_distance.pql
+8.965 seconds
+
+>> aws-emr-hive   -i $cluster_id sort_by_distance.hql
+>> aws-emr-presto -i $cluster_id sort_by_distance.pql
+700.628 seconds
 ```
 
 delete the cluster
@@ -100,6 +112,9 @@ run queries
 >> bash sum_distance_by_date.sh
 11.391 seconds
 
+>> bash top_n_by_distance.sh
+4.159 seconds
+
 >> bash sort_by_distance.sh
-34.562 seconds
+162.052 seconds
 ```

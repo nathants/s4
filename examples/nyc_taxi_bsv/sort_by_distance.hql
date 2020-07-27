@@ -1,4 +1,7 @@
-SELECT bigint(distance)
-FROM taxi
-ORDER BY distance desc
-LIMIT 9;
+CREATE EXTERNAL TABLE `sorted` (
+  `distance` double
+)
+STORED AS ORC
+LOCATION '/sorted/';
+
+TRUNCATE TABLE `sorted`;

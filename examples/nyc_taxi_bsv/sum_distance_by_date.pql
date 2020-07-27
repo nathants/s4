@@ -1,0 +1,5 @@
+SELECT YEAR(pickup), MONTH(pickup), cast(floor(sum(distance)) as bigint) as dst
+FROM taxi
+GROUP BY YEAR(pickup), MONTH(pickup)
+ORDER BY dst desc
+LIMIT 9;
