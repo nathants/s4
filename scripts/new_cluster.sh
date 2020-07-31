@@ -10,6 +10,9 @@ if ! which aws-ec2-new &>/dev/null; then
     exit 1
 fi
 
+# make sure an instance profile with s3 read access exists
+aws-iam-ensure-instance-profile s3-readonly --policy AmazonS3ReadOnlyAccess
+
 # make new instances if they don't exist. for faster startup use s4 ami: https://github.com/nathants/bootstraps/blob/master/amis/s4.sh
 if ! aws-ec2-ls $name -s running; then
     aws-ec2-new $name \
@@ -18,7 +21,7 @@ if ! aws-ec2-ls $name -s running; then
                 --type ${type:-i3en.xlarge} \
                 --ami ${ami:-arch} \
                 --spot ${spot:-1} \
-                --role ${role:-s3-readonly} \
+                --profile ${role:-s3-readonly} \
                 ${extra:-}
 fi
 
