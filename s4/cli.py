@@ -397,7 +397,7 @@ def health():
 if __name__ == '__main__':
     shell.ignore_closed_pipes()
     util.log.setup(format='%(message)s')
-    pool.thread._size = len(s4.servers())
+    pool.thread.size = len(s4.servers())
     try:
         shell.dispatch_commands(globals(), __name__)
     except AssertionError as e:
