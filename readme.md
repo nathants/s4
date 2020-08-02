@@ -87,17 +87,64 @@ s4 --help
 
 | name | description |
 | -- | -- |
-| [s4 cp](#s4-cp) | copy data to or from s4 |
-| [s4 eval](#s4-eval) | eval a bash cmd with key data as stdin |
-| [s4 health](#s4-health) | health check every server |
-| [s4 ls](#s4-ls) | list keys |
-| [s4 map](#s4-map) | process data |
-| [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
-| [s4 map-to-n](#s4-map-to-n) | shuffle data |
 | [s4 rm](#s4-rm) | delete data from s4 |
+| [s4 eval](#s4-eval) | eval a bash cmd with key data as stdin |
+| [s4 ls](#s4-ls) | list keys |
+| [s4 cp](#s4-cp) | copy data to or from s4 |
+| [s4 map](#s4-map) | process data |
+| [s4 map-to-n](#s4-map-to-n) | shuffle data |
+| [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
 | [s4 servers](#s4-servers) | list the server addresses |
+| [s4 health](#s4-health) | health check every server |
 
 ## usage
+
+### [s4 rm](https://github.com/nathants/s4/search?l=Python&q="def+rm")
+```
+usage: s4 rm [-h] [-r] prefix
+
+    delete data from s4.
+
+    - recursive to delete directories.
+    
+
+positional arguments:
+  prefix           -
+
+optional arguments:
+  -h, --help       show this help message and exit
+  -r, --recursive  False
+```
+
+### [s4 eval](https://github.com/nathants/s4/search?l=Python&q="def+eval")
+```
+usage: s4 eval [-h] key cmd
+
+    eval a bash cmd with key data as stdin
+    
+
+positional arguments:
+  key         -
+  cmd         -
+
+optional arguments:
+  -h, --help  show this help message and exit
+```
+
+### [s4 ls](https://github.com/nathants/s4/search?l=Python&q="def+ls")
+```
+usage: s4 ls [-h] [-r] [prefix]
+
+    list keys
+    
+
+positional arguments:
+  prefix           -
+
+optional arguments:
+  -h, --help       show this help message and exit
+  -r, --recursive  False
+```
 
 ### [s4 cp](https://github.com/nathants/s4/search?l=Python&q="def+cp")
 ```
@@ -116,52 +163,11 @@ usage: s4 cp [-h] [-r] src dst
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   src              -
   dst              -
-
-optional arguments:
-  -h, --help       show this help message and exit
-  -r, --recursive  False
-```
-
-### [s4 eval](https://github.com/nathants/s4/search?l=Python&q="def+eval")
-```
-usage: s4 eval [-h] key cmd
-
-    eval a bash cmd with key data as stdin
-
-
-positional arguments:
-  key         -
-  cmd         -
-
-optional arguments:
-  -h, --help  show this help message and exit
-```
-
-### [s4 health](https://github.com/nathants/s4/search?l=Python&q="def+health")
-```
-usage: s4 health [-h]
-
-    health check every server
-
-
-optional arguments:
-  -h, --help  show this help message and exit
-```
-
-### [s4 ls](https://github.com/nathants/s4/search?l=Python&q="def+ls")
-```
-usage: s4 ls [-h] [-r] [prefix]
-
-    list keys
-
-
-positional arguments:
-  prefix           -
 
 optional arguments:
   -h, --help       show this help message and exit
@@ -184,28 +190,7 @@ usage: s4 map [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
-
-positional arguments:
-  indir       -
-  outdir      -
-  cmd         -
-
-optional arguments:
-  -h, --help  show this help message and exit
-```
-
-### [s4 map-from-n](https://github.com/nathants/s4/search?l=Python&q="def+map-from-n")
-```
-usage: s4 map-from-n [-h] indir outdir cmd
-
-    merge shuffled data.
-
-    - map a bash cmd n:1 over every dir in indir putting result in outdir.
-    - cmd receives file paths via stdin and returns data via stdout.
-    - each cmd receives all keys for a numeric prefix.
-    - output name is the numeric prefix.
-
+    
 
 positional arguments:
   indir       -
@@ -232,7 +217,7 @@ usage: s4 map-to-n [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   indir       -
@@ -243,21 +228,25 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 rm](https://github.com/nathants/s4/search?l=Python&q="def+rm")
+### [s4 map-from-n](https://github.com/nathants/s4/search?l=Python&q="def+map-from-n")
 ```
-usage: s4 rm [-h] [-r] prefix
+usage: s4 map-from-n [-h] indir outdir cmd
 
-    delete data from s4.
+    merge shuffled data.
 
-    - recursive to delete directories.
-
+    - map a bash cmd n:1 over every dir in indir putting result in outdir.
+    - cmd receives file paths via stdin and returns data via stdout.
+    - each cmd receives all keys for a numeric prefix.
+    - output name is the numeric prefix.
+    
 
 positional arguments:
-  prefix           -
+  indir       -
+  outdir      -
+  cmd         -
 
 optional arguments:
-  -h, --help       show this help message and exit
-  -r, --recursive  False
+  -h, --help  show this help message and exit
 ```
 
 ### [s4 servers](https://github.com/nathants/s4/search?l=Python&q="def+servers")
@@ -265,7 +254,18 @@ optional arguments:
 usage: s4 servers [-h]
 
     list the server addresses
+    
 
+optional arguments:
+  -h, --help  show this help message and exit
+```
+
+### [s4 health](https://github.com/nathants/s4/search?l=Python&q="def+health")
+```
+usage: s4 health [-h]
+
+    health check every server
+    
 
 optional arguments:
   -h, --help  show this help message and exit
