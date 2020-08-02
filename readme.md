@@ -44,7 +44,7 @@ fine granularity. data should be medium to coarse granularity.
 
 safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
 
-cluster resizing. clusters should be short lived and data ephemeral.
+cluster resizing. clusters should be short lived and data ephemeral. instead of resizing create a new cluster.
 
 ## install
 
