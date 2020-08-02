@@ -204,6 +204,10 @@ def cp(src, dst, recursive=False):
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted then recreated.
     - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
+    - server placement is based on either the path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
     """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
