@@ -8,6 +8,14 @@ an s3 cli compatible storage cluster that is cheap and fast, with data local com
 
 data local compute maps arbitrary commands over immutable keys in 1:1, n:1 and 1:n operations.
 
+data shuffle is implicit in 1:n mappings.
+
+server placement is based on either the path hash or a numeric prefix.
+
+- hash full key path: s4://bucket/dir/name.txt
+- use numeric prefix: s4://bucket/dir/000_name.txt
+- use numeric prefix: s4://bucket/dir/000
+
 keys are strongly consistent and cannot be updated unless first deleted.
 
 use this for processing ephemeral data, with durable inputs, outputs, and checkpoints in s3.
@@ -100,7 +108,11 @@ usage: s4 cp [-h] [-r] src dst
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted then recreated.
     - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
-
+    - server placement is based on either the path hash or a numeric prefix:
+      - hash full key path: s4://bucket/dir/name.txt
+      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000
+    
 
 positional arguments:
   src              -
@@ -116,7 +128,7 @@ optional arguments:
 usage: s4 eval [-h] key cmd
 
     eval a bash cmd with key data as stdin
-
+    
 
 positional arguments:
   key         -
@@ -131,7 +143,7 @@ optional arguments:
 usage: s4 health [-h]
 
     health check every server
-
+    
 
 optional arguments:
   -h, --help  show this help message and exit
@@ -142,7 +154,7 @@ optional arguments:
 usage: s4 ls [-h] [-r] [prefix]
 
     list keys
-
+    
 
 positional arguments:
   prefix           -
@@ -168,7 +180,7 @@ usage: s4 map [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   indir       -
@@ -189,7 +201,7 @@ usage: s4 map-from-n [-h] indir outdir cmd
     - cmd receives file paths via stdin and returns data via stdout.
     - each cmd receives all keys for a numeric prefix.
     - output name is the numeric prefix.
-
+    
 
 positional arguments:
   indir       -
@@ -216,7 +228,7 @@ usage: s4 map-to-n [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   indir       -
@@ -234,7 +246,7 @@ usage: s4 rm [-h] [-r] prefix
     delete data from s4.
 
     - recursive to delete directories.
-
+    
 
 positional arguments:
   prefix           -
@@ -249,7 +261,7 @@ optional arguments:
 usage: s4 servers [-h]
 
     list the server addresses
-
+    
 
 optional arguments:
   -h, --help  show this help message and exit
