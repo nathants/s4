@@ -275,6 +275,8 @@ def create_task(fn):
 
 async def map_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    if cmd.lstrip().startswith('while read'):
+        cmd = f'cat | {cmd}'
     data = json.loads(request['body'])
     fs = []
     for inkey, outkey in data:
@@ -306,6 +308,8 @@ async def map_handler(request: web.Request) -> web.Response:
 
 async def map_to_n_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    if cmd.lstrip().startswith('while read'):
+        cmd = f'cat | {cmd}'
     data = json.loads(request['body'])
     fs = []
     for inkey, outdir in data:
@@ -345,7 +349,7 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     if cmd.lstrip().startswith('while read'):
-        cmd = f'cat - | {cmd}'
+        cmd = f'cat | {cmd}'
     assert outdir.startswith('s4://') and outdir.endswith('/')
     data = json.loads(request['body'])
     fs = []

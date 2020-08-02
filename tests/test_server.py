@@ -100,7 +100,7 @@ def test_updates_are_not_allowed():
 def test_eval():
     with servers():
         run('echo 123 | s4 cp - s4://bucket/file.txt')
-        assert '123' == run('s4 eval s4://bucket/file.txt "cat -"')
+        assert '123' == run('s4 eval s4://bucket/file.txt "cat"')
 
 def test_basic():
     with servers():
@@ -454,6 +454,8 @@ def test_map_from_n():
                 result.append(word)
         assert sorted(result) == sorted(shell.run('cat step4/00000', stream=False).splitlines())
 
+import pytest
+@pytest.mark.only
 def test_map_should_work_on_the_output_of_map_to_n():
     with servers(1_000_000):
         step1 = 's4://bucket/step1/' # input data
@@ -471,7 +473,7 @@ def test_map_should_work_on_the_output_of_map_to_n():
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
         ## map is recursive, so it can work on the output of map-to-n
-        run(f"s4 map {step3} {step4} 'cat - | while read row; do echo $(echo $row | head -c4); done'")
+        run(f"s4 map {step3} {step4} 'while read row; do echo $(echo $row | head -c4); done'")
         ##
         run(f"s4 map-from-n {step4} {step5} 'while read filename; do cat $filename; done'")
         assert run(f"s4 ls -r {step5} | awk '{{print $NF}}'").splitlines() == [

@@ -31,6 +31,6 @@ fi
 wait
 
 set -x
-s4 ls s4://cols || time s4 map-to-n s4://inputs/ s4://cols/ 'cat - > url && aws s3 cp "$(cat url)" - | tail -n+2 | bsv | bschema *,*,*,a:i64,a:f64,... --filter | bunzip $filename'
+s4 ls s4://cols || time s4 map-to-n s4://inputs/ s4://cols/ 'cat > url && aws s3 cp "$(cat url)" - | tail -n+2 | bsv | bschema *,*,*,a:i64,a:f64,... --filter | bunzip $filename'
 
 echo

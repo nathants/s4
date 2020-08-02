@@ -28,6 +28,6 @@ fi
 wait
 
 set -x
-s4 ls s4://csv || time s4 map s4://inputs/ s4://csv/ 'cat - > url && aws s3 cp "$(cat url)" -'
+s4 ls s4://csv || time s4 map s4://inputs/ s4://csv/ 'cat > url && aws s3 cp "$(cat url)" -'
 
 echo

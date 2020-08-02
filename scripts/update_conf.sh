@@ -14,7 +14,7 @@ aws-ec2-wait-for-ssh $name -iy
 
 echo
 echo update instances confs
-aws-ec2-ssh $name -qyc 'cat - > ~/.s4.conf' -s "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)" >/dev/null
+aws-ec2-ssh $name -qyc 'cat > ~/.s4.conf' -s "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)" >/dev/null
 
 echo update local conf
 echo "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)" > ~/.s4.conf

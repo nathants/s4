@@ -53,7 +53,7 @@ done
 
 # setup conf
 echo "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)" > ~/.s4.conf
-aws-ec2-ssh $name -yc 'cat - > ~/.s4.conf' -s "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)"
+aws-ec2-ssh $name -yc 'cat > ~/.s4.conf' -s "$(aws-ec2-ip-private $name | while read address; do echo $address:8080; done)"
 
 # restart servers
 aws-ec2-ssh $name --no-tty -yc "
