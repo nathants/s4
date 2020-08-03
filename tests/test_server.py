@@ -454,8 +454,6 @@ def test_map_from_n():
                 result.append(word)
         assert sorted(result) == sorted(shell.run('cat step4/00000', stream=False).splitlines())
 
-import pytest
-@pytest.mark.only
 def test_map_should_work_on_the_output_of_map_to_n():
     with servers(1_000_000):
         step1 = 's4://bucket/step1/' # input data
