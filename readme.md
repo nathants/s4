@@ -48,9 +48,24 @@ cluster resizing. clusters should be short lived and data ephemeral. instead of 
 
 ## install
 
-install
 ```bash
-curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash
+git clone https://github.com/nathants/s4
+cd s4
+python3 -m pip install -r requirements.txt .
+```
+
+## automatic deployment
+
+```bash
+cd s4
+name=s4-cluster
+bash scripts/new_cluster.sh $name
+```
+
+## manual deployment
+
+deploy
+```bash
 ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
 ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
 ```
@@ -69,7 +84,8 @@ ssh $server1 s4-server
 ssh $server2 s4-server
 ```
 
-use
+## usage
+
 ```bash
 echo hello world | s4 cp - s4://bucket/data.txt
 s4 cp s4://bucket/data.txt -
@@ -106,7 +122,7 @@ usage: s4 rm [-h] [-r] prefix
     delete data from s4.
 
     - recursive to delete directories.
-    
+
 
 positional arguments:
   prefix           -
@@ -121,7 +137,7 @@ optional arguments:
 usage: s4 eval [-h] key cmd
 
     eval a bash cmd with key data as stdin
-    
+
 
 positional arguments:
   key         -
@@ -136,7 +152,7 @@ optional arguments:
 usage: s4 ls [-h] [-r] [prefix]
 
     list keys
-    
+
 
 positional arguments:
   prefix           -
@@ -163,7 +179,7 @@ usage: s4 cp [-h] [-r] src dst
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-    
+
 
 positional arguments:
   src              -
@@ -190,7 +206,7 @@ usage: s4 map [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-    
+
 
 positional arguments:
   indir       -
@@ -217,7 +233,7 @@ usage: s4 map-to-n [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-    
+
 
 positional arguments:
   indir       -
@@ -238,7 +254,7 @@ usage: s4 map-from-n [-h] indir outdir cmd
     - cmd receives file paths via stdin and returns data via stdout.
     - each cmd receives all keys for a numeric prefix.
     - output name is the numeric prefix.
-    
+
 
 positional arguments:
   indir       -
@@ -254,7 +270,7 @@ optional arguments:
 usage: s4 servers [-h]
 
     list the server addresses
-    
+
 
 optional arguments:
   -h, --help  show this help message and exit
@@ -265,7 +281,7 @@ optional arguments:
 usage: s4 health [-h]
 
     health check every server
-    
+
 
 optional arguments:
   -h, --help  show this help message and exit
