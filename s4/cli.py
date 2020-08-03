@@ -367,7 +367,7 @@ def map_from_n(indir, outdir, cmd):
     urls = [(f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)) for server, inkeys in datas.items()]
     _post_all(urls)
 
-def servers():
+def config():
     """
     list the server addresses
     """

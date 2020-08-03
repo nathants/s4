@@ -110,7 +110,7 @@ s4 --help
 | [s4 map](#s4-map) | process data |
 | [s4 map-to-n](#s4-map-to-n) | shuffle data |
 | [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
-| [s4 servers](#s4-servers) | list the server addresses |
+| [s4 config](#s4-config) | list the server addresses |
 | [s4 health](#s4-health) | health check every server |
 
 ## usage
@@ -122,7 +122,7 @@ usage: s4 rm [-h] [-r] prefix
     delete data from s4.
 
     - recursive to delete directories.
-
+    
 
 positional arguments:
   prefix           -
@@ -137,7 +137,7 @@ optional arguments:
 usage: s4 eval [-h] key cmd
 
     eval a bash cmd with key data as stdin
-
+    
 
 positional arguments:
   key         -
@@ -152,7 +152,7 @@ optional arguments:
 usage: s4 ls [-h] [-r] [prefix]
 
     list keys
-
+    
 
 positional arguments:
   prefix           -
@@ -179,7 +179,7 @@ usage: s4 cp [-h] [-r] src dst
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   src              -
@@ -206,7 +206,7 @@ usage: s4 map [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   indir       -
@@ -233,7 +233,7 @@ usage: s4 map-to-n [-h] indir outdir cmd
       - hash full key path: s4://bucket/dir/name.txt
       - use numeric prefix: s4://bucket/dir/000_name.txt
       - use numeric prefix: s4://bucket/dir/000
-
+    
 
 positional arguments:
   indir       -
@@ -254,7 +254,7 @@ usage: s4 map-from-n [-h] indir outdir cmd
     - cmd receives file paths via stdin and returns data via stdout.
     - each cmd receives all keys for a numeric prefix.
     - output name is the numeric prefix.
-
+    
 
 positional arguments:
   indir       -
@@ -265,12 +265,12 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 servers](https://github.com/nathants/s4/search?l=Python&q="def+servers")
+### [s4 config](https://github.com/nathants/s4/search?l=Python&q="def+config")
 ```
-usage: s4 servers [-h]
+usage: s4 config [-h]
 
     list the server addresses
-
+    
 
 optional arguments:
   -h, --help  show this help message and exit
@@ -281,7 +281,7 @@ optional arguments:
 usage: s4 health [-h]
 
     health check every server
-
+    
 
 optional arguments:
   -h, --help  show this help message and exit
