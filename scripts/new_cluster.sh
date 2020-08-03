@@ -21,7 +21,7 @@ if ! aws-ec2-ls $name -s running; then
                 --type ${type:-i3en.xlarge} \
                 --ami ${ami:-arch} \
                 --spot ${spot:-1} \
-                --profile ${role:-s3-readonly} \
+                --profile ${profile:-s3-readonly} \
                 ${extra:-}
 fi
 
