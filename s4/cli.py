@@ -292,7 +292,7 @@ def map(indir, outdir, cmd):
             continue
         if glob and not fnmatch.fnmatch(key, glob):
             continue
-        assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
+        assert s4.key_bucket_num(key).isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
@@ -327,7 +327,7 @@ def map_to_n(indir, outdir, cmd):
         date, time, size, key = line
         key = key.split(path or None, 1)[-1]
         assert size != 'PRE', key
-        assert s4.key_bucket_num(key).isdigit(), f'keys must end with "/[0-9]+" so indir and outdir both live on the same server, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
+        assert s4.key_bucket_num(key).isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         if glob and not fnmatch.fnmatch(key, glob):
             continue
         inkey = os.path.join(indir, key)
@@ -355,7 +355,7 @@ def map_from_n(indir, outdir, cmd):
         key = key.split(indir or None, 1)[-1]
         assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
         bucket_num = s4.key_bucket_num(key)
-        assert bucket_num.isdigit(), f'keys must end with "/[0-9]+" to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
+        assert bucket_num.isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
         if glob and not fnmatch.fnmatch(key, glob):
             continue
         buckets[bucket_num].append(os.path.join(f's4://{bucket}', indir, key))
