@@ -419,7 +419,7 @@ def test_map_to_n():
             bucket = hash_int % num_buckets
             if bucket == 0:
                 result.append(word)
-        assert '\n'.join(result) == shell.run('cat step3/*/00000', stream=False)
+        assert '\n'.join(result) == run('cat step3/*/00000', stream=False)
 
 def test_map_from_n():
     # builds on map and map_to_n test
@@ -437,7 +437,7 @@ def test_map_from_n():
         assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
-        run(f"s4 map-from-n {step3} {step4} 'while read filename; do cat $filename; done'")
+        run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
         assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
             'step4/00000',
             'step4/00001',
@@ -452,7 +452,7 @@ def test_map_from_n():
             bucket = hash_int % num_buckets
             if bucket == 0:
                 result.append(word)
-        assert sorted(result) == sorted(shell.run('cat step4/00000', stream=False).splitlines())
+        assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
 
 def test_map_should_work_on_the_output_of_map_to_n():
     with servers(1_000_000):
@@ -473,7 +473,7 @@ def test_map_should_work_on_the_output_of_map_to_n():
         ## map is recursive, so it can work on the output of map-to-n
         run(f"s4 map {step3} {step4} 'while read row; do echo $(echo $row | head -c4); done'")
         ##
-        run(f"s4 map-from-n {step4} {step5} 'while read filename; do cat $filename; done'")
+        run(f"s4 map-from-n {step4} {step5} 'xargs cat'")
         assert run(f"s4 ls -r {step5} | awk '{{print $NF}}'").splitlines() == [
             'step5/00000',
             'step5/00001',
@@ -488,7 +488,24 @@ def test_map_should_work_on_the_output_of_map_to_n():
             bucket = hash_int % num_buckets
             if bucket == 0:
                 result.append(word[:4])
-        assert result == shell.run('cat step5/00000', stream=False).splitlines()
+        assert result == run('cat step5/00000', stream=False).splitlines()
+
+def test_map_should_preserve_suffix():
+    with servers(1_000_000):
+        run('echo | s4 cp - s4://step1/000_key0')
+        run('s4 map s4://step1/ s4://step2/ "cat"')
+        assert '000_key0' == run("s4 ls s4://step2/ | awk '{print $NF}'")
+
+def test_map_from_n_should_work_on_deep_directories_and_preserve_suffix():
+    with servers(1_000_000):
+        run('s4 cp - s4://step1/may/000_key0/000_bucket0', stdin="1\n")
+        run('s4 cp - s4://step1/may/001_key1/000_bucket0', stdin="2\n")
+        run('s4 cp - s4://step1/jun/000_key0/000_bucket0', stdin="3\n")
+        run('s4 cp - s4://step1/jun/001_key1/000_bucket0', stdin="4\n")
+        run('s4 cp - s4://step1/jul/000_key0/000_bucket0', stdin="5\n")
+        run('s4 cp - s4://step1/jul/001_key1/000_bucket0', stdin="6\n")
+        run("s4 map-from-n s4://step1/ s4://step2/ 'grep -e may -e jun | xargs cat | sort -n'")
+        assert '1\n2\n3\n4' == run('s4 eval s4://step2/000_bucket0 "cat"')
 
 words = [
     "Abelson", "Aberdeen", "Allison", "Amsterdam", "Apollos", "Arabian", "Assad", "Austerlitz", "Bactria", "Baldwin", "Belinda", "Bethe", "Blondel",

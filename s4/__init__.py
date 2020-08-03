@@ -66,6 +66,12 @@ def server_num():
 def key_bucket_num(key):
     return key.split('/')[-1].split('_')[0]
 
+def key_bucket_suffix(key):
+    try:
+        return key.split('/')[-1].split('_', 1)[1]
+    except IndexError:
+        return None
+
 def pick_server(key):
     # when path is like s4://bucket/job/worker/001, hash only the last
     # component of the path, in this case: 001. this naming scheme is used for

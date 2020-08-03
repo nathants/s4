@@ -206,7 +206,7 @@ def cp(src, dst, recursive=False):
     - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
     - server placement is based on either the path hash or a numeric prefix:
       - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
       - use numeric prefix: s4://bucket/dir/000
     """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
@@ -272,10 +272,9 @@ def map(indir, outdir, cmd):
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
     - only keys with a numeric prefix can be mapped since outputs need to be on the same server.
-    - key names should be monotonic integers, which distributes their server placement.
     - server placement is based on either path hash or a numeric prefix:
       - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
       - use numeric prefix: s4://bucket/dir/000
     """
     indir, glob = _parse_glob(indir)
@@ -309,10 +308,11 @@ def map_to_n(indir, outdir, cmd):
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - outdir file paths should be monotonic integers, which distributes their server placement.
+    - input like: .../indir/000_a_key
+    - output like: .../outdir/000_a_key/000_bucket0_from_a_key
     - server placement is based on either the path hash or a numeric prefix:
       - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
+      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
       - use numeric prefix: s4://bucket/dir/000
     """
     indir, glob = _parse_glob(indir)
@@ -339,10 +339,13 @@ def map_from_n(indir, outdir, cmd):
     """
     merge shuffled data.
 
-    - map a bash cmd n:1 over every dir in indir putting result in outdir.
+    - map a bash cmd n:1 over every key in indir putting result in outdir.
+    - indir will be listed recursively to find keys to map.
     - cmd receives file paths via stdin and returns data via stdout.
     - each cmd receives all keys for a numeric prefix.
-    - output name is the numeric prefix.
+    - output name is the numeric prefix plus any suffix.
+    - input like: .../indir/000_a_key/000_bucket0_from_a_key
+    - output like: .../outdir/000_bucket0_from_all_keys
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -353,7 +356,6 @@ def map_from_n(indir, outdir, cmd):
     for line in lines:
         date, time, size, key = line
         key = key.split(indir or None, 1)[-1]
-        assert len(key.split('/')) == 2, f'bad map-from-n indir, should be like: indir/000/000, indir: {indir}, key: {key}'
         bucket_num = s4.key_bucket_num(key)
         assert bucket_num.isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
         if glob and not fnmatch.fnmatch(key, glob):

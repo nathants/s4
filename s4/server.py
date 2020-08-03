@@ -356,9 +356,14 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     for inkeys in data:
         assert all(s4.on_this_server(key) for key in inkeys)
         assert len({s4.key_bucket_num(key) for key in inkeys}) == 1
+        suffixes = [s4.key_bucket_suffix(key) for key in inkeys]
+        if all(suffixes) and len(set(suffixes)) == 1:
+            suffix = f'_{suffixes[0]}'
+        else:
+            suffix = ''
         bucket_num = s4.key_bucket_num(inkeys[0])
         assert bucket_num.isdigit()
-        outkey = os.path.join(outdir, bucket_num)
+        outkey = os.path.join(outdir, bucket_num + suffix)
         inpaths = [os.path.abspath(inkey.split('s4://', 1)[-1]) for inkey in inkeys]
         run = lambda inpaths, outkey, cmd: [outkey, run_in_tempdir(f'{cmd} > output', stdin='\n'.join(inpaths) + '\n')]
         fs.append(submit_cpu(run, inpaths, outkey, cmd))
