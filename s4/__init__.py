@@ -1,10 +1,13 @@
 import hashlib
+import functools
 import shutil
 import os
 import shell
 import util.cached
 import util.exceptions
 import uuid
+import traceback
+import logging
 
 conf_path   = os.environ.get('S4_CONF_PATH', os.path.expanduser('~/.s4.conf'))
 timeout = int(os.environ.get('S4_TIMEOUT', 60 * 5))
@@ -86,3 +89,13 @@ def pick_server(key):
         index = int.from_bytes(hashlib.blake2s(key.encode()).digest(), "little") % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'
+
+def return_stacktrace(decoratee):
+    @functools.wraps(decoratee)
+    async def decorated(*a, **kw):
+        try:
+            return await decoratee(*a, **kw)
+        except:
+            logging.exception(f'failure: {decoratee}')
+            return {'code': 500, 'body': traceback.format_exc()}
+    return decorated

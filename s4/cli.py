@@ -28,7 +28,7 @@ def _http_post(url, data='', timeout=s4.max_timeout):
             logging.info(e.msg)
             sys.exit(42)
         else:
-            return {'body': e.msg, 'code': e.code}
+            return {'body': e.msg + e.fp.read().decode(), 'code': e.code}
     else:
         return {'body': body, 'code': code}
 
@@ -38,7 +38,7 @@ def _http_get(url, timeout=s4.max_timeout):
             body = resp.read().decode()
             code = resp.status
     except urllib.error.HTTPError as e:
-        return {'body': e.msg, 'code': e.code}
+        return {'body': e.msg + e.fp.read().decode(), 'code': e.code}
     else:
         return {'body': body, 'code': code}
 
@@ -177,6 +177,7 @@ def _put(src, dst):
     server = s4.pick_server(dst)
     server_address = server.split(":")[0]
     resp = _http_post(f'http://{server}/prepare_put?key={dst}')
+    assert resp['code'] != 409, f'fatal: key already exists: {dst}'
     assert resp['code'] == 200, resp
     uuid, port = json.loads(resp['body'])
     if src == '-':
@@ -186,11 +187,7 @@ def _put(src, dst):
     assert result['exitcode'] == 0, result
     client_checksum = result['stderr']
     resp = _http_post(f'http://{server}/confirm_put?uuid={uuid}&checksum={client_checksum}')
-    if resp['code'] == 409:
-        logging.info(f'fatal: key already exists: {dst}')
-        sys.exit(1)
-    else:
-        assert resp['code'] == 200, resp
+    assert resp['code'] == 200, resp
 
 def cp(src, dst, recursive=False):
     """
@@ -240,7 +237,7 @@ def _post_all(urls):
             logging.info(f'exitcode={result["exitcode"]}')
             sys.exit(1)
         else:
-            assert resp['code'] == 200, pprint.pformat([url, resp])
+            assert resp['code'] == 200, f'{resp["code"]} {url}\n{resp["body"]}'
             print('ok', end=' ', file=sys.stderr, flush=True)
     print('', file=sys.stderr, flush=True)
 

@@ -106,6 +106,7 @@ def start(func, timeout):
     future = tornado.gen.with_timeout(datetime.timedelta(seconds=timeout), future)
     return future, fn
 
+@s4.return_stacktrace
 async def prepare_put_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     assert ' ' not in key
@@ -151,6 +152,7 @@ def confirm_put(path, temp_path, server_checksum):
         s4.delete(path, temp_path, checksum_path(path))
         raise
 
+@s4.return_stacktrace
 async def confirm_put_handler(request: web.Request) -> web.Response:
     [uuid] = request['query']['uuid']
     [client_checksum] = request['query']['checksum']
@@ -159,13 +161,10 @@ async def confirm_put_handler(request: web.Request) -> web.Response:
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    try:
-        await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
-    except AssertionError:
-        return {'code': 409}
-    else:
-        return {'code': 200}
+    await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
+    return {'code': 200}
 
+@s4.return_stacktrace
 async def eval_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     cmd = request['body']
@@ -180,6 +179,7 @@ async def eval_handler(request: web.Request) -> web.Response:
         else:
             return {'code': 400, 'reason': json.dumps(result)}
 
+@s4.return_stacktrace
 async def prepare_get_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
     [port] = request['query']['port']
@@ -203,6 +203,7 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
         else:
             return {'code': 200, 'body': uuid}
 
+@s4.return_stacktrace
 async def confirm_get_handler(request: web.Request) -> web.Response:
     [uuid] = request['query']['uuid']
     [client_checksum] = request['query']['checksum']
@@ -213,6 +214,7 @@ async def confirm_get_handler(request: web.Request) -> web.Response:
     assert job['disk_checksum'] == client_checksum == server_checksum, [job['disk_checksum'], client_checksum, server_checksum]
     return {'code': 200}
 
+@s4.return_stacktrace
 async def list_buckets_handler(request: web.Request) -> web.Response:
     result = await submit_misc(s4.run, f'find -maxdepth 1 -mindepth 1 -type d ! -name "_*" {printf}')
     assert result['exitcode'] == 0, result
@@ -220,6 +222,7 @@ async def list_buckets_handler(request: web.Request) -> web.Response:
     xs = [[date, time.split('.')[0], size, os.path.basename(path)] for date, time, size, path in xs]
     return {'code': 200, 'body': json.dumps(xs)}
 
+@s4.return_stacktrace
 async def list_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
@@ -251,6 +254,7 @@ async def list_handler(request: web.Request) -> web.Response:
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
     return {'code': 200, 'body': json.dumps(xs)}
 
+@s4.return_stacktrace
 async def delete_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
@@ -269,6 +273,7 @@ async def health_handler(request: web.Request) -> web.Response:
 def create_task(fn):
     return asyncio.get_event_loop().create_task(fn)
 
+@s4.return_stacktrace
 async def map_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
     cmd = data['cmd']
@@ -302,9 +307,17 @@ async def map_handler(request: web.Request) -> web.Response:
     finally:
         await submit_misc(s4.delete_dirs, tempdirs)
 
-no_such_file = lambda x: 'No such file or directory' in x.args[0]['stderr']
-retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=no_such_file, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
+def retry_allow_404_and_409(exception):
+    if exception.args:
+        val = exception.args[0]
+        if isinstance(val, dict) and 'No such file or directory' in val.get('stderr'): # allow 404
+            return True
+        elif isinstance(val, str) and val.startswith('fatal: key already exists: '): # allow 409
+            return True
+    return False
+retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_allow_404_and_409, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
 
+@s4.return_stacktrace
 async def map_to_n_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
     cmd = data['cmd']
@@ -344,6 +357,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
     finally:
         await submit_misc(s4.delete_dirs, tempdirs)
 
+@s4.return_stacktrace
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
     assert outdir.startswith('s4://') and outdir.endswith('/')
