@@ -38,13 +38,13 @@ for i in {1..1000}; do
     sleep 1
 done
 
-# install s4
+# install s4 if needed
 for i in {1..1000}; do
     if (($i > 120)); then
         echo fatal: install failed
         exit 1
     fi
-    if aws-ec2-ssh $name -yc 'curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash'; then
+    if aws-ec2-ssh $name -yc 'which s4-server || curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash'; then
         break
     fi
     echo retry install
