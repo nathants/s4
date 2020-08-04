@@ -236,6 +236,10 @@ def _post_all(urls):
             logging.info(result['stderr'])
             logging.info(f'exitcode={result["exitcode"]}')
             sys.exit(1)
+        elif resp['code'] == 409:
+            logging.info(f'fatal: {url}')
+            logging.info(resp['body'])
+            sys.exit(1)
         else:
             assert resp['code'] == 200, f'{resp["code"]} {url}\n{resp["body"]}'
             print('ok', end=' ', file=sys.stderr, flush=True)

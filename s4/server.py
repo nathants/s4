@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import traceback
 import argh
 import asyncio
 import concurrent.futures
@@ -71,7 +72,7 @@ def exists(path):
 
 def confirm_local_put(temp_path, path, checksum):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    assert not os.path.isfile(path)
+    assert not os.path.isfile(path), f'fatal: key already exists: s4://{path}'
     assert not os.path.isfile(checksum_path(path))
     os.rename(temp_path, path)
     checksum_write(path, checksum)
@@ -116,7 +117,7 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
     try:
         temp_path, port = await submit_solo(prepare_put, path)
     except AssertionError:
-        return {'code': 409}
+        return {'code': 409, 'body': traceback.format_exc()}
     else:
         try:
             started, s4_run = start(s4.run, s4.timeout)
@@ -132,7 +133,7 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
                 job = io_jobs.pop(uuid)
                 job['future'].cancel()
                 await submit_solo(s4.delete, checksum_path(path), temp_path)
-                return {'code': 429, 'reason': 'server busy timeout, please retry'}
+                return {'code': 429, 'body': 'server busy timeout, please retry'}
             else:
                 return {'code': 200, 'body': json.dumps([uuid, port])}
         except:
@@ -173,11 +174,11 @@ async def eval_handler(request: web.Request) -> web.Response:
     if not await submit_solo(exists, path):
         return {'code': 404}
     else:
-        result = await submit_cpu(s4.run, f'< {path} {cmd}', timeout=s4.timeout)
+        result = await submit_cpu(s4.run, f'< {path} {cmd}', timeout=s4.timeout) # type: ignore
         if result['exitcode'] == 0:
             return {'code': 200, 'body': result['stdout']}
         else:
-            return {'code': 400, 'reason': json.dumps(result)}
+            return {'code': 400, 'body': json.dumps(result)}
 
 @s4.return_stacktrace
 async def prepare_get_handler(request: web.Request) -> web.Response:
@@ -199,7 +200,7 @@ async def prepare_get_handler(request: web.Request) -> web.Response:
         except tornado.util.TimeoutError:
             job = io_jobs.pop(uuid)
             job['future'].cancel()
-            return {'code': 429, 'reason': 'server busy timeout, please retry'}
+            return {'code': 429, 'body': 'server busy timeout, please retry'}
         else:
             return {'code': 200, 'body': uuid}
 
@@ -295,13 +296,15 @@ async def map_handler(request: web.Request) -> web.Response:
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
-                return {'code': 400, 'reason': json.dumps(result)}
+                return {'code': 400, 'body': json.dumps(result)}
             else:
                 temp_path = os.path.join(tempdir, 'output')
                 put_fs.append(create_task(local_put(temp_path, outkey)))
         await asyncio.gather(*put_fs)
+    except AssertionError:
+        return {'code': 409, 'body': traceback.format_exc()}
     except asyncio.TimeoutError:
-        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'body': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
     finally:
@@ -312,7 +315,7 @@ def retry_allow_404_and_409(exception):
         val = exception.args[0]
         if isinstance(val, dict) and 'No such file or directory' in val.get('stderr'): # allow 404
             return True
-        elif isinstance(val, str) and val.startswith('fatal: key already exists: '): # allow 409
+        elif isinstance(val, str) and val.startswith('fatal: key already exists: '): # allow 409, 'body': str(e)
             return True
     return False
 retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_allow_404_and_409, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
@@ -339,7 +342,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
-                return {'code': 400, 'reason': json.dumps(result)}
+                return {'code': 400, 'body': json.dumps(result)}
             else:
                 for temp_path in result['stdout'].splitlines():
                     temp_path = os.path.join(tempdir, temp_path)
@@ -350,8 +353,10 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
                         task = submit_io_send(retry_put(s4.cli._put), temp_path, outkey)
                     put_fs.append(task)
         await asyncio.gather(*put_fs)
+    except AssertionError:
+        return {'code': 409, 'body': traceback.format_exc()}
     except asyncio.TimeoutError:
-        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'body': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
     finally:
@@ -389,13 +394,15 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
             if result['exitcode'] != 0:
                 for f in fs: # type: ignore
                     f.cancel()
-                return {'code': 400, 'reason': json.dumps(result)}
+                return {'code': 400, 'body': json.dumps(result)}
             else:
                 temp_path = os.path.join(tempdir, 'output')
                 put_fs.append(create_task(local_put(temp_path, outkey)))
         await asyncio.gather(*put_fs)
+    except AssertionError:
+        return {'code': 409, 'body': traceback.format_exc()}
     except asyncio.TimeoutError:
-        return {'code': 429, 'reason': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
+        return {'code': 429, 'body': json.dumps({'stderr': 'server busy timeout, please retry', 'stdout': '', 'exitcode': 1})}
     else:
         return {'code': 200}
     finally:
