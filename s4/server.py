@@ -167,7 +167,7 @@ async def confirm_put_handler(request: web.Request) -> web.Response:
 @s4.return_stacktrace
 async def eval_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
-    cmd = request['body']
+    cmd = request['body'].strip()
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     if not await submit_solo(exists, path):
@@ -276,8 +276,8 @@ def create_task(fn):
 @s4.return_stacktrace
 async def map_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
-    cmd = data['cmd']
-    if cmd.lstrip().startswith('while read'):
+    cmd = data['cmd'].strip()
+    if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
     for inkey, outkey in data['args']:
@@ -320,8 +320,8 @@ retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_allow_404_a
 @s4.return_stacktrace
 async def map_to_n_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
-    cmd = data['cmd']
-    if cmd.lstrip().startswith('while read'):
+    cmd = data['cmd'].strip()
+    if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
     for inkey, outdir in data['args']:
@@ -362,8 +362,8 @@ async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
     assert outdir.startswith('s4://') and outdir.endswith('/')
     data = json.loads(request['body'])
-    cmd = data['cmd']
-    if cmd.lstrip().startswith('while read'):
+    cmd = data['cmd'].strip()
+    if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
     for inkeys in data['args']:
