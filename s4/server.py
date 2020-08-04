@@ -19,7 +19,6 @@ import tornado.ioloop
 import tornado.util
 import util.log
 import util.misc
-import util.strings
 import uuid
 import web
 import util.retry
@@ -169,7 +168,7 @@ async def confirm_put_handler(request: web.Request) -> web.Response:
 
 async def eval_handler(request: web.Request) -> web.Response:
     [key] = request['query']['key']
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    cmd = request['body']
     assert s4.on_this_server(key)
     path = key.split('s4://', 1)[-1]
     if not await submit_solo(exists, path):
@@ -271,12 +270,12 @@ def create_task(fn):
     return asyncio.get_event_loop().create_task(fn)
 
 async def map_handler(request: web.Request) -> web.Response:
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    data = json.loads(request['body'])
+    cmd = data['cmd']
     if cmd.lstrip().startswith('while read'):
         cmd = f'cat | {cmd}'
-    data = json.loads(request['body'])
     fs = []
-    for inkey, outkey in data:
+    for inkey, outkey in data['args']:
         assert s4.on_this_server(inkey)
         assert s4.on_this_server(outkey)
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
@@ -307,12 +306,12 @@ no_such_file = lambda x: 'No such file or directory' in x.args[0]['stderr']
 retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=no_such_file, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
 
 async def map_to_n_handler(request: web.Request) -> web.Response:
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
+    data = json.loads(request['body'])
+    cmd = data['cmd']
     if cmd.lstrip().startswith('while read'):
         cmd = f'cat | {cmd}'
-    data = json.loads(request['body'])
     fs = []
-    for inkey, outdir in data:
+    for inkey, outdir in data['args']:
         assert s4.on_this_server(inkey)
         assert outdir.startswith('s4://') and outdir.endswith('/')
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
@@ -347,13 +346,13 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
 
 async def map_from_n_handler(request: web.Request) -> web.Response:
     [outdir] = request['query']['outdir']
-    cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
-    if cmd.lstrip().startswith('while read'):
-        cmd = f'cat | {cmd}'
     assert outdir.startswith('s4://') and outdir.endswith('/')
     data = json.loads(request['body'])
+    cmd = data['cmd']
+    if cmd.lstrip().startswith('while read'):
+        cmd = f'cat | {cmd}'
     fs = []
-    for inkeys in data:
+    for inkeys in data['args']:
         assert all(s4.on_this_server(key) for key in inkeys)
         assert len({s4.key_bucket_num(key) for key in inkeys}) == 1
         suffixes = [s4.key_bucket_suffix(key) for key in inkeys]

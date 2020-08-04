@@ -15,7 +15,6 @@ import urllib.error
 import urllib.request
 import util.log
 import util.net
-import util.strings
 import util.time
 from pool.thread import submit
 
@@ -68,7 +67,7 @@ def eval(key, cmd):
     """
     eval a bash cmd with key data as stdin
     """
-    resp = _http_post(f'http://{s4.pick_server(key)}/eval?key={key}&b64cmd={util.strings.b64_encode(cmd)}')
+    resp = _http_post(f'http://{s4.pick_server(key)}/eval?key={key}', cmd)
     if resp['code'] == 404:
         logging.info('fatal: no such key')
         sys.exit(1)
@@ -296,7 +295,7 @@ def map(indir, outdir, cmd):
         outkey = os.path.join(outdir, key)
         assert s4.pick_server(inkey) == s4.pick_server(outkey)
         datas[s4.pick_server(inkey)].append([inkey, outkey])
-    urls = [(f'http://{server}/map?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
+    urls = [(f'http://{server}/map', json.dumps({'cmd': cmd, 'args': data})) for server, data in datas.items()]
     _post_all(urls)
 
 def map_to_n(indir, outdir, cmd):
@@ -332,7 +331,7 @@ def map_to_n(indir, outdir, cmd):
             continue
         inkey = os.path.join(indir, key)
         datas[s4.pick_server(inkey)].append((inkey, outdir))
-    urls = [(f'http://{server}/map_to_n?b64cmd={util.strings.b64_encode(cmd)}', json.dumps(data)) for server, data in datas.items()]
+    urls = [(f'http://{server}/map_to_n', json.dumps({'cmd': cmd, 'args': data})) for server, data in datas.items()]
     _post_all(urls)
 
 def map_from_n(indir, outdir, cmd):
@@ -366,7 +365,7 @@ def map_from_n(indir, outdir, cmd):
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1, set(servers)
         datas[servers[0]].append(inkeys)
-    urls = [(f'http://{server}/map_from_n?outdir={outdir}&b64cmd={util.strings.b64_encode(cmd)}', json.dumps(inkeys)) for server, inkeys in datas.items()]
+    urls = [(f'http://{server}/map_from_n?outdir={outdir}', json.dumps({'cmd': cmd, 'args': inkeys})) for server, inkeys in datas.items()]
     _post_all(urls)
 
 def config():
