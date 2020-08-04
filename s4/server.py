@@ -3,7 +3,6 @@ import argh
 import asyncio
 import concurrent.futures
 import datetime
-import gc
 import json
 import logging
 import os
@@ -24,8 +23,6 @@ import util.strings
 import uuid
 import web
 import util.retry
-
-retry = lambda f: util.retry.retry(f, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
 
 io_jobs = {}
 
@@ -306,6 +303,9 @@ async def map_handler(request: web.Request) -> web.Response:
     finally:
         await submit_misc(s4.delete_dirs, tempdirs)
 
+no_such_file = lambda x: 'No such file or directory' in x.args[0]['stderr']
+retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=no_such_file, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
+
 async def map_to_n_handler(request: web.Request) -> web.Response:
     cmd = util.strings.b64_decode(request['query']['b64cmd'][0])
     if cmd.lstrip().startswith('while read'):
@@ -335,7 +335,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
                     if s4.on_this_server(outkey):
                         task = create_task(local_put(temp_path, outkey))
                     else:
-                        task = submit_io_send(retry(s4.cli._put), temp_path, outkey)
+                        task = submit_io_send(retry_put(s4.cli._put), temp_path, outkey)
                     put_fs.append(task)
         await asyncio.gather(*put_fs)
     except asyncio.TimeoutError:

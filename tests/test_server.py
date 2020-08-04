@@ -421,6 +421,29 @@ def test_map_to_n():
                 result.append(word)
         assert '\n'.join(result) == run('cat step3/*/00000', stream=False)
 
+def test_map_to_n_can_result_in_zero_files():
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/'
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        run(f's4 map-to-n {step1} {step2} "cat >/dev/null && echo"')
+        with pytest.raises(Exception):
+            run(f's4 ls -r {step2}')
+
+def test_map_to_n_should_fail_quickly_on_bad_file_paths():
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/'
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        with pytest.raises(Exception):
+            run(f's4 map-to-n {step1} {step2} "cat >/dev/null && echo does_not_exist"')
+
 def test_map_from_n():
     # builds on map and map_to_n test
     with servers(1_000_000):

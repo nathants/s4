@@ -13,7 +13,7 @@ fi
 # make sure an instance profile with s3 read access exists
 aws-iam-ensure-instance-profile s3-readonly --policy AmazonS3ReadOnlyAccess
 
-# make new instances if they don't exist. for faster startup use s4 ami: https://github.com/nathants/bootstraps/blob/master/amis/s4.sh
+# make new instances if they don't exist. for faster startup use an ami: https://github.com/nathants/bootstraps/blob/master/amis/s4.sh
 if ! aws-ec2-ls $name -s running; then
     aws-ec2-new $name \
                 --seconds-timeout ${timeout:-$((60*60))} \
