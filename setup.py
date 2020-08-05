@@ -46,6 +46,10 @@ scripts = [
     ('s4/send.c', 'send'),
     ('s4/recv.c', 'recv'),
 ]
+try:
+    cc('which gcc')
+except:
+    assert False, 'fatal: gcc not found'
 for src, dst in scripts:
     src = join(src_path, src)
     dst = join(dst_path, dst)
