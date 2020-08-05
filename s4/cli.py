@@ -141,7 +141,7 @@ def _put_recursive(src, dst):
 def _get(src, dst):
     server = s4.pick_server(src)
     port = util.net.free_port()
-    temp_path = s4.new_temp_path()
+    temp_path = f'{dst}.temp'
     try:
         server = s4.pick_server(src)
         resp = _http_post(f'http://{server}/prepare_get?key={src}&port={port}')

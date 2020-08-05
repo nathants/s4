@@ -25,7 +25,7 @@ def delete(*paths):
         with util.exceptions.ignore(FileNotFoundError):
             os.remove(path)
 
-def new_temp_path(dir='.'):
+def new_temp_path(dir):
     for _ in range(5):
         temp_path = str(uuid.uuid4())
         temp_path = os.path.join(dir, temp_path)
