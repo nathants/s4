@@ -310,15 +310,15 @@ async def map_handler(request: web.Request) -> web.Response:
     finally:
         await submit_misc(s4.delete_dirs, tempdirs)
 
-def retry_allow_404_and_409(exception):
+def retry_except_404_and_409(exception):
     if exception.args:
         val = exception.args[0]
-        if isinstance(val, dict) and 'No such file or directory' in val.get('stderr'): # allow 404
+        if isinstance(val, dict) and 'No such file or directory' in val.get('stderr', ''): # allow 404
             return True
-        elif isinstance(val, str) and val.startswith('fatal: key already exists: '): # allow 409, 'body': str(e)
+        elif isinstance(val, str) and val.startswith('fatal: key already exists: '): # allow 409
             return True
     return False
-retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_allow_404_and_409, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
+retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_except_404_and_409, times=1000, exponent=1.2, max_seconds=120, stacktrace=False)
 
 @s4.return_stacktrace
 async def map_to_n_handler(request: web.Request) -> web.Response:
