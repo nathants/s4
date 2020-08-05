@@ -1,4 +1,5 @@
 import contextlib
+import uuid
 import logging
 import hashlib
 import os
@@ -459,6 +460,36 @@ def test_map_from_n():
         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
         assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
+        assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
+            'step4/00000',
+            'step4/00001',
+            'step4/00002',
+        ]
+        run(f's4 cp -r {step4} step4/')
+        result = []
+        num_buckets = 3
+        for word in words:
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word)
+        assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
+
+def test_map_from_n_without_numeric_prefixes():
+    # builds on map and map_to_n test
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
+        step4 = 's4://bucket/step4/' # merged buckets
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{uuid.uuid4()}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
         run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
         assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [

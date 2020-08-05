@@ -66,27 +66,38 @@ def server_num():
             return i
     assert False, [servers(), http_port()]
 
-def key_bucket_num(key):
-    return key.split('/')[-1].split('_')[0]
+def key_prefix(key):
+    key = key.split('/')[-1]
+    prefix = key.split('_')[0]
+    if prefix.isdigit():
+        return prefix
+    else:
+        return key
 
-def key_bucket_suffix(key):
+def key_suffix(key):
+    if not key_prefix(key).isdigit():
+        return None
     try:
         return key.split('/')[-1].split('_', 1)[1]
     except IndexError:
         return None
 
-def pick_server(key):
-    # when path is like s4://bucket/job/worker/001, hash only the last
-    # component of the path, in this case: 001. this naming scheme is used for
-    # partitioning data, and we want all of the partitions for the same bucket
-    # to be on the same server. otherwise hash the whole key.
-    assert key.startswith('s4://'), key
-    key = key.split('s4://', 1)[-1]
-    digits = key_bucket_num(key)
-    if digits.isdigit():
-        index = int(digits) % len(servers())
+def suffix(keys):
+    suffixes = [key_suffix(key) for key in keys]
+    if all(suffixes) and len(set(suffixes)) == 1:
+        return f'_{suffixes[0]}'
     else:
-        index = int.from_bytes(hashlib.blake2s(key.encode()).digest(), "little") % len(servers())
+        return ''
+
+def pick_server(key):
+    assert not key.endswith('/'), key
+    assert key.startswith('s4://'), key
+    prefix = key.split('/')[-1].split('_')[0]
+    if prefix.isdigit():
+        index = int(prefix) % len(servers())
+    else:
+        key = key.split('/')[-1].encode()
+        index = int.from_bytes(hashlib.blake2s(key).digest(), "little") % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'
 

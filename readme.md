@@ -10,11 +10,10 @@ data local compute maps arbitrary commands over immutable keys in 1:1, n:1 and 1
 
 data shuffle is implicit in 1:n mappings.
 
-server placement is based on either the path hash or a numeric prefix.
-
-- hash full key path: s4://bucket/dir/name.txt
-- use numeric prefix: s4://bucket/dir/000_name.txt
-- use numeric prefix: s4://bucket/dir/000
+server placement is based on the hash of basename or a numeric prefix:
+- s4://bucket/dir/name.txt        = int(hash("name.txt"))
+- s4://bucket/dir/000_bucket0.txt = int(0)
+- s4://bucket/dir/000             = int(0)
 
 keys are strongly consistent and cannot be updated unless first deleted.
 
@@ -173,12 +172,12 @@ usage: s4 cp [-h] [-r] src dst
       - local:        "./dir/key.txt"
       - stdin/stdout: "-"
     - use recursive to copy directories.
-    - keys cannot be updated, but can be deleted then recreated.
-    - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
-    - server placement is based on either the path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - keys cannot be updated, but can be deleted and recreated.
+    - note: to copy from s4, the local machine must be reachable by the cluster, otherwise use `s4 eval`.
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     
 
 positional arguments:
@@ -200,12 +199,10 @@ usage: s4 map [-h] indir outdir cmd
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - only keys with a numeric prefix can be mapped since outputs need to be on the same server.
-    - key names should be monotonic integers, which distributes their server placement.
-    - server placement is based on either path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     
 
 positional arguments:
@@ -228,11 +225,10 @@ usage: s4 map-to-n [-h] indir outdir cmd
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - outdir file paths should be monotonic integers, which distributes their server placement.
-    - server placement is based on either the path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_name.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     
 
 positional arguments:
@@ -250,10 +246,11 @@ usage: s4 map-from-n [-h] indir outdir cmd
 
     merge shuffled data.
 
-    - map a bash cmd n:1 over every dir in indir putting result in outdir.
+    - map a bash cmd n:1 over every key in indir putting result in outdir.
+    - indir will be listed recursively to find keys to map.
     - cmd receives file paths via stdin and returns data via stdout.
-    - each cmd receives all keys for a numeric prefix.
-    - output name is the numeric prefix.
+    - each cmd receives all keys with the same name or numeric prefix
+    - output name is that name
     
 
 positional arguments:

@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import pool.thread
-import pprint
 import s4
 import shell
 import sys
@@ -17,6 +16,7 @@ import util.log
 import util.net
 import util.time
 from pool.thread import submit
+import traceback
 
 def _http_post(url, data='', timeout=s4.max_timeout):
     try:
@@ -198,12 +198,12 @@ def cp(src, dst, recursive=False):
       - local:        "./dir/key.txt"
       - stdin/stdout: "-"
     - use recursive to copy directories.
-    - keys cannot be updated, but can be deleted then recreated.
-    - note: to copy from s4, the local machine must be reachable by the servers, otherwise use `s4 eval`.
-    - server placement is based on either the path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - keys cannot be updated, but can be deleted and recreated.
+    - note: to copy from s4, the local machine must be reachable by the cluster, otherwise use `s4 eval`.
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
@@ -271,11 +271,10 @@ def map(indir, outdir, cmd):
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - only keys with a numeric prefix can be mapped since outputs need to be on the same server.
-    - server placement is based on either path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -291,10 +290,8 @@ def map(indir, outdir, cmd):
             continue
         if glob and not fnmatch.fnmatch(key, glob):
             continue
-        assert s4.key_bucket_num(key).isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         inkey = os.path.join(indir, key)
         outkey = os.path.join(outdir, key)
-        assert s4.pick_server(inkey) == s4.pick_server(outkey)
         datas[s4.pick_server(inkey)].append([inkey, outkey])
     urls = [(f'http://{server}/map', json.dumps({'cmd': cmd, 'args': data})) for server, data in datas.items()]
     _post_all(urls)
@@ -308,12 +305,10 @@ def map_to_n(indir, outdir, cmd):
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - input like: .../indir/000_a_key
-    - output like: .../outdir/000_a_key/000_bucket0_from_a_key
-    - server placement is based on either the path hash or a numeric prefix:
-      - hash full key path: s4://bucket/dir/name.txt
-      - use numeric prefix: s4://bucket/dir/000_bucket0.txt
-      - use numeric prefix: s4://bucket/dir/000
+    - server placement is based on the hash of basename or a numeric prefix:
+      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
+      - s4://bucket/dir/000_bucket0.txt = int(0)
+      - s4://bucket/dir/000             = int(0)
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -327,7 +322,6 @@ def map_to_n(indir, outdir, cmd):
         date, time, size, key = line
         key = key.split(path or None, 1)[-1]
         assert size != 'PRE', key
-        assert s4.key_bucket_num(key).isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(key). got: {s4.key_bucket_num(key)}'
         if glob and not fnmatch.fnmatch(key, glob):
             continue
         inkey = os.path.join(indir, key)
@@ -342,10 +336,8 @@ def map_from_n(indir, outdir, cmd):
     - map a bash cmd n:1 over every key in indir putting result in outdir.
     - indir will be listed recursively to find keys to map.
     - cmd receives file paths via stdin and returns data via stdout.
-    - each cmd receives all keys for a numeric prefix.
-    - output name is the numeric prefix plus any suffix.
-    - input like: .../indir/000_a_key/000_bucket0_from_a_key
-    - output like: .../outdir/000_bucket0_from_all_keys
+    - each cmd receives all keys with the same name or numeric prefix
+    - output name is that name
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -356,13 +348,11 @@ def map_from_n(indir, outdir, cmd):
     for line in lines:
         date, time, size, key = line
         key = key.split(indir or None, 1)[-1]
-        bucket_num = s4.key_bucket_num(key)
-        assert bucket_num.isdigit(), f'keys must be prefixed with digits to be colocated, see: s4.pick_server(dir). got: {bucket_num}'
         if glob and not fnmatch.fnmatch(key, glob):
             continue
-        buckets[bucket_num].append(os.path.join(f's4://{bucket}', indir, key))
+        buckets[s4.key_prefix(key)].append(os.path.join(f's4://{bucket}', indir, key))
     datas = collections.defaultdict(list)
-    for bucket_num, inkeys in buckets.items():
+    for inkeys in buckets.values():
         servers = [s4.pick_server(k) for k in inkeys]
         assert len(set(servers)) == 1, set(servers)
         datas[servers[0]].append(inkeys)
@@ -409,4 +399,6 @@ if __name__ == '__main__':
     except AssertionError as e:
         if e.args:
             logging.info(util.colors.red(e.args[0]))
+        else:
+            logging.info(traceback.format_exc().splitlines()[-2])
         sys.exit(1)
