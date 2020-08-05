@@ -10,10 +10,13 @@ data local compute maps arbitrary commands over immutable keys in 1:1, n:1 and 1
 
 data shuffle is implicit in 1:n mappings.
 
-server placement is based on the hash of basename or a numeric prefix:
-- s4://bucket/dir/name.txt        = int(hash("name.txt"))
-- s4://bucket/dir/000_bucket0.txt = int(0)
-- s4://bucket/dir/000             = int(0)
+server placement is based on the hash of basename or a numeric prefix.
+
+| key | method | placement |
+| -- | -- | -- |
+| s4://bucket/dir/name.txt | int(hash("name.txt")) | ? |
+| s4://bucket/dir/000_bucket0.txt | int("000") | 0 |
+| s4://bucket/dir/000 | int("000") | 0 |
 
 keys are strongly consistent and cannot be updated unless first deleted.
 
@@ -174,10 +177,6 @@ usage: s4 cp [-h] [-r] src dst
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted and recreated.
     - note: to copy from s4, the local machine must be reachable by the cluster, otherwise use `s4 eval`.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     
 
 positional arguments:
@@ -199,10 +198,6 @@ usage: s4 map [-h] indir outdir cmd
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     
 
 positional arguments:
@@ -225,10 +220,6 @@ usage: s4 map-to-n [-h] indir outdir cmd
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     
 
 positional arguments:

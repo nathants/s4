@@ -200,10 +200,6 @@ def cp(src, dst, recursive=False):
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted and recreated.
     - note: to copy from s4, the local machine must be reachable by the cluster, otherwise use `s4 eval`.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     """
     assert not (src.startswith('s4://') and dst.startswith('s4://')), 'fatal: there is no move, there is only cp and rm.'
     assert ' ' not in src and ' ' not in dst, 'fatal: spaces in keys are not allowed'
@@ -271,10 +267,6 @@ def map(indir, outdir, cmd):
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
@@ -305,10 +297,6 @@ def map_to_n(indir, outdir, cmd):
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    - server placement is based on the hash of basename or a numeric prefix:
-      - s4://bucket/dir/name.txt        = int(hash("name.txt"))
-      - s4://bucket/dir/000_bucket0.txt = int("000")
-      - s4://bucket/dir/000             = int("000")
     """
     indir, glob = _parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
