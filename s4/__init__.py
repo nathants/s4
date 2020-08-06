@@ -92,12 +92,12 @@ def suffix(keys):
 def pick_server(key):
     assert not key.endswith('/'), key
     assert key.startswith('s4://'), key
-    prefix = key.split('/')[-1].split('_')[0]
-    if prefix.isdigit():
-        index = int(prefix) % len(servers())
-    else:
-        key = key.split('/')[-1].encode()
-        index = int.from_bytes(hashlib.blake2s(key).digest(), "little") % len(servers())
+    prefix = key_prefix(key)
+    try:
+        val = int(prefix)
+    except ValueError:
+        val = int.from_bytes(hashlib.blake2s(prefix.encode()).digest(), "little")
+    index = val % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'
 
