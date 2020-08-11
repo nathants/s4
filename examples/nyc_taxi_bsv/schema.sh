@@ -20,7 +20,7 @@ if ! s4 ls s4://inputs; then
     i=0
     echo "$keys" | while read key; do
         num=$(printf "%03d" $i)
-        yearmonth=$(echo $key | tr -dc 0-9 | tail -c7)
+        yearmonth=$(echo $key | tr -dc 0-9 | tail -c6)
         echo $key | s4 cp - s4://inputs/${num}_${yearmonth} &
         while (($(jobs | wc -l) > 3 * $(nproc))); do
             sleep .1
