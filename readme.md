@@ -101,6 +101,24 @@ s4 --help
 
 [adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_python)
 
+## related projects
+
+[bsv](https://github.com/nathants/bsv) - a simple and efficient data format for easily manipulating chunks of rows of columns while minimizing allocations and copies.
+
+## related posts
+
+[optimizing a bsv data processing pipeline](https://nathants.com/posts/optimizing-a-bsv-data-processing-pipeline)
+
+[performant batch processing with bsv, s4, and presto](https://nathants.com/posts/performant-batch-processing-with-bsv-s4-and-presto)
+
+[discovering a baseline for data processing performance](https://nathants.com/posts/discovering-a-baseline-for-data-processing-performance)
+
+[refactoring common distributed data patterns into s4](https://nathants.com/posts/refactoring-common-distributed-data-patterns-into-s4)
+
+[scaling python data processing horizontally](https://nathants.com/posts/scaling-python-data-processing-horizontally)
+
+[scaling python data processing vertically](https://nathants.com/posts/scaling-python-data-processing-vertically)
+
 ## api
 
 | name | description |
@@ -124,7 +142,7 @@ usage: s4 rm [-h] [-r] prefix
     delete data from s4.
 
     - recursive to delete directories.
-    
+
 
 positional arguments:
   prefix           -
@@ -139,7 +157,7 @@ optional arguments:
 usage: s4 eval [-h] key cmd
 
     eval a bash cmd with key data as stdin
-    
+
 
 positional arguments:
   key         -
@@ -154,7 +172,7 @@ optional arguments:
 usage: s4 ls [-h] [-r] [prefix]
 
     list keys
-    
+
 
 positional arguments:
   prefix           -
@@ -177,7 +195,7 @@ usage: s4 cp [-h] [-r] src dst
     - use recursive to copy directories.
     - keys cannot be updated, but can be deleted and recreated.
     - note: to copy from s4, the local machine must be reachable by the cluster, otherwise use `s4 eval`.
-    
+
 
 positional arguments:
   src              -
@@ -198,7 +216,7 @@ usage: s4 map [-h] indir outdir cmd
     - cmd receives data via stdin and returns data via stdout.
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
-    
+
 
 positional arguments:
   indir       -
@@ -220,7 +238,7 @@ usage: s4 map-to-n [-h] indir outdir cmd
     - every key in indir will create a directory with the same name in outdir.
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
-    
+
 
 positional arguments:
   indir       -
@@ -242,7 +260,7 @@ usage: s4 map-from-n [-h] indir outdir cmd
     - cmd receives file paths via stdin and returns data via stdout.
     - each cmd receives all keys with the same name or numeric prefix
     - output name is that name
-    
+
 
 positional arguments:
   indir       -
@@ -258,7 +276,7 @@ optional arguments:
 usage: s4 config [-h]
 
     list the server addresses
-    
+
 
 optional arguments:
   -h, --help  show this help message and exit
@@ -269,7 +287,7 @@ optional arguments:
 usage: s4 health [-h]
 
     health check every server
-    
+
 
 optional arguments:
   -h, --help  show this help message and exit
