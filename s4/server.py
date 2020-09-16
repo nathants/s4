@@ -434,7 +434,6 @@ def main(debug=False):
         os.makedirs('s4_data/_tempdirs',  exist_ok=True)
         os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
-    os.environ['S4_MV_OK'] = 'true'
     routes = [('/prepare_put',  {'post': prepare_put_handler}),
               ('/confirm_put',  {'post': confirm_put_handler}),
               ('/prepare_get',  {'post': prepare_get_handler}),
