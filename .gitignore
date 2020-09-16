@@ -1,3 +1,7 @@
+s4
+s4-server
+s4-send
+s4-recv
 .ccls*
 dist/
 build/

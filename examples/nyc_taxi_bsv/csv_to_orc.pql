@@ -1,3 +1,0 @@
-INSERT INTO taxi
-SELECT *
-FROM taxi_csv;
