@@ -2,15 +2,18 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
-	"s4/lib"
+	"time"
 )
+
+const timeout = 5 * time.Second
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "usage: s4-send ADDR PORT\n")
+		fmt.Fprintf(os.Stderr, "usage: cat input | s4-send ADDR PORT\n")
 		os.Exit(1)
 	}
 	addr := os.Args[1]
@@ -19,11 +22,16 @@ func main() {
 		panic(err)
 	}
 	dst := fmt.Sprintf("%s:%d", addr, port)
-	fmt.Println(dst)
-	fmt.Println(lib.Test())
-	conn, err := net.Dial("tcp", dst)
+	conn, err := net.DialTimeout("tcp", dst, timeout)
 	if err != nil {
 		panic(err)
 	}
-	_ = conn
+	_, err = io.Copy(conn, os.Stdin)
+	if err != nil {
+		panic(err)
+	}
+	err = conn.Close()
+	if err != nil {
+		panic(err)
+	}
 }
