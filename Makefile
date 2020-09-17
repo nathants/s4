@@ -3,16 +3,19 @@
 all: s4 s4-server s4-send s4-recv
 
 clean:
-	rm -f s4 s4-server s4-send s4-recv
+	rm -rf bin
 
-s4:
-	go build -o s4 s4.go
+setup:
+	mkdir -p bin
 
-s4-server:
-	go build -o s4-server s4_server.go
+s4: setup
+	go build -o bin/s4 cmd/s4.go
 
-s4-send:
-	go build -o s4-send s4_send.go
+s4-server: setup
+	go build -o bin/s4-server cmd/s4_server.go
 
-s4-recv:
-	go build -o s4-recv s4_recv.go
+s4-send: setup
+	go build -o bin/s4-send cmd/s4_send.go
+
+s4-recv: setup
+	go build -o bin/s4-recv cmd/s4_recv.go
