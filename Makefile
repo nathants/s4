@@ -1,6 +1,6 @@
-.PHONY: all clean test s4 s4-server s4-send s4-recv
+.PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh
 
-all: s4 s4-server s4-send s4-recv
+all: s4 s4-server s4-send s4-recv s4-xxh
 
 clean:
 	rm -rf bin
@@ -10,6 +10,9 @@ setup:
 
 s4: setup
 	go build -o bin/s4 cmd/s4/main.go
+
+s4-xxh: setup
+	go build -o bin/s4-xxh cmd/s4_xxh/main.go
 
 s4-server: setup
 	go build -o bin/s4-server cmd/s4_server/main.go
