@@ -40,8 +40,9 @@ type Result struct {
 }
 
 func Warn(format string, args ...interface{}) *Result {
+	// TODO support timeout and use s4.timeout for most calls like python
 	str := fmt.Sprintf(format, args...)
-	fmt.Println(str)
+	// fmt.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

@@ -1,19 +1,31 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"s4/lib"
 	"strings"
 
 	"github.com/julienschmidt/httprouter"
+	"golang.org/x/sync/semaphore"
 )
 
 const printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
+
+var num_cpus = runtime.GOMAXPROCS(0)
+var max_io_jobs = num_cpus * 4
+var max_cpu_jobs = num_cpus + 2
+var io_send_pool = semaphore.NewWeighted(int64(max_io_jobs))
+var io_recv_pool = semaphore.NewWeighted(int64(max_io_jobs))
+var cpu_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
+var misc_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
+var solo_pool = semaphore.NewWeighted(int64(1))
 
 func P1(e error) {
 	if e != nil {
@@ -56,7 +68,25 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	key := keys[0]
 	cmd := P2(ioutil.ReadAll(r.Body)).([]byte)
-
+	parts := strings.SplitN(key, "s4://", 2)
+	path := parts[len(parts)-1]
+	P1(solo_pool.Acquire(context.TODO(), 1))
+	path_exists := exists(path)
+	solo_pool.Release(1)
+	if !path_exists {
+		w.WriteHeader(404)
+	} else {
+		P1(cpu_pool.Acquire(context.TODO(), 1))
+		defer cpu_pool.Release(1)
+		res := lib.Warn("< %s %s", path, cmd)
+		if res.Err == nil {
+			P2(fmt.Fprintf(w, res.Stdout))
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			bytes := P2(json.Marshal(res))
+			P2(w.Write(bytes.([]byte)))
+		}
+	}
 }
 
 func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -127,7 +157,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		for _, parts := range append(files, dirs...) {
 			date, time, size, path := parts[0], parts[1], parts[2], parts[3]
 			time = strings.Split(time, ".")[0]
-			parts := strings.SplitN(path, _prefix, 1)
+			parts := strings.SplitN(path, _prefix, 2)
 			path = parts[len(parts)-1]
 			xs = append(xs, []string{date, time, size, path})
 		}
@@ -154,6 +184,16 @@ func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
 func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	P2(fmt.Fprintf(w, "healthy\n"))
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		return false
+	} else {
+		_, err = os.Stat(path + ".xxh3")
+		return err == nil
+	}
 }
 
 func main() {
