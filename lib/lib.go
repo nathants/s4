@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
+	"strings"
 )
 
-func P1(e error) {
+func Panic1(e error) {
 	if e != nil {
 		panic(e)
 	}
 }
 
-func P2(x interface{}, e error) interface{} {
+func Panic2(x interface{}, e error) interface{} {
 	if e != nil {
 		panic(e)
 	}
@@ -39,8 +41,8 @@ type Result struct {
 	Err    error
 }
 
+// TODO support timeout and use s4.timeout for most calls like python
 func Warn(format string, args ...interface{}) *Result {
-	// TODO support timeout and use s4.timeout for most calls like python
 	str := fmt.Sprintf(format, args...)
 	// fmt.Println(str)
 	cmd := exec.Command("bash", "-c", str)
@@ -76,6 +78,38 @@ func (rwc RWCallback) Close() error {
 	return rwc.Rw.Close()
 }
 
-func Test() string {
-	return "asdf"
+func OnThisServer(key string) bool {
+	if !strings.HasPrefix(key, "s4://") {
+		panic(key)
+	}
+}
+
+func PickServer(key string) string {
+	if strings.HasSuffix(key, "/") {
+		panic(key)
+	}
+	if !strings.HasPrefix(key, "s4://") {
+		panic(key)
+	}
+	prefix = key_prefix(key)
+	val, err := strconv.Atoi(prefix)
+}
+
+func key_prefix(key string) string {
+	parts := strings.Split(key, "/")
+	key = parts[len(parts)-1]
+	prefix := strings.Split(key, "_")[0]
+	_, err := strconv.Atoi(prefix)
+	if err != nil {
+		prefix = key
+	}
+	return prefix
+}
+
+func key_suffix(key string) (string, bool) {
+	_, err := strconv.Atoi(key_prefix(key))
+	if err != nil {
+		return "", false
+	}
+	parts :=
 }
