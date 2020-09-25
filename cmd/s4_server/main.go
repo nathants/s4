@@ -49,7 +49,13 @@ func Panic2(x interface{}, e error) interface{} {
 	return x
 }
 
-type Job struct {
+type GetJob struct {
+	start         time.Time
+	result        chan *lib.Result
+	disk_checksum string
+}
+
+type PutJob struct {
 	start     time.Time
 	result    chan *lib.Result
 	path      string
@@ -57,11 +63,98 @@ type Job struct {
 }
 
 func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	fmt.Fprintf(w, "404!!\n")
+	uids := r.URL.Query()["uuid"]
+	if len(uids) != 1 {
+		w.WriteHeader(400)
+		return
+	}
+	uid := uids[0]
+	client_checksums := r.URL.Query()["uuid"]
+	if len(client_checksums) != 1 {
+		w.WriteHeader(400)
+		return
+	}
+	client_checksum := client_checksums[0]
+	v, ok := io_jobs.LoadAndDelete(uid)
+	if !ok {
+		w.WriteHeader(404)
+		return
+	}
+	job := v.(*GetJob)
+	result := <-job.result
+	if result.Err != nil {
+		w.WriteHeader(500)
+		Panic2(fmt.Fprintf(w, result.Stdout+"\n"+result.Stderr))
+		return
+	}
+	server_checksum := result.Stderr
+	if client_checksum != server_checksum {
+		w.WriteHeader(500)
+		Panic2(fmt.Fprintf(w, "checksum mismatch: %s %s\n", client_checksum, server_checksum))
+		return
+	}
+	w.WriteHeader(200)
 }
 
 func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	Panic2(fmt.Fprintf(w, "404!!\n"))
+	ports := r.URL.Query()["port"]
+	if len(ports) != 1 {
+		w.WriteHeader(400)
+		return
+	}
+	port := ports[0]
+	keys := r.URL.Query()["key"]
+	if len(keys) != 1 {
+		w.WriteHeader(400)
+		return
+	}
+	key := keys[0]
+	if !lib.OnThisServer(key) {
+		w.WriteHeader(500)
+		Panic2(fmt.Fprintf(w, "wrong server for request\n"))
+		return
+	}
+	remote := r.RemoteAddr
+	path := strings.Split(key, "s4://")[1]
+
+	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	if !lib.Exists(path) || !lib.Exists(checksum_path(path)) {
+		w.WriteHeader(404)
+		return
+	}
+	solo_pool.Release(1)
+	uid := fmt.Sprintf("%s", uuid.NewV4())
+	started := make(chan bool, 1)
+	result := make(chan *lib.Result, 1)
+	go func() {
+		Panic1(io_send_pool.Acquire(context.TODO(), 1))
+		started <- true
+		result <- lib.Warn("< %s s4-xxh --stream | send %s %s", remote, port)
+		io_send_pool.Release(1)
+	}()
+	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	if !lib.Exists(path) || !lib.Exists(checksum_path(path)) {
+		w.WriteHeader(404)
+		return
+	}
+	disk_checksum := Panic2(ioutil.ReadFile(checksum_path(path))).(string)
+	solo_pool.Release(1)
+	job := &GetJob{
+		time.Now(),
+		result,
+		disk_checksum,
+	}
+	_, loaded := io_jobs.LoadOrStore(uid, job)
+	if loaded {
+		panic(uid)
+	}
+	select {
+	case <-time.After(timeout):
+		io_jobs.Delete(uid)
+		w.WriteHeader(429)
+	case <-started:
+		Panic2(w.Write([]byte(uid)))
+	}
 }
 
 func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -103,19 +196,24 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	go func() {
 		Panic1(io_recv_pool.Acquire(context.TODO(), 1))
 		started <- true
-		defer solo_pool.Release(1)
 		result <- lib.Warn("recv %d | s4-xxh --stream > %s", port, temp_path)
+		io_recv_pool.Release(1)
 	}()
-	job := &Job{
+	job := &PutJob{
 		time.Now(),
 		result,
 		path,
 		temp_path,
 	}
-	io_jobs.Store(uid, job)
+	_, loaded := io_jobs.LoadOrStore(uid, job)
+	if loaded {
+		panic(uid)
+	}
 	select {
 	case <-time.After(timeout):
-		// TODO delete path,checksum_path on failure/timeout
+		io_jobs.Delete(uid)
+		_ = os.Remove(path)
+		_ = os.Remove(checksum_path(path))
 		w.WriteHeader(429)
 	case <-started:
 		w.Header().Set("Content-Type", "application/json")
@@ -125,24 +223,24 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	uuids := r.URL.Query()["uuid"]
-	if len(uuids) != 1 {
+	uids := r.URL.Query()["uuid"]
+	if len(uids) != 1 {
 		w.WriteHeader(400)
 		return
 	}
-	uuid := uuids[0]
+	uid := uids[0]
 	client_checksums := r.URL.Query()["checksum"]
 	if len(client_checksums) != 1 {
 		w.WriteHeader(400)
 		return
 	}
 	client_checksum := client_checksums[0]
-	v, ok := io_jobs.LoadAndDelete(uuid)
+	v, ok := io_jobs.LoadAndDelete(uid)
 	if !ok {
 		w.WriteHeader(404)
 		return
 	}
-	job := v.(*Job)
+	job := v.(*PutJob)
 	result := <-job.result
 	if result.Err != nil {
 		w.WriteHeader(500)
@@ -171,6 +269,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Panic1(ioutil.WriteFile(job.path, []byte(server_checksum), 0o444))
 	Panic1(os.Chmod(job.temp_path, 0o444))
 	Panic1(os.Rename(job.temp_path, job.path))
+	w.WriteHeader(200)
 }
 
 func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -261,7 +360,9 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		if !strings.HasSuffix(prefix, "/") {
 			prefix += "*"
 		}
+		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, printf)
+		misc_pool.Release(1)
 		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
 			panic(res.Stdout + "\n" + res.Stderr)
 		}
@@ -279,7 +380,9 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			name = fmt.Sprintf("-name '%s*'", name)
 			prefix = path.Dir(prefix)
 		}
+		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, printf)
+		misc_pool.Release(1)
 		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
 			panic(res.Stdout + "\n" + res.Stderr)
 		}
@@ -290,7 +393,9 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				files = append(files, parts)
 			}
 		}
+		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
+		misc_pool.Release(1)
 		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
 			panic(res.Stdout + "\n" + res.Stderr)
 		}
@@ -314,7 +419,9 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	Panic1(misc_pool.Acquire(context.TODO(), 1))
 	stdout := lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", printf)
+	misc_pool.Release(1)
 	var res [][]string
 	for _, line := range strings.Split(stdout, "\n") {
 		parts := strings.Split(line, " ")
