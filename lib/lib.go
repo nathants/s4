@@ -107,7 +107,7 @@ func OnThisServer(key string) bool {
 		panic(key)
 	}
 	server := PickServer(key)
-	return server.address == "0.0.0.0" && server.port == HttpPort()
+	return server.Address == "0.0.0.0" && server.Port == HttpPort()
 }
 
 func Hash(str string) int {
@@ -184,8 +184,8 @@ func Suffix(keys []string) (string, bool) {
 var cache = sync.Map{}
 
 type Server struct {
-	address string
-	port    string
+	Address string
+	Port    string
 }
 
 func Servers() []Server {
@@ -204,8 +204,8 @@ func Servers() []Server {
 			}
 			server := Server{parts[0], parts[1]}
 			for _, address := range local_addresses {
-				if server.address == address {
-					server.address = "0.0.0.0"
+				if server.Address == address {
+					server.Address = "0.0.0.0"
 					break
 				}
 			}
@@ -235,8 +235,8 @@ func HttpPort() string {
 		return Port
 	} else {
 		for _, server := range Servers() {
-			if server.address == "0.0.0.0" {
-				return server.port
+			if server.Address == "0.0.0.0" {
+				return server.Port
 			}
 		}
 		panic("impossible")
@@ -245,7 +245,7 @@ func HttpPort() string {
 
 func ServerNum() int {
 	for i, server := range Servers() {
-		if server.address == "0.0.0.0" && server.port == HttpPort() {
+		if server.Address == "0.0.0.0" && server.Port == HttpPort() {
 			return i
 		}
 	}
