@@ -254,7 +254,7 @@ func ServerNum() int {
 
 func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
-		uid := fmt.Sprintf("%s", uuid.NewV4())
+		uid := uuid.NewV4().String()
 		temp_path := Panic2(filepath.Abs(path.Join(dir, uid))).(string)
 		if !Exists(temp_path) {
 			return temp_path

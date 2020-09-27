@@ -48,7 +48,7 @@ func main() {
 	}
 	start = time.Now()
 
-	rwc := lib.RWCallback{conn, func() { start = time.Now() }}
+	rwc := lib.RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
 
 	_, err = io.Copy(os.Stdout, rwc)
 	if err != nil {

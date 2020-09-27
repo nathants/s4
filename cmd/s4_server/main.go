@@ -123,13 +123,13 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	solo_pool.Release(1)
-	uid := fmt.Sprintf("%s", uuid.NewV4())
+	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.Result, 1)
 	go func() {
 		Panic1(io_send_pool.Acquire(context.TODO(), 1))
 		started <- true
-		result <- lib.Warn("< %s s4-xxh --stream | send %s %s", remote, port)
+		result <- lib.Warn("< %s s4-xxh --stream | send %s %s", path, remote, port)
 		io_send_pool.Release(1)
 	}()
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
@@ -190,7 +190,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		panic(err)
 	}
 	solo_pool.Release(1)
-	uid := fmt.Sprintf("%s", uuid.NewV4())
+	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.Result, 1)
 	go func() {
@@ -217,7 +217,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.WriteHeader(429)
 	case <-started:
 		w.Header().Set("Content-Type", "application/json")
-		bytes := Panic2(json.Marshal([]string{uid, string(port)}))
+		bytes := Panic2(json.Marshal([]string{uid, fmt.Sprint(port)}))
 		Panic2(w.Write(bytes.([]byte)))
 	}
 }

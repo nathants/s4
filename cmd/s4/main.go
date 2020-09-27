@@ -47,11 +47,11 @@ func Rm() {
 	if recursive {
 		results := make(chan Result)
 		for _, server := range lib.Servers() {
-			go func() {
+			go func(server lib.Server) {
 				url := fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix)
 				resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 				results <- Result{resp, err}
-			}()
+			}(server)
 		}
 		for range lib.Servers() {
 			result := <-results
@@ -156,13 +156,13 @@ func Ls() {
 func list_buckets() [][]string {
 	results := make(chan Result)
 	for _, server := range lib.Servers() {
-		go func() {
+		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port)
 			resp, err := http.Get(url)
 			results <- Result{resp, err}
-		}()
+		}(server)
 	}
-	var buckets map[string][]string
+	buckets := make(map[string][]string)
 	for range lib.Servers() {
 		result := <-results
 		if result.err != nil {
@@ -173,7 +173,7 @@ func list_buckets() [][]string {
 		}
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		var res [][]string
-		Panic1(json.Unmarshal(bytes, res))
+		Panic1(json.Unmarshal(bytes, &res))
 		for _, line := range res {
 			path := line[3]
 			buckets[path] = line
@@ -181,7 +181,7 @@ func list_buckets() [][]string {
 	}
 	var lines [][]string
 	var keys []string
-	for k, _ := range buckets {
+	for k := range buckets {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
@@ -200,11 +200,11 @@ func list(prefix string, recursive bool) [][]string {
 	}
 	results := make(chan Result)
 	for _, server := range lib.Servers() {
-		go func() {
+		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param)
 			resp, err := http.Get(url)
 			results <- Result{resp, err}
-		}()
+		}(server)
 	}
 	var lines [][]string
 	var line []string
