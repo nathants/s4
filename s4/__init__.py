@@ -30,8 +30,8 @@ def new_temp_path(dir):
         temp_path = str(uuid.uuid4())
         temp_path = os.path.join(dir, temp_path)
         temp_path = os.path.abspath(temp_path)
-        assert not os.path.isfile(temp_path)
-        return temp_path
+        if not os.path.isfile(temp_path):
+            return temp_path
     assert False
 
 @util.cached.disk_memoize(max_age_seconds=60 * 60 * 24)
