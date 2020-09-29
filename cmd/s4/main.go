@@ -43,7 +43,7 @@ type Result struct {
 
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
-	recursive := *cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if cmd.NArg() != 2 {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-recursive]"))
@@ -52,7 +52,7 @@ func Rm() {
 	}
 	prefix := cmd.Arg(0)
 	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
-	if recursive {
+	if *recursive {
 		results := make(chan Result)
 		for _, server := range lib.Servers() {
 			go func(server lib.Server) {
@@ -117,7 +117,7 @@ func contains(parts []string, part string) bool {
 
 func Ls() {
 	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
-	recursive := *cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if contains(os.Args, "-h") || contains(os.Args, "--help") {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
@@ -129,7 +129,7 @@ func Ls() {
 	case 1:
 		prefix := cmd.Arg(0)
 		val := strings.SplitN(prefix, "://", 2)[1]
-		if !recursive && strings.Count(val, "/") == 0 {
+		if !*recursive && strings.Count(val, "/") == 0 {
 			for _, line := range list_buckets() {
 				if contains(line, val) {
 					lines = [][]string{line}
@@ -137,7 +137,7 @@ func Ls() {
 				}
 			}
 		} else {
-			lines = list(prefix, recursive)
+			lines = list(prefix, *recursive)
 		}
 	case 0:
 		lines = list_buckets()
@@ -237,7 +237,7 @@ func cp(src string, dst string, recursive bool) {
 
 func Cp() {
 	cmd := flag.NewFlagSet("cp", flag.ExitOnError)
-	recursive := *cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if cmd.NArg() != 2 || contains(os.Args, "-h") || contains(os.Args, "--help") {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-recursive]"))
@@ -246,7 +246,7 @@ func Cp() {
 	}
 	src := cmd.Arg(0)
 	dst := cmd.Arg(1)
-	cp(src, dst, recursive)
+	cp(src, dst, *recursive)
 }
 
 func get_recursive(src string, dst string) {
