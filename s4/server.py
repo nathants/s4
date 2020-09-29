@@ -141,14 +141,15 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
             raise
 
 def confirm_put(path, temp_path, server_checksum):
+    perm = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         assert not os.path.isfile(path)
         assert not os.path.isfile(checksum_path(path))
         checksum_write(path, server_checksum)
+        os.chmod(temp_path, perm)
         os.rename(temp_path, path)
-        os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        os.chmod(checksum_path(path), perm)
     except:
         s4.delete(path, temp_path, checksum_path(path))
         raise
@@ -260,6 +261,7 @@ async def delete_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
     prefix = prefix.split('s4://', 1)[-1]
+    assert not prefix.startswith('/'), prefix
     recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         result = await submit_solo(s4.run, 'rm -rf', prefix + '*')

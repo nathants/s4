@@ -154,7 +154,7 @@ def _get(src, dst):
             if dst == '-':
                 cmd = f'recv {port} | xxh3 --stream'
             else:
-                assert not os.path.isfile(temp_path)
+                assert not os.path.isfile(temp_path), temp_path
                 cmd = f'recv {port} | xxh3 --stream > {temp_path}'
             result = s4.run(cmd, stdout=None)
             assert result['exitcode'] == 0, result
@@ -164,7 +164,7 @@ def _get(src, dst):
             if dst.endswith('/'):
                 os.makedirs(dst, exist_ok=True)
                 dst = os.path.join(dst, os.path.basename(src))
-            if dst == '.':
+            elif dst == '.':
                 dst = os.path.basename(src)
             if dst != '-':
                 os.rename(temp_path, dst)
@@ -218,7 +218,8 @@ def cp(src, dst, recursive=False):
     elif dst.startswith('s4://'):
         _put(src, dst)
     else:
-        assert False, 'fatal: src or dst needs s4://'
+        logging.info(f'fatal: src or dst needs s4://, got: {src} {dst}')
+        sys.exit(1)
 
 def _post_all(urls):
     fs = {submit(_http_post, url, data): (url, data) for url, data in urls}
