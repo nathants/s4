@@ -36,7 +36,6 @@ def start(port):
 @retry
 def start_all():
     ports = [util.net.free_port() for _ in range(3)]
-    s4.servers = lambda: [('0.0.0.0', str(port)) for port in ports]
     s4.conf_path = os.environ['S4_CONF_PATH'] = os.path.abspath(run('mktemp -p .'))
     with open(s4.conf_path, 'w') as f:
         f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
