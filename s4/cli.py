@@ -144,7 +144,6 @@ def _get(src, dst):
     port = util.net.free_port()
     temp_path = f'{dst}.temp'
     try:
-        server = s4.pick_server(src)
         resp = _http_post(f'http://{server}/prepare_get?key={src}&port={port}')
         if resp['code'] == 404:
             logging.info('fatal: no such key')
