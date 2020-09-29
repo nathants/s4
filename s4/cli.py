@@ -90,9 +90,10 @@ def ls(prefix, recursive=False):
         prefix = f's4://{prefix}'
     lines = []
     if prefix:
-        if not recursive and prefix.split('://', 1)[-1].count('/') == 0:
+        val = prefix.split('://', 1)[-1]
+        if not recursive and val.count('/') == 0:
             for line in _ls_buckets():
-                if prefix.split('://', 1)[-1] in line:
+                if val in line:
                     lines = [line]
                     break
         else:
