@@ -36,6 +36,12 @@ var (
 	io_jobs      = sync.Map{}
 )
 
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
+
 func Panic1(e error) {
 	if e != nil {
 		panic(e)
@@ -175,20 +181,15 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	path := strings.Split(key, "s4://")[1]
-	if strings.HasSuffix(path, "_") {
-		panic(path)
-	}
+	Assert(!strings.HasPrefix(path, "_"), path)
 	// reserve file
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	port, err := freeport.GetFreePort()
+	port := Panic2(freeport.GetFreePort()).(int)
 	if lib.Exists(path) || lib.Exists(checksum_path(path)) {
 		w.WriteHeader(409)
 		return
 	}
 	temp_path := lib.NewTempPath("_tempfiles")
-	if err != nil {
-		panic(err)
-	}
 	solo_pool.Release(1)
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
@@ -281,9 +282,7 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix := prefixes[0]
 	parts := strings.SplitN(prefix, "s4://", 2)
 	prefix = parts[len(parts)-1]
-	if strings.HasPrefix(prefix, "/") {
-		panic(prefix)
-	}
+	Assert(!strings.HasPrefix(prefix, "/"), prefix)
 	recursive := false
 	recursives := r.URL.Query()["recursive"]
 	if len(recursives) == 1 && recursives[0] == "true" {
@@ -299,9 +298,7 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func checksum_path(prefix string) string {
-	if strings.HasSuffix(prefix, "/") {
-		panic(prefix)
-	}
+	Assert(!strings.HasSuffix(prefix, "/"), prefix)
 	return fmt.Sprintf("%s.xxh3", prefix)
 }
 
@@ -363,9 +360,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, printf)
 		misc_pool.Release(1)
-		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
-			panic(res.Stdout + "\n" + res.Stderr)
-		}
+		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			parts := strings.Split(line, " ")
 			if len(parts) == 4 {
@@ -383,9 +378,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, printf)
 		misc_pool.Release(1)
-		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
-			panic(res.Stdout + "\n" + res.Stderr)
-		}
+		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var files [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			parts := strings.Split(line, " ")
@@ -396,9 +389,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
 		misc_pool.Release(1)
-		if !(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory")) {
-			panic(res.Stdout + "\n" + res.Stderr)
-		}
+		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var dirs [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			if line != "" {
@@ -458,6 +449,6 @@ func main() {
 	router.GET("/list_buckets", ListBuckets)
 	router.GET("/health", Health)
 	port := fmt.Sprintf(":%d", 8080)
-	fmt.Println("s4-server", port)
+	Panic2(fmt.Println("s4-server", port))
 	Panic1(http.ListenAndServe(port, router))
 }

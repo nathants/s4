@@ -8,10 +8,20 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
+	"path/filepath"
 	"s4/lib"
 	"sort"
 	"strings"
+
+	"github.com/phayes/freeport"
 )
+
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
 
 func Panic1(e error) {
 	if e != nil {
@@ -36,14 +46,12 @@ func Rm() {
 	recursive := *cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if cmd.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-recursive]")
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-recursive]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
 	prefix := cmd.Arg(0)
-	if !strings.HasSuffix(prefix, "s4://") {
-		panic(prefix)
-	}
+	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	if recursive {
 		results := make(chan Result)
 		for _, server := range lib.Servers() {
@@ -55,23 +63,15 @@ func Rm() {
 		}
 		for range lib.Servers() {
 			result := <-results
-			if result.err != nil {
-				panic(result.err)
-			}
-			if result.resp.StatusCode != 200 {
-				panic(result.resp)
-			}
+			Assert(result.err == nil, fmt.Sprint(result.err))
+			Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		}
 	} else {
 		server := lib.PickServer(prefix)
 		url := fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix)
 		resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-		if err != nil {
-			panic(err)
-		}
-		if resp.StatusCode != 200 {
-			panic(resp)
-		}
+		Assert(err == nil, fmt.Sprint(err))
+		Assert(resp.StatusCode == 200, fmt.Sprint(resp))
 	}
 }
 
@@ -86,12 +86,10 @@ func Eval() {
 	server := lib.PickServer(key)
 	url := fmt.Sprintf("http://%s:%s/eval?key=%s", server.Address, server.Port, key)
 	resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
-	if err != nil {
-		panic(err)
-	}
+	Assert(err == nil, fmt.Sprint(err))
 	switch resp.StatusCode {
 	case 404:
-		fmt.Fprintln(os.Stderr, "fatal: no such key")
+		Panic2(fmt.Fprintln(os.Stderr, "fatal: no such key"))
 		os.Exit(1)
 	case 400:
 		var result lib.Result
@@ -121,8 +119,8 @@ func Ls() {
 	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
 	recursive := *cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
-	if false {
-		fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]")
+	if contains(os.Args, "-h") || contains(os.Args, "--help") {
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
@@ -144,12 +142,12 @@ func Ls() {
 	case 0:
 		lines = list_buckets()
 	default:
-		fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]")
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
 	for _, line := range lines {
-		fmt.Println(line)
+		Panic2(fmt.Println(line))
 	}
 }
 
@@ -165,12 +163,8 @@ func list_buckets() [][]string {
 	buckets := make(map[string][]string)
 	for range lib.Servers() {
 		result := <-results
-		if result.err != nil {
-			panic(result.err)
-		}
-		if result.resp.StatusCode != 200 {
-			panic(result.resp)
-		}
+		Assert(result.err == nil, fmt.Sprint(result.err))
+		Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		var res [][]string
 		Panic1(json.Unmarshal(bytes, &res))
@@ -210,12 +204,8 @@ func list(prefix string, recursive bool) [][]string {
 	var line []string
 	for range lib.Servers() {
 		result := <-results
-		if result.err != nil {
-			panic(result.err)
-		}
-		if result.resp.StatusCode != 200 {
-			panic(result.resp)
-		}
+		Assert(result.err == nil, fmt.Sprint(result.err))
+		Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		Panic1(json.Unmarshal(bytes, &line))
 		lines = append(lines, line)
@@ -223,17 +213,182 @@ func list(prefix string, recursive bool) [][]string {
 	return lines
 }
 
+func cp(src string, dst string, recursive bool) {
+	Assert(!(strings.HasPrefix(src, "s4://") && strings.HasPrefix(dst, "s4://")), "fatal: there is no move, there is only cp and rm.")
+	Assert(!strings.Contains(src, " ") && !strings.Contains(dst, " "), "fatal: spaces in keys are not allowed")
+	Assert(!strings.HasPrefix(src, "s4://") || !strings.HasPrefix(strings.SplitN(src, "s4://", 2)[1], "_"), "fatal: buckets cannot start with underscore")
+	Assert(!strings.HasPrefix(dst, "s4://") || !strings.HasPrefix(strings.SplitN(dst, "s4://", 2)[1], "_"), "fatal: buckets cannot start with underscore")
+	if recursive {
+		if strings.HasPrefix(src, "s4://") {
+			get_recursive(src, dst)
+		} else if strings.HasPrefix(dst, "s4://") {
+			put_recursive(src, dst)
+		} else {
+			panic("fatal: src or dst needs s4://")
+		}
+	} else if strings.HasPrefix(src, "s4://") {
+		get(src, dst)
+	} else if strings.HasPrefix(dst, "s4://") {
+		put(src, dst)
+	} else {
+		panic("fatal: src or dst needs s4://")
+	}
+}
+
 func Cp() {
+	cmd := flag.NewFlagSet("cp", flag.ExitOnError)
+	recursive := *cmd.Bool("recursive", false, "")
+	Panic1(cmd.Parse(os.Args[2:]))
+	if cmd.NArg() != 2 || contains(os.Args, "-h") || contains(os.Args, "--help") {
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-recursive]"))
+		cmd.Usage()
+		os.Exit(1)
+	}
+	src := cmd.Arg(0)
+	dst := cmd.Arg(1)
+	cp(src, dst, recursive)
+}
+
+func get_recursive(src string, dst string) {
+	part := strings.SplitN(src, "s4://", 2)[1]
+	part = strings.TrimRight(part, " ")
+	parts := strings.Split(part, "/")
+	bucket := parts[0]
+	parts = parts[1:]
+	prefix := fmt.Sprintf("%s/", bucket)
+	if len(parts) != 0 {
+		prefix = strings.Join(parts, "/")
+	}
+	for _, line := range list(src, false) {
+		// date := line[0]
+		// time := line[1]
+		// size := line[2]
+		key := line[3]
+		token := prefix
+		if dst == "." {
+			token = path.Dir(prefix)
+		}
+		if token == "" {
+			token = " "
+		}
+		pth := strings.SplitN(key, token, 2)[1]
+		pth = strings.TrimLeft(pth, " /")
+		pth = path.Join(dst, pth)
+		Panic1(os.MkdirAll(path.Dir(pth), os.ModePerm))
+		cp(src, dst, false)
+	}
+}
+
+func put_recursive(src string, dst string) {
+	Panic1(filepath.Walk(src, func(fullpath string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			file := path.Base(fullpath)
+			dirpath := path.Dir(fullpath)
+			parts := strings.SplitN(dirpath, src, 2)
+			pth := strings.TrimLeft(parts[len(parts)-1], "/")
+			cp(path.Join(dirpath, file), path.Join(dst, pth, file), false)
+		}
+		return nil
+	}))
+}
+
+func get(src string, dst string) {
+	server := lib.PickServer(src)
+	port := Panic2(freeport.GetFreePort()).(int)
+	temp_path := fmt.Sprintf("%s.temp", dst)
+	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
+	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	Assert(resp.StatusCode != 404, "fatal: no such key")
+	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+	uid := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+	var cmd string
+	if dst == "-" {
+		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream", port)
+	} else {
+		Assert(!lib.Exists(temp_path), temp_path)
+		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
+	}
+	result := lib.WarnStreamOut(cmd)
+	Assert(result.Err == nil, fmt.Sprint(result.Err))
+	client_checksum := result.Stderr
+	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+	if strings.HasSuffix(dst, "/") {
+		Panic1(os.MkdirAll(dst, os.ModePerm))
+		dst = path.Join(dst, path.Base(src))
+	} else if dst == "." {
+		dst = path.Base(src)
+	}
+	if dst != "-" {
+		Panic1(os.Rename(temp_path, dst))
+	}
+	_ = os.Remove(temp_path)
+}
+
+func put(src string, dst string) {
+	if strings.HasSuffix(dst, "/") {
+		dst = path.Join(dst, path.Base(src))
+	}
+	server := lib.PickServer(dst)
+	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
+	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	Assert(resp.StatusCode != 409, fmt.Sprintf("fatal: key already exists: %s", dst))
+	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+	var vals []string
+	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+	Panic1(json.Unmarshal(_bytes, &vals))
+	Assert(len(vals) == 2, fmt.Sprint(vals))
+	uid := vals[0]
+	port := vals[1]
+	var result *lib.Result
+	if src == "-" {
+		result = lib.WarnStreamIn("s4-xxh --stream | s4-send %s %s", server.Address, port)
+	} else {
+		result = lib.Warn("< %s s4-xxh --stream | send %s %s", src, server.Address, port)
+	}
+	Assert(result.Err == nil, fmt.Sprint(result.Err))
+	client_checksum := result.Stderr
+	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
 }
 
 func Config() {
+	for _, server := range lib.Servers() {
+		fmt.Printf("%s:%s\n", server.Address, server.Port)
+	}
 }
 
 func Health() {
+	servers := lib.Servers()
+	results := make(chan string, len(servers))
+	for _, server := range servers {
+		go func(server lib.Server) {
+			url := fmt.Sprintf("http://%s:%s/health", server.Address, server.Port)
+			resp, err := http.Get(url)
+			if err != nil || resp.StatusCode != 200 {
+				results <- fmt.Sprintf("unhealthy: %s:%s", server.Address, server.Port)
+			} else {
+				results <- fmt.Sprintf("healthy:   %s:%s", server.Address, server.Port)
+			}
+		}(server)
+	}
+	fail := false
+	for range servers {
+		result := <-results
+		if !strings.HasPrefix(result, "healthy: ") {
+			fail = true
+		}
+		fmt.Println(result)
+	}
+	if fail {
+		os.Exit(1)
+	}
 }
 
 func usage() {
-	fmt.Println("usage:")
+	Panic2(fmt.Println("usage:"))
 	os.Exit(1)
 }
 

@@ -5,19 +5,25 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"path/filepath"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"os/user"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"os"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
 )
+
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
 
 func Panic1(e error) {
 	if e != nil {
@@ -53,10 +59,7 @@ func Run(format string, args ...interface{}) string {
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		panic(stdout.String() + stderr.String())
-	}
+	Assert(cmd.Run() == nil, stdout.String()+"\n"+stderr.String())
 	return stdout.String()
 }
 
@@ -77,6 +80,36 @@ func Warn(format string, args ...interface{}) *Result {
 	err := cmd.Run()
 	return &Result{
 		stdout.String(),
+		stderr.String(),
+		err,
+	}
+}
+
+func WarnStreamIn(format string, args ...interface{}) *Result {
+	str := fmt.Sprintf(format, args...)
+	cmd := exec.Command("bash", "-c", str)
+	cmd.Stdin = os.Stdin
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return &Result{
+		stdout.String(),
+		stderr.String(),
+		err,
+	}
+}
+
+func WarnStreamOut(format string, args ...interface{}) *Result {
+	str := fmt.Sprintf(format, args...)
+	cmd := exec.Command("bash", "-c", str)
+	cmd.Stdout = os.Stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return &Result{
+		"",
 		stderr.String(),
 		err,
 	}
@@ -103,9 +136,7 @@ func (rwc RWCallback) Close() error {
 }
 
 func OnThisServer(key string) bool {
-	if !strings.HasPrefix(key, "s4://") {
-		panic(key)
-	}
+	Assert(strings.HasPrefix(key, "s4://"), key)
 	server := PickServer(key)
 	return server.Address == "0.0.0.0" && server.Port == HttpPort()
 }
@@ -116,12 +147,8 @@ func Hash(str string) int {
 }
 
 func PickServer(key string) Server {
-	if strings.HasSuffix(key, "/") {
-		panic(key)
-	}
-	if !strings.HasPrefix(key, "s4://") {
-		panic(key)
-	}
+	Assert(!strings.HasSuffix(key, "/"), key)
+	Assert(strings.HasPrefix(key, "s4://"), key)
 	prefix := KeyPrefix(key)
 	val, err := strconv.Atoi(prefix)
 	if err != nil {
@@ -199,9 +226,7 @@ func Servers() []Server {
 		local_addresses := LocalAddresses()
 		for _, line := range lines {
 			parts := strings.Split(line, ":")
-			if len(parts) != 2 {
-				panic(parts)
-			}
+			Assert(len(parts) == 2, fmt.Sprint(parts))
 			server := Server{parts[0], parts[1]}
 			for _, address := range local_addresses {
 				if server.Address == address {

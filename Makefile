@@ -1,6 +1,6 @@
 .PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh check
 
-all: s4 s4-server s4-send s4-recv s4-xxh check
+all: s4 s4-server s4-send s4-recv s4-xxh
 
 clean:
 	rm -rf bin

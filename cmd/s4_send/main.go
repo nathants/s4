@@ -13,6 +13,25 @@ import (
 
 const timeout = 5 * time.Second
 
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
+
+func Panic1(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func Panic2(x interface{}, e error) interface{} {
+	if e != nil {
+		panic(e)
+	}
+	return x
+}
+
 func main() {
 
 	if len(os.Args) != 3 {
@@ -22,9 +41,7 @@ func main() {
 
 	addr := os.Args[1]
 	port, err := strconv.Atoi(os.Args[2])
-	if err != nil {
-		panic(err)
-	}
+	Assert(err == nil, fmt.Sprint(err))
 
 	dst := fmt.Sprintf("%s:%d", addr, port)
 
@@ -36,9 +53,7 @@ func main() {
 		if err == nil {
 			break
 		}
-		if time.Since(start) > timeout {
-			panic("timeout dialing")
-		}
+		Assert(time.Since(start) < timeout, "timeout dialing")
 		time.Sleep(time.Microsecond * 10000)
 	}
 
@@ -46,23 +61,15 @@ func main() {
 
 	go func() {
 		for {
-			if time.Since(start) > timeout {
-				panic("timeout writing")
-			}
+			Assert(time.Since(start) < timeout, "timeout writing")
 			time.Sleep(time.Microsecond * 10000)
 		}
 	}()
 
 	rwc := lib.RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
 
-	_, err = io.Copy(rwc, os.Stdin)
-	if err != nil {
-		panic(err)
-	}
+	Panic2(io.Copy(rwc, os.Stdin))
 
-	err = rwc.Close()
-	if err != nil {
-		panic(err)
-	}
+	Panic1(rwc.Close())
 
 }
