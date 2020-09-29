@@ -432,14 +432,11 @@ func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func main() {
-	explicit_port := flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
+	lib.Port = flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
+	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
 	flag.Parse()
-	if *explicit_port != 0 {
-		lib.Port = fmt.Sprint(*explicit_port)
-	}
 	Panic1(os.Setenv("LC_ALL", "C"))
-	_, err := os.Stat("s4_data")
-	if err == nil {
+	if !lib.Exists("s4_data") {
 		Panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
 		Panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
 		Panic1(os.Chdir("s4_data"))

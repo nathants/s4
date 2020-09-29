@@ -48,9 +48,15 @@ func Exists(path string) bool {
 	}
 }
 
+var Conf *string
+
 func ConfPath() string {
-	usr := Panic2(user.Current()).(user.User)
-	return path.Join(usr.HomeDir, ".s4.conf")
+	if *Conf != "" {
+		return *Conf
+	} else {
+		usr := Panic2(user.Current()).(user.User)
+		return path.Join(usr.HomeDir, ".s4.conf")
+	}
 }
 
 func Run(format string, args ...interface{}) string {
@@ -253,11 +259,11 @@ func LocalAddresses() []string {
 	return vals
 }
 
-var Port = ""
+var Port *int
 
 func HttpPort() string {
-	if Port != "" {
-		return Port
+	if *Port != 0 {
+		return fmt.Sprint(*Port)
 	} else {
 		for _, server := range Servers() {
 			if server.Address == "0.0.0.0" {
