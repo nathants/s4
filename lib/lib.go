@@ -96,6 +96,8 @@ type Result struct {
 // TODO support timeout and use s4.timeout for most calls like python
 func Warn(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
+	str = fmt.Sprintf("set -eou pipefail; %s", str)
+	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -111,6 +113,8 @@ func Warn(format string, args ...interface{}) *Result {
 
 func WarnStreamIn(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
+	str = fmt.Sprintf("set -eou pipefail; %s", str)
+	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	cmd.Stdin = os.Stdin
 	var stdout bytes.Buffer
@@ -127,6 +131,8 @@ func WarnStreamIn(format string, args ...interface{}) *Result {
 
 func WarnStreamOut(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
+	str = fmt.Sprintf("set -eou pipefail; %s", str)
+	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	cmd.Stdout = os.Stdout
 	var stderr bytes.Buffer
@@ -336,5 +342,5 @@ type LoggingHandler struct {
 func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wo := &ResponseObserver{w, 200}
 	l.Handler.ServeHTTP(wo, r)
-	Logger.Println(wo.Status, r.Method, r.URL.Path, strings.Split(r.RemoteAddr, ":")[0])
+	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0])
 }

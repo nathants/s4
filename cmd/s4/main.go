@@ -45,7 +45,7 @@ func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	recursive := cmd.Bool("recursive", false, "")
 	Panic1(cmd.Parse(os.Args[2:]))
-	if cmd.NArg() != 2 {
+	if cmd.NArg() != 1 {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-recursive]"))
 		cmd.Usage()
 		os.Exit(1)
@@ -64,14 +64,14 @@ func Rm() {
 		for range lib.Servers() {
 			result := <-results
 			Assert(result.err == nil, fmt.Sprint(result.err))
-			Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
+			Assert(result.resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)))
 		}
 	} else {
 		server := lib.PickServer(prefix)
 		url := fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix)
 		resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 		Assert(err == nil, fmt.Sprint(err))
-		Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+		Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 	}
 }
 
@@ -164,8 +164,8 @@ func list_buckets() [][]string {
 	for range lib.Servers() {
 		result := <-results
 		Assert(result.err == nil, fmt.Sprint(result.err))
-		Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
+		Assert(result.resp.StatusCode == 200, string(bytes))
 		var res [][]string
 		Panic1(json.Unmarshal(bytes, &res))
 		for _, line := range res {
@@ -205,8 +205,8 @@ func list(prefix string, recursive bool) [][]string {
 	for range lib.Servers() {
 		result := <-results
 		Assert(result.err == nil, fmt.Sprint(result.err))
-		Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
+		Assert(result.resp.StatusCode == 200, string(bytes))
 		Panic1(json.Unmarshal(bytes, &tmp))
 		lines = append(lines, tmp...)
 	}
@@ -300,8 +300,9 @@ func get(src string, dst string) {
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
 	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode != 404, "fatal: no such key")
-	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
-	uid := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+	Assert(resp.StatusCode == 200, string(_bytes))
+	uid := _bytes
 	var cmd string
 	if dst == "-" {
 		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream", port)
@@ -314,7 +315,7 @@ func get(src string, dst string) {
 	client_checksum := result.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 	if strings.HasSuffix(dst, "/") {
 		Panic1(os.MkdirAll(dst, os.ModePerm))
 		dst = lib.Join(dst, path.Base(src))
@@ -335,10 +336,9 @@ func put(src string, dst string) {
 	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
 	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode != 409, fmt.Sprintf("fatal: key already exists: %s", dst))
-	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
-	var vals []string
 	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-	Panic1(json.Unmarshal(_bytes, &vals))
+	Assert(resp.StatusCode == 200, string(_bytes))
+	vals := strings.Split(string(_bytes), " ")
 	Assert(len(vals) == 2, fmt.Sprint(vals))
 	uid := vals[0]
 	port := vals[1]
@@ -346,13 +346,13 @@ func put(src string, dst string) {
 	if src == "-" {
 		result = lib.WarnStreamIn("s4-xxh --stream | s4-send %s %s", server.Address, port)
 	} else {
-		result = lib.Warn("< %s s4-xxh --stream | send %s %s", src, server.Address, port)
+		result = lib.Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
 	}
 	Assert(result.Err == nil, fmt.Sprint(result.Err))
 	client_checksum := result.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
+	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 }
 
 func Config() {

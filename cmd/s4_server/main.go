@@ -76,7 +76,7 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	uid := uids[0]
-	client_checksums := r.URL.Query()["uuid"]
+	client_checksums := r.URL.Query()["checksum"]
 	if len(client_checksums) != 1 {
 		w.WriteHeader(400)
 		return
@@ -94,6 +94,7 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic2(fmt.Fprintf(w, result.Stdout+"\n"+result.Stderr))
 		return
 	}
+	// TODO compare 3 checksums: server, client, disk
 	server_checksum := result.Stderr
 	if client_checksum != server_checksum {
 		w.WriteHeader(500)
@@ -101,6 +102,7 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	w.WriteHeader(200)
+
 }
 
 func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -121,11 +123,14 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic2(fmt.Fprintf(w, "wrong server for request\n"))
 		return
 	}
-	remote := r.RemoteAddr
+	remote := strings.Split(r.RemoteAddr, ":")[0]
+	if remote == "127.0.0.1" {
+		remote = "0.0.0.0"
+	}
 	path := strings.Split(key, "s4://")[1]
 
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	if !lib.Exists(path) || !lib.Exists(checksum_path(path)) {
+	if !lib.Exists(path) {
 		w.WriteHeader(404)
 		return
 	}
@@ -136,15 +141,15 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	go func() {
 		Panic1(io_send_pool.Acquire(context.TODO(), 1))
 		started <- true
-		result <- lib.Warn("< %s s4-xxh --stream | send %s %s", path, remote, port)
+		result <- lib.Warn("< %s s4-xxh --stream | s4-send %s %s", path, remote, port)
 		io_send_pool.Release(1)
 	}()
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	if !lib.Exists(path) || !lib.Exists(checksum_path(path)) {
+	if !lib.Exists(path) {
 		w.WriteHeader(404)
 		return
 	}
-	disk_checksum := Panic2(ioutil.ReadFile(checksum_path(path))).(string)
+	disk_checksum := string(Panic2(ioutil.ReadFile(checksum_path(path))).([]byte))
 	solo_pool.Release(1)
 	job := &GetJob{
 		time.Now(),
@@ -186,7 +191,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// reserve file
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
 	port := Panic2(freeport.GetFreePort()).(int)
-	if lib.Exists(path) || lib.Exists(checksum_path(path)) {
+	if lib.Exists(path) {
 		w.WriteHeader(409)
 		return
 	}
@@ -198,7 +203,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	go func() {
 		Panic1(io_recv_pool.Acquire(context.TODO(), 1))
 		started <- true
-		result <- lib.Warn("recv %d | s4-xxh --stream > %s", port, temp_path)
+		result <- lib.Warn("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
 		io_recv_pool.Release(1)
 	}()
 	job := &PutJob{
@@ -218,9 +223,8 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		_ = os.Remove(checksum_path(path))
 		w.WriteHeader(429)
 	case <-started:
-		w.Header().Set("Content-Type", "application/json")
-		bytes := Panic2(json.Marshal([]string{uid, fmt.Sprint(port)}))
-		Panic2(w.Write(bytes.([]byte)))
+		w.Header().Set("Content-Type", "application/text")
+		Panic2(fmt.Fprintf(w, "%s %d", uid, port))
 	}
 }
 
@@ -260,15 +264,10 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Panic1(os.MkdirAll(path.Dir(job.path), os.ModePerm))
 	if lib.Exists(job.path) {
 		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, "already lib.Exists: %s\n", job.path))
+		Panic2(fmt.Fprintf(w, "already exists: %s\n", job.path))
 		return
 	}
-	if lib.Exists(checksum_path(job.path)) {
-		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, "already lib.Exists: %s\n", checksum_path(job.path)))
-		return
-	}
-	Panic1(ioutil.WriteFile(job.path, []byte(server_checksum), 0o444))
+	Panic1(ioutil.WriteFile(checksum_path(job.path), []byte(server_checksum), 0o444))
 	Panic1(os.Chmod(job.temp_path, 0o444))
 	Panic1(os.Rename(job.temp_path, job.path))
 	w.WriteHeader(200)
@@ -419,7 +418,7 @@ func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		parts := strings.Split(line, " ")
 		if len(parts) == 4 {
 			date, time, size, path := parts[0], parts[1], parts[2], parts[3]
-			res = append(res, []string{date, time, size, path})
+			res = append(res, []string{date, time, size, strings.TrimLeft(path, "./")})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -453,5 +452,5 @@ func main() {
 	router.GET("/health", Health)
 	port := fmt.Sprintf(":%s", lib.HttpPort())
 	lib.Logger.Println("s4-server", port)
-	Panic1(http.ListenAndServe(port, &lib.LoggingHandler{router}))
+	Panic1(http.ListenAndServe(port, &lib.LoggingHandler{Handler: router}))
 }

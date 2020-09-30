@@ -1,4 +1,5 @@
 import contextlib
+import pytest
 import logging
 import os
 import pool.proc
@@ -94,7 +95,7 @@ def servers(timeout=30):
 #         run(f'echo | s4 cp - {path}')
 #         with pytest.raises(Exception):
 #             run(f'echo | s4 cp - {path}')
-#         run('s4 rm', path)
+#         run('s4 rm', path, stream=True)
 #         run(f'echo | s4 cp - {path}')
 
 # def test_eval():
@@ -113,20 +114,20 @@ def test_basic():
             'basic/dir/file2.txt',
         ]
         run('s4 cp s4://bucket/basic/dir/file.txt out.txt')
-        # assert run('cat out.txt') == "123"
-        # run('s4 cp s4://bucket/basic/dir/file2.txt', 'out2.txt')
-        # assert run('cat out2.txt') == "345"
-        # run('mkdir foo/')
-        # run('s4 cp s4://bucket/basic/dir/file.txt foo/')
-        # assert run('cat foo/file.txt') == "123"
-        # assert run("s4 ls | awk '{print $NF}'").splitlines() == ['bucket']
+        assert run('cat out.txt') == "123"
+        run('s4 cp s4://bucket/basic/dir/file2.txt', 'out2.txt')
+        assert run('cat out2.txt') == "345"
+        run('mkdir foo/')
+        run('s4 cp s4://bucket/basic/dir/file.txt foo/')
+        assert run('cat foo/file.txt') == "123"
+        assert run("s4 ls | awk '{print $NF}'").splitlines() == ['bucket']
 
-# def test_cp_file_to_dot():
-#     with servers():
-#         run('echo foo > file.txt')
-#         run('s4 cp file.txt s4://bucket/file2.txt')
-#         run('s4 cp s4://bucket/file2.txt .')
-#         assert 'foo' == run('cat file2.txt')
+def test_cp_file_to_dot():
+    with servers():
+        run('echo foo > file.txt')
+        run('s4 cp file.txt s4://bucket/file2.txt')
+        run('s4 cp s4://bucket/file2.txt .')
+        assert 'foo' == run('cat file2.txt')
 
 # def test_cp_dir_to_dot():
 #     with servers():
