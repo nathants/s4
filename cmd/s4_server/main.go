@@ -451,7 +451,7 @@ func main() {
 	router.GET("/list", List)
 	router.GET("/list_buckets", ListBuckets)
 	router.GET("/health", Health)
-	port := fmt.Sprintf(":%d", 8080)
-	Panic2(fmt.Println("s4-server", port))
-	Panic1(http.ListenAndServe(port, router))
+	port := fmt.Sprintf(":%s", lib.HttpPort())
+	lib.Logger.Println("s4-server", port)
+	Panic1(http.ListenAndServe(port, &lib.LoggingHandler{router}))
 }

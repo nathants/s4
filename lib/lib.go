@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
 )
+
+var Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
 
 func Assert(cond bool, format string, a ...interface{}) {
 	if !cond {
@@ -38,6 +41,19 @@ func Panic2(x interface{}, e error) interface{} {
 	return x
 }
 
+func Join(parts ...string) string {
+	res := parts[0]
+	for _, part := range parts[1:] {
+		res = strings.TrimRight(res, "/")
+		if strings.HasPrefix(part, "/") {
+			res = part
+		} else {
+			res = fmt.Sprintf("%s/%s", res, part)
+		}
+	}
+	return res
+}
+
 func Exists(path string) bool {
 	_, err := os.Stat(path)
 	if err != nil {
@@ -51,11 +67,13 @@ func Exists(path string) bool {
 var Conf *string
 
 func ConfPath() string {
-	if *Conf != "" {
+	if Conf != nil && *Conf != "" {
 		return *Conf
+	} else if os.Getenv("S4_CONF_PATH") != "" {
+		return os.Getenv("S4_CONF_PATH")
 	} else {
-		usr := Panic2(user.Current()).(user.User)
-		return path.Join(usr.HomeDir, ".s4.conf")
+		usr := Panic2(user.Current()).(*user.User)
+		return Join(usr.HomeDir, ".s4.conf")
 	}
 }
 
@@ -66,7 +84,7 @@ func Run(format string, args ...interface{}) string {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	Assert(cmd.Run() == nil, stdout.String()+"\n"+stderr.String())
-	return stdout.String()
+	return strings.TrimRight(stdout.String(), "\n")
 }
 
 type Result struct {
@@ -85,8 +103,8 @@ func Warn(format string, args ...interface{}) *Result {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return &Result{
-		stdout.String(),
-		stderr.String(),
+		strings.TrimRight(stdout.String(), "\n"),
+		strings.TrimRight(stderr.String(), "\n"),
 		err,
 	}
 }
@@ -101,8 +119,8 @@ func WarnStreamIn(format string, args ...interface{}) *Result {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return &Result{
-		stdout.String(),
-		stderr.String(),
+		strings.TrimRight(stdout.String(), "\n"),
+		strings.TrimRight(stderr.String(), "\n"),
 		err,
 	}
 }
@@ -116,7 +134,7 @@ func WarnStreamOut(format string, args ...interface{}) *Result {
 	err := cmd.Run()
 	return &Result{
 		"",
-		stderr.String(),
+		strings.TrimRight(stderr.String(), "\n"),
 		err,
 	}
 }
@@ -231,6 +249,9 @@ func Servers() []Server {
 		lines := strings.Split(string(bytes), "\n")
 		local_addresses := LocalAddresses()
 		for _, line := range lines {
+			if strings.Trim(line, " ") == "" {
+				continue
+			}
 			parts := strings.Split(line, ":")
 			Assert(len(parts) == 2, fmt.Sprint(parts))
 			server := Server{parts[0], parts[1]}
@@ -262,7 +283,7 @@ func LocalAddresses() []string {
 var Port *int
 
 func HttpPort() string {
-	if *Port != 0 {
+	if Port != nil && *Port != 0 {
 		return fmt.Sprint(*Port)
 	} else {
 		for _, server := range Servers() {
@@ -286,10 +307,34 @@ func ServerNum() int {
 func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
 		uid := uuid.NewV4().String()
-		temp_path := Panic2(filepath.Abs(path.Join(dir, uid))).(string)
+		temp_path := Panic2(filepath.Abs(Join(dir, uid))).(string)
 		if !Exists(temp_path) {
 			return temp_path
 		}
 	}
 	panic("failure")
+}
+
+type ResponseObserver struct {
+	http.ResponseWriter
+	Status int
+}
+
+func (o *ResponseObserver) Write(p []byte) (int, error) {
+	return o.ResponseWriter.Write(p)
+}
+
+func (o *ResponseObserver) WriteHeader(code int) {
+	o.ResponseWriter.WriteHeader(code)
+	o.Status = code
+}
+
+type LoggingHandler struct {
+	Handler http.Handler
+}
+
+func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	wo := &ResponseObserver{w, 200}
+	l.Handler.ServeHTTP(wo, r)
+	Logger.Println(wo.Status, r.Method, r.URL.Path, strings.Split(r.RemoteAddr, ":")[0])
 }

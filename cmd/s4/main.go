@@ -147,7 +147,7 @@ func Ls() {
 		os.Exit(1)
 	}
 	for _, line := range lines {
-		Panic2(fmt.Println(line))
+		Panic2(fmt.Println(strings.Join(line, " ")))
 	}
 }
 
@@ -201,15 +201,16 @@ func list(prefix string, recursive bool) [][]string {
 		}(server)
 	}
 	var lines [][]string
-	var line []string
+	var tmp [][]string
 	for range lib.Servers() {
 		result := <-results
 		Assert(result.err == nil, fmt.Sprint(result.err))
 		Assert(result.resp.StatusCode == 200, fmt.Sprint(result.resp))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
-		Panic1(json.Unmarshal(bytes, &line))
-		lines = append(lines, line)
+		Panic1(json.Unmarshal(bytes, &tmp))
+		lines = append(lines, tmp...)
 	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i][3] < lines[j][3] })
 	return lines
 }
 
@@ -273,7 +274,7 @@ func get_recursive(src string, dst string) {
 		}
 		pth := strings.SplitN(key, token, 2)[1]
 		pth = strings.TrimLeft(pth, " /")
-		pth = path.Join(dst, pth)
+		pth = lib.Join(dst, pth)
 		Panic1(os.MkdirAll(path.Dir(pth), os.ModePerm))
 		cp(src, dst, false)
 	}
@@ -286,7 +287,7 @@ func put_recursive(src string, dst string) {
 			dirpath := path.Dir(fullpath)
 			parts := strings.SplitN(dirpath, src, 2)
 			pth := strings.TrimLeft(parts[len(parts)-1], "/")
-			cp(path.Join(dirpath, file), path.Join(dst, pth, file), false)
+			cp(lib.Join(dirpath, file), lib.Join(dst, pth, file), false)
 		}
 		return nil
 	}))
@@ -316,7 +317,7 @@ func get(src string, dst string) {
 	Assert(resp.StatusCode == 200, fmt.Sprint(resp))
 	if strings.HasSuffix(dst, "/") {
 		Panic1(os.MkdirAll(dst, os.ModePerm))
-		dst = path.Join(dst, path.Base(src))
+		dst = lib.Join(dst, path.Base(src))
 	} else if dst == "." {
 		dst = path.Base(src)
 	}
@@ -328,7 +329,7 @@ func get(src string, dst string) {
 
 func put(src string, dst string) {
 	if strings.HasSuffix(dst, "/") {
-		dst = path.Join(dst, path.Base(src))
+		dst = lib.Join(dst, path.Base(src))
 	}
 	server := lib.PickServer(dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
