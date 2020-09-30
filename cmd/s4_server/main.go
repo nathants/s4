@@ -130,27 +130,36 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.Split(key, "s4://")[1]
 
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	if !lib.Exists(path) {
+	exists := lib.Exists(path)
+	solo_pool.Release(1)
+
+	if !exists {
 		w.WriteHeader(404)
 		return
 	}
-	solo_pool.Release(1)
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.Result, 1)
 	go func() {
 		Panic1(io_send_pool.Acquire(context.TODO(), 1))
+		defer io_send_pool.Release(1)
 		started <- true
 		result <- lib.Warn("< %s s4-xxh --stream | s4-send %s %s", path, remote, port)
-		io_send_pool.Release(1)
 	}()
+
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	if !lib.Exists(path) {
+	exists = lib.Exists(path)
+	solo_pool.Release(1)
+
+	if !exists {
 		w.WriteHeader(404)
 		return
 	}
+
+	Panic1(solo_pool.Acquire(context.TODO(), 1))
 	disk_checksum := string(Panic2(ioutil.ReadFile(checksum_path(path))).([]byte))
 	solo_pool.Release(1)
+
 	job := &GetJob{
 		time.Now(),
 		result,
@@ -188,23 +197,25 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	path := strings.Split(key, "s4://")[1]
 	Assert(!strings.HasPrefix(path, "_"), path)
-	// reserve file
+
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
 	port := Panic2(freeport.GetFreePort()).(int)
-	if lib.Exists(path) {
+	exists := lib.Exists(path)
+	solo_pool.Release(1)
+
+	if exists {
 		w.WriteHeader(409)
 		return
 	}
 	temp_path := lib.NewTempPath("_tempfiles")
-	solo_pool.Release(1)
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.Result, 1)
 	go func() {
 		Panic1(io_recv_pool.Acquire(context.TODO(), 1))
+		defer io_recv_pool.Release(1)
 		started <- true
 		result <- lib.Warn("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
-		io_recv_pool.Release(1)
 	}()
 	job := &PutJob{
 		time.Now(),
@@ -259,10 +270,13 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic2(fmt.Fprintf(w, "checksum mismatch: %s %s\n", client_checksum, server_checksum))
 		return
 	}
+
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	defer solo_pool.Release(1)
 	Panic1(os.MkdirAll(path.Dir(job.path), os.ModePerm))
-	if lib.Exists(job.path) {
+	exists := lib.Exists(job.path)
+	solo_pool.Release(1)
+
+	if exists {
 		w.WriteHeader(500)
 		Panic2(fmt.Fprintf(w, "already exists: %s\n", job.path))
 		return
@@ -312,10 +326,12 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	cmd := Panic2(ioutil.ReadAll(r.Body)).([]byte)
 	parts := strings.SplitN(key, "s4://", 2)
 	path := parts[len(parts)-1]
+
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	path_exists := lib.Exists(path)
+	exists := lib.Exists(path)
 	solo_pool.Release(1)
-	if !path_exists {
+
+	if !exists {
 		w.WriteHeader(404)
 	} else {
 		Panic1(cpu_pool.Acquire(context.TODO(), 1))
@@ -357,9 +373,11 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		if !strings.HasSuffix(prefix, "/") {
 			prefix += "*"
 		}
+
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, printf)
 		misc_pool.Release(1)
+
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		for _, line := range strings.Split(res.Stdout, "\n") {
 			parts := strings.Split(line, " ")
@@ -375,9 +393,11 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			name = fmt.Sprintf("-name '%s*'", name)
 			prefix = path.Dir(prefix)
 		}
+
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res := lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, printf)
 		misc_pool.Release(1)
+
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var files [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
@@ -386,9 +406,11 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				files = append(files, parts)
 			}
 		}
+
 		Panic1(misc_pool.Acquire(context.TODO(), 1))
 		res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
 		misc_pool.Release(1)
+
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var dirs [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
@@ -410,9 +432,11 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+
 	Panic1(misc_pool.Acquire(context.TODO(), 1))
 	stdout := lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", printf)
 	misc_pool.Release(1)
+
 	var res [][]string
 	for _, line := range strings.Split(stdout, "\n") {
 		parts := strings.Split(line, " ")

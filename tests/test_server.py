@@ -89,14 +89,14 @@ def servers(timeout=30):
 #         with pytest.raises(Exception):
 #             run('echo | s4 cp - "s4://bucket/basic/dir/fi le.txt"')
 
-# def test_updates_are_not_allowed():
-#     with servers():
-#         path = 's4://bucket/basic/dir/file.txt'
-#         run(f'echo | s4 cp - {path}')
-#         with pytest.raises(Exception):
-#             run(f'echo | s4 cp - {path}')
-#         run('s4 rm', path, stream=True)
-#         run(f'echo | s4 cp - {path}')
+def test_updates_are_not_allowed():
+    with servers():
+        path = 's4://bucket/basic/dir/file.txt'
+        run(f'echo | s4 cp - {path}')
+        with pytest.raises(Exception):
+            run(f'echo | s4 cp - {path}')
+        run('timeout 3 s4 rm', path)
+        run(f'echo | s4 cp - {path}')
 
 # def test_eval():
 #     with servers():
