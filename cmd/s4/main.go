@@ -94,13 +94,16 @@ func Eval() {
 	case 400:
 		var result lib.Result
 		bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		if len(bytes) == 0 {
+			return
+		}
 		Panic1(json.Unmarshal(bytes, &result))
 		Panic2(fmt.Fprintln(os.Stderr, result.Stdout))
 		Panic2(fmt.Fprintln(os.Stderr, result.Stderr))
 		Panic2(fmt.Fprintf(os.Stderr, "%s\n", result.Err))
 	case 200:
 		bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-		Panic2(fmt.Print(bytes))
+		Panic2(os.Stdout.Write(bytes))
 	default:
 		panic(resp)
 	}
@@ -144,6 +147,9 @@ func Ls() {
 	default:
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
 		cmd.Usage()
+		os.Exit(1)
+	}
+	if len(lines) == 0 {
 		os.Exit(1)
 	}
 	for _, line := range lines {
@@ -210,8 +216,14 @@ func list(prefix string, recursive bool) [][]string {
 		Panic1(json.Unmarshal(bytes, &tmp))
 		lines = append(lines, tmp...)
 	}
+	var deduped [][]string
 	sort.Slice(lines, func(i, j int) bool { return lines[i][3] < lines[j][3] })
-	return lines
+	for _, val := range lines {
+		if len(deduped) == 0 || deduped[len(deduped)-1][3] != val[3] {
+			deduped = append(deduped, val)
+		}
+	}
+	return deduped
 }
 
 func cp(src string, dst string, recursive bool) {
@@ -252,7 +264,7 @@ func Cp() {
 
 func get_recursive(src string, dst string) {
 	part := strings.SplitN(src, "s4://", 2)[1]
-	part = strings.TrimRight(part, " ")
+	part = strings.TrimRight(part, "/")
 	parts := strings.Split(part, "/")
 	bucket := parts[0]
 	parts = parts[1:]
@@ -260,31 +272,32 @@ func get_recursive(src string, dst string) {
 	if len(parts) != 0 {
 		prefix = strings.Join(parts, "/")
 	}
-	for _, line := range list(src, false) {
-		// date := line[0]
-		// time := line[1]
-		// size := line[2]
+	for _, line := range list(src, true) {
 		key := line[3]
 		token := prefix
 		if dst == "." {
-			token = path.Dir(prefix)
+			token = lib.Dir(prefix)
 		}
 		if token == "" {
 			token = " "
 		}
-		pth := strings.SplitN(key, token, 2)[1]
+		pths := strings.SplitN(key, token, 2)
+		pth := pths[len(pths)-1]
 		pth = strings.TrimLeft(pth, " /")
 		pth = lib.Join(dst, pth)
-		Panic1(os.MkdirAll(path.Dir(pth), os.ModePerm))
-		cp(src, dst, false)
+		if lib.Dir(pth) != "" {
+			Panic1(os.MkdirAll(lib.Dir(pth), os.ModePerm))
+		}
+		cp(fmt.Sprintf("s4://%s", lib.Join(bucket, key)), pth, false)
 	}
 }
 
 func put_recursive(src string, dst string) {
 	Panic1(filepath.Walk(src, func(fullpath string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
+			src = strings.TrimRight(src, "/")
 			file := path.Base(fullpath)
-			dirpath := path.Dir(fullpath)
+			dirpath := lib.Dir(fullpath)
 			parts := strings.SplitN(dirpath, src, 2)
 			pth := strings.TrimLeft(parts[len(parts)-1], "/")
 			cp(lib.Join(dirpath, file), lib.Join(dst, pth, file), false)
@@ -299,7 +312,7 @@ func get(src string, dst string) {
 	temp_path := fmt.Sprintf("%s.temp", dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
 	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode != 404, "fatal: no such key")
+	Assert(resp.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
 	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
 	Assert(resp.StatusCode == 200, string(_bytes))
 	uid := _bytes

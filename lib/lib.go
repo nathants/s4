@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -39,6 +40,14 @@ func Panic2(x interface{}, e error) interface{} {
 		panic(e)
 	}
 	return x
+}
+
+func Dir(pth string) string {
+	pth = path.Dir(pth)
+	if pth == "." {
+		pth = ""
+	}
+	return pth
 }
 
 func Join(parts ...string) string {
@@ -97,7 +106,6 @@ type Result struct {
 func Warn(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -114,7 +122,6 @@ func Warn(format string, args ...interface{}) *Result {
 func WarnStreamIn(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	cmd.Stdin = os.Stdin
 	var stdout bytes.Buffer
@@ -132,7 +139,6 @@ func WarnStreamIn(format string, args ...interface{}) *Result {
 func WarnStreamOut(format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	Logger.Println(str)
 	cmd := exec.Command("bash", "-c", str)
 	cmd.Stdout = os.Stdout
 	var stderr bytes.Buffer

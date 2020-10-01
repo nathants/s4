@@ -272,7 +272,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	Panic1(os.MkdirAll(path.Dir(job.path), os.ModePerm))
+	Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
 	exists := lib.Exists(job.path)
 	solo_pool.Release(1)
 
@@ -317,7 +317,7 @@ func checksum_path(prefix string) string {
 }
 
 func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	keys := r.URL.Query()["prefix"]
+	keys := r.URL.Query()["key"]
 	if len(keys) != 1 {
 		w.WriteHeader(400)
 		return
@@ -340,6 +340,7 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		if res.Err == nil {
 			Panic2(fmt.Fprintf(w, res.Stdout))
 		} else {
+			w.WriteHeader(400)
 			w.Header().Set("Content-Type", "application/json")
 			bytes := Panic2(json.Marshal(res))
 			Panic2(w.Write(bytes.([]byte)))
@@ -361,7 +362,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix = strings.Split(prefix, "s4://")[1]
 	_prefix := prefix
 	if !strings.HasSuffix(_prefix, "/") {
-		_prefix += "/"
+		_prefix = lib.Dir(_prefix) + "/"
 	}
 	recursive := false
 	recursives := r.URL.Query()["recursive"]
@@ -391,7 +392,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		if !strings.HasSuffix(prefix, "/") {
 			name = path.Base(prefix)
 			name = fmt.Sprintf("-name '%s*'", name)
-			prefix = path.Dir(prefix)
+			prefix = lib.Dir(prefix)
 		}
 
 		Panic1(misc_pool.Acquire(context.TODO(), 1))

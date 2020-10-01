@@ -84,10 +84,10 @@ def servers(timeout=30):
                     for proc in procs:
                         proc.terminate()
 
-# def test_spaces_are_not_allowed():
-#     with servers():
-#         with pytest.raises(Exception):
-#             run('echo | s4 cp - "s4://bucket/basic/dir/fi le.txt"')
+def test_spaces_are_not_allowed():
+    with servers():
+        with pytest.raises(Exception):
+            run('echo | s4 cp - "s4://bucket/basic/dir/fi le.txt"')
 
 def test_updates_are_not_allowed():
     with servers():
@@ -98,10 +98,10 @@ def test_updates_are_not_allowed():
         run('timeout 3 s4 rm', path)
         run(f'echo | s4 cp - {path}')
 
-# def test_eval():
-#     with servers():
-#         run('echo 123 | s4 cp - s4://bucket/file.txt')
-#         assert '123' == run('s4 eval s4://bucket/file.txt "cat"')
+def test_eval():
+    with servers():
+        run('echo 123 | s4 cp - s4://bucket/file.txt')
+        assert '123' == run('s4 eval s4://bucket/file.txt "cat"')
 
 def test_basic():
     with servers():
@@ -129,188 +129,188 @@ def test_cp_file_to_dot():
         run('s4 cp s4://bucket/file2.txt .')
         assert 'foo' == run('cat file2.txt')
 
-# def test_cp_dir_to_dot():
-#     with servers():
-#         run('echo | s4 cp - s4://bucket/dir1/file1.txt')
-#         run('echo | s4 cp - s4://bucket/dir2/file2.txt')
-#         run('echo | s4 cp - s4://bucket/dir2/file3.txt')
-#         assert run("s4 ls -recursive s4://bucket | awk '{print $NF}'").splitlines() == [
-#             'dir1/file1.txt',
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('s4 cp -recursive s4://bucket .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir1/file1.txt',
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('rm -recursivef dir*')
-#         run('s4 cp -recursive s4://bucket/dir2 .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('rm -recursivef dir*')
-#         run('s4 cp -recursive s4://bucket/dir2/ .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
+def test_cp_dir_to_dot():
+    with servers():
+        run('echo | s4 cp - s4://bucket/dir1/file1.txt')
+        run('echo | s4 cp - s4://bucket/dir2/file2.txt')
+        run('echo | s4 cp - s4://bucket/dir2/file3.txt')
+        assert run("s4 ls -recursive s4://bucket | awk '{print $NF}'").splitlines() == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('s4 cp -recursive s4://bucket .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        run('s4 cp -recursive s4://bucket/dir2 .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        run('s4 cp -recursive s4://bucket/dir2/ .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
 
-# def test_cp_dot_to_dot():
-#     with servers():
-#         with shell.tempdir():
-#             run('mkdir dir1 dir2')
-#             run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
-#             run('s4 cp -recursive . s4://bucket')
-#         assert run("s4 ls -recursive s4://bucket | awk '{print $NF}'").splitlines() == [
-#             'dir1/file1.txt',
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('s4 cp -recursive s4://bucket .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir1/file1.txt',
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('rm -recursivef dir*')
-#         run('s4 cp -recursive s4://bucket/dir2 .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
-#         run('rm -recursivef dir*')
-#         run('s4 cp -recursive s4://bucket/dir2/ .')
-#         assert sorted(run('find dir* -type f').splitlines()) == [
-#             'dir2/file2.txt',
-#             'dir2/file3.txt',
-#         ]
+def test_cp_dot_to_dot():
+    with servers():
+        with shell.tempdir():
+            run('mkdir dir1 dir2')
+            run('touch dir1/file1.txt dir2/file2.txt dir2/file3.txt')
+            run('s4 cp -recursive . s4://bucket')
+        assert run("s4 ls -recursive s4://bucket | awk '{print $NF}'").splitlines() == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('s4 cp -recursive s4://bucket .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir1/file1.txt',
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        run('s4 cp -recursive s4://bucket/dir2 .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
+        run('rm -rf dir*')
+        run('s4 cp -recursive s4://bucket/dir2/ .')
+        assert sorted(run('find dir* -type f').splitlines()) == [
+            'dir2/file2.txt',
+            'dir2/file3.txt',
+        ]
 
-# def test_data_modifications_not_allowed():
-#     with servers():
-#         run('echo | s4 cp - s4://bucket/data.txt')
-#         path = run('find . -type f -name data.txt')
-#         assert path.endswith('/data.txt')
-#         with pytest.raises(Exception):
-#             run('echo >>', path)
+def test_data_modifications_not_allowed():
+    with servers():
+        run('echo | s4 cp - s4://bucket/data.txt')
+        path = run('find . -type f -name data.txt')
+        assert path.endswith('/data.txt')
+        with pytest.raises(Exception):
+            run('echo >>', path)
 
-# def test_cp():
-#     with servers():
-#         run('mkdir -p foo/3')
-#         run('echo 123 > foo/1.txt')
-#         run('echo 234 > foo/2.txt')
-#         run('echo 456 > foo/3/4.txt')
-#         run('s4 cp -recursive foo/ s4://bucket/cp/dst/')
-#         assert rm_whitespace(run("s4 ls s4://bucket/cp/dst/ | awk '{print $NF}'")) == rm_whitespace("""
-#             1.txt
-#             2.txt
-#             3/
-#         """)
-#         assert run("s4 ls -recursive s4://bucket/cp/dst/ | awk '{print $NF}'") == rm_whitespace("""
-#             cp/dst/1.txt
-#             cp/dst/2.txt
-#             cp/dst/3/4.txt
-#         """)
-#         run('s4 cp -recursive s4://bucket/cp/dst/ dst1/')
-#         assert run('grep ".*" $(find dst1/ -type f | sort)') == rm_whitespace("""
-#             dst1/1.txt:123
-#             dst1/2.txt:234
-#             dst1/3/4.txt:456
-#         """)
-#         run('s4 cp -recursive s4://bucket/cp/dst/ .')
-#         assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
-#             dst/1.txt:123
-#             dst/2.txt:234
-#             dst/3/4.txt:456
-#         """)
-#         run('rm -recursivef dst')
-#         run('s4 cp -recursive foo s4://bucket/cp/dst2')
-#         assert rm_whitespace(run("s4 ls s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
-#             1.txt
-#             2.txt
-#             3/
-#         """)
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
-#             cp/dst2/1.txt
-#             cp/dst2/2.txt
-#             cp/dst2/3/4.txt
-#         """)
-#         run('s4 cp -recursive s4://bucket/cp/dst .')
-#         assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
-#             dst/1.txt:123
-#             dst/2.txt:234
-#             dst/3/4.txt:456
-#         """)
+def test_cp():
+    with servers():
+        run('mkdir -p foo/3')
+        run('echo 123 > foo/1.txt')
+        run('echo 234 > foo/2.txt')
+        run('echo 456 > foo/3/4.txt')
+        run('s4 cp -recursive foo/ s4://bucket/cp/dst/')
+        assert rm_whitespace(run("s4 ls s4://bucket/cp/dst/ | awk '{print $NF}'")) == rm_whitespace("""
+            1.txt
+            2.txt
+            3/
+        """)
+        assert run("s4 ls -recursive s4://bucket/cp/dst/ | awk '{print $NF}'") == rm_whitespace("""
+            cp/dst/1.txt
+            cp/dst/2.txt
+            cp/dst/3/4.txt
+        """)
+        run('s4 cp -recursive s4://bucket/cp/dst/ dst1/')
+        assert run('grep ".*" $(find dst1/ -type f | sort)') == rm_whitespace("""
+            dst1/1.txt:123
+            dst1/2.txt:234
+            dst1/3/4.txt:456
+        """)
+        run('s4 cp -recursive s4://bucket/cp/dst/ .')
+        assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
+            dst/1.txt:123
+            dst/2.txt:234
+            dst/3/4.txt:456
+        """)
+        run('rm -rf dst')
+        run('s4 cp -recursive foo s4://bucket/cp/dst2')
+        assert rm_whitespace(run("s4 ls s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
+            1.txt
+            2.txt
+            3/
+        """)
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/cp/dst2/ | awk '{print $NF}'")) == rm_whitespace("""
+            cp/dst2/1.txt
+            cp/dst2/2.txt
+            cp/dst2/3/4.txt
+        """)
+        run('s4 cp -recursive s4://bucket/cp/dst .')
+        assert run('grep ".*" $(find dst/ -type f | sort)') == rm_whitespace("""
+            dst/1.txt:123
+            dst/2.txt:234
+            dst/3/4.txt:456
+        """)
 
-# def test_ls():
-#     with servers():
-#         run('echo | s4 cp - s4://bucket/other-listing/key0.txt')
-#         run('echo | s4 cp - s4://bucket/listing/dir1/key1.txt')
-#         run('echo | s4 cp - s4://bucket/listing/dir1/dir2/key2.txt')
-#         assert run("s4 ls s4://bucket/listing/dir1/ke | awk '{print $NF}'") == rm_whitespace("""
-#             key1.txt
-#         """)
-#         assert rm_whitespace(run("s4 ls s4://bucket/listing/dir1/ | awk '{print $NF}'")) == rm_whitespace("""
-#             dir2/
-#             key1.txt
-#         """)
-#         assert rm_whitespace(run('s4 ls s4://bucket/listing/d')) == rm_whitespace("""
-#               PRE dir1/
-#         """)
-#         assert rm_whitespace(run('s4 ls s4://bucket/listing/')) == rm_whitespace("""
-#               PRE dir1/
-#         """)
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing | awk '{print $NF}'")) == rm_whitespace("""
-#             listing/dir1/dir2/key2.txt
-#             listing/dir1/key1.txt
-#         """)
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing/ | awk '{print $NF}'")) == rm_whitespace("""
-#             listing/dir1/dir2/key2.txt
-#             listing/dir1/key1.txt
-#         """)
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing/d | awk '{print $NF}'")) == rm_whitespace("""
-#             listing/dir1/dir2/key2.txt
-#             listing/dir1/key1.txt
-#         """)
-#         with pytest.raises(Exception):
-#             run('s4 ls s4://bucket/fake/')
+def test_ls():
+    with servers():
+        run('echo | s4 cp - s4://bucket/other-listing/key0.txt')
+        run('echo | s4 cp - s4://bucket/listing/dir1/key1.txt')
+        run('echo | s4 cp - s4://bucket/listing/dir1/dir2/key2.txt')
+        assert run("s4 ls s4://bucket/listing/dir1/ke | awk '{print $NF}'") == rm_whitespace("""
+            key1.txt
+        """)
+        assert rm_whitespace(run("s4 ls s4://bucket/listing/dir1/ | awk '{print $NF}'")) == rm_whitespace("""
+            dir2/
+            key1.txt
+        """)
+        assert rm_whitespace(run('s4 ls s4://bucket/listing/d')) == rm_whitespace("""
+              PRE dir1/
+        """)
+        assert rm_whitespace(run('s4 ls s4://bucket/listing/')) == rm_whitespace("""
+              PRE dir1/
+        """)
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing | awk '{print $NF}'")) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
+        """)
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing/ | awk '{print $NF}'")) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
+        """)
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/listing/d | awk '{print $NF}'")) == rm_whitespace("""
+            listing/dir1/dir2/key2.txt
+            listing/dir1/key1.txt
+        """)
+        with pytest.raises(Exception):
+            run('s4 ls s4://bucket/fake/')
 
-# def test_rm():
-#     with servers():
-#         run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
-#         run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
-#             rm/dir1/dir2/key2.txt
-#             rm/dir1/key1.txt
-#         """)
-#         run('s4 rm s4://bucket/rm/dir1/key1.txt')
-#         assert rm_whitespace(run("s4 ls -recursive s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
-#             rm/dir1/dir2/key2.txt
-#         """)
-#         run('s4 rm -recursive s4://bucket/rm/di')
-#         with pytest.raises(Exception):
-#             run('s4 ls -recursive s4://bucket/rm/')
+def test_rm():
+    with servers():
+        run('echo | s4 cp - s4://bucket/rm/dir1/key1.txt')
+        run('echo | s4 cp - s4://bucket/rm/dir1/dir2/key2.txt')
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
+            rm/dir1/dir2/key2.txt
+            rm/dir1/key1.txt
+        """)
+        run('s4 rm s4://bucket/rm/dir1/key1.txt')
+        assert rm_whitespace(run("s4 ls -recursive s4://bucket/rm/ | awk '{print $NF}'")) == rm_whitespace("""
+            rm/dir1/dir2/key2.txt
+        """)
+        run('s4 rm -recursive s4://bucket/rm/di')
+        with pytest.raises(Exception):
+            run('s4 ls -recursive s4://bucket/rm/')
 
-# def test_stdin():
-#     with servers():
-#         run('echo foo | s4 cp - s4://bucket/stdin/bar')
-#         assert 'foo' == run('s4 cp s4://bucket/stdin/bar -')
+def test_stdin():
+    with servers():
+        run('echo foo | s4 cp - s4://bucket/stdin/bar')
+        assert 'foo' == run('s4 cp s4://bucket/stdin/bar -')
 
-# def test_binary():
-#     with servers():
-#         run('head -c10 /dev/urandom > input')
-#         run('s4 cp input s4://bucket/blob')
-#         run('s4 cp s4://bucket/blob output')
-#         a = run('cat input | xxh3', warn=True)['stdout']
-#         b = run('cat output | xxh3', warn=True)['stdout']
-#         assert a == b
-#         run('cat input | s4 cp - s4://bucket/blob2')
-#         run('s4 cp s4://bucket/blob2 - > output2')
-#         a = run('cat input | xxh3', warn=True)['stdout']
-#         b = run('cat output2 | xxh3', warn=True)['stdout']
-#         assert a == b
+def test_binary():
+    with servers():
+        run('head -c10 /dev/urandom > input')
+        run('s4 cp input s4://bucket/blob')
+        run('s4 cp s4://bucket/blob output')
+        a = run('cat input | xxh3', warn=True)['stdout']
+        b = run('cat output | xxh3', warn=True)['stdout']
+        assert a == b
+        run('cat input | s4 cp - s4://bucket/blob2')
+        run('s4 cp s4://bucket/blob2 - > output2')
+        a = run('cat input | xxh3', warn=True)['stdout']
+        b = run('cat output2 | xxh3', warn=True)['stdout']
+        assert a == b
 
 # def test_map():
 #     with servers(1_000_000):
