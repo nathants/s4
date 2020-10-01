@@ -1,4 +1,4 @@
-.PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh check
+.PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh check check-static check-ineff check-err check-vet
 
 all: s4 s4-server s4-send s4-recv s4-xxh
 
@@ -23,8 +23,16 @@ s4-send: setup
 s4-recv: setup
 	go build -o bin/s4-recv cmd/s4_recv/main.go
 
-check:
+check: check-static check-ineff check-err check-vet
+
+check-static:
 	find -name '*.go' | xargs -n1 staticcheck
+
+check-ineff:
 	find -name '*.go' | xargs -n1 ineffassign
+
+check-err:
 	find -name '*.go' | xargs -n1 errcheck
+
+check-vet:
 	find -name '*.go' | xargs -n1 go vet
