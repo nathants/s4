@@ -46,6 +46,7 @@ submit_misc    = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_exec
 submit_solo    = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(solo_pool,    lambda: f(*a, **kw)) # type: ignore # noqa
 
 printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
+perm = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 
 def new_uuid():
     for _ in range(10):
@@ -76,8 +77,8 @@ def confirm_local_put(temp_path, path, checksum):
     assert not os.path.isfile(checksum_path(path))
     os.rename(temp_path, path)
     checksum_write(path, checksum)
-    os.chmod(checksum_path(path), stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-    os.chmod(path, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    os.chmod(checksum_path(path), perm)
+    os.chmod(path, perm)
 
 def xxh3_checksum(path):
     result = s4.run(f'< {path} xxh3')
@@ -141,7 +142,6 @@ async def prepare_put_handler(request: web.Request) -> web.Response:
             raise
 
 def confirm_put(path, temp_path, server_checksum):
-    perm = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         assert not os.path.isfile(path)
