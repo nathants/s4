@@ -575,6 +575,11 @@ func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Panic2(fmt.Fprintf(w, "healthy\n"))
 }
 
+func PanicHandler(w http.ResponseWriter, r *http.Request, err interface{}) {
+	w.WriteHeader(500)
+	Panic2(fmt.Fprintf(w, "%s\n", err))
+}
+
 func main() {
 	lib.Port = flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
 	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
@@ -598,6 +603,7 @@ func main() {
 	router.GET("/list", List)
 	router.GET("/list_buckets", ListBuckets)
 	router.GET("/health", Health)
+	router.PanicHandler = PanicHandler
 	port := fmt.Sprintf(":%s", lib.HttpPort())
 	lib.Logger.Println("s4-server", port)
 	Panic1(http.ListenAndServe(port, &lib.LoggingHandler{Handler: router}))
