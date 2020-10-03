@@ -23,11 +23,15 @@ import (
 	"golang.org/x/crypto/blake2s"
 )
 
-// TODO all http.Post() needs to timeout
+const (
+	timeout     = 5 * time.Minute
+	max_timeout = timeout*2 + 15*time.Second
+)
 
-const timeout = 5 * time.Minute
-
-var Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
+var (
+	Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
+	Client = http.Client{Timeout: timeout}
+)
 
 func Assert(cond bool, format string, a ...interface{}) {
 	if !cond {

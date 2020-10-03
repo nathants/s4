@@ -13,10 +13,11 @@ import util.net
 from shell import run
 from util.retry import retry
 
-with shell.cd(os.path.dirname(os.path.abspath(__file__))):
-    with shell.climb_git_root():
-        shell.run('make -j', stream=True)
-        os.environ['PATH'] += f':{os.getcwd()}/bin'
+def setup_module():
+    with shell.cd(os.path.dirname(os.path.abspath(__file__))):
+        with shell.climb_git_root():
+            shell.run('make -j', stream=True)
+            os.environ['PATH'] += f':{os.getcwd()}/bin'
 
 def rm_whitespace(x):
     return '\n'.join([y.strip()

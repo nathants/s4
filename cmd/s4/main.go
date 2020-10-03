@@ -57,7 +57,7 @@ func Rm() {
 		for _, server := range lib.Servers() {
 			go func(server lib.Server) {
 				url := fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix)
-				resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+				resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 				results <- Result{resp, err}
 			}(server)
 		}
@@ -69,7 +69,7 @@ func Rm() {
 	} else {
 		server := lib.PickServer(prefix)
 		url := fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix)
-		resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+		resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 		Assert(err == nil, fmt.Sprint(err))
 		Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 	}
@@ -162,7 +162,7 @@ func postAll(urls []Url) {
 	results := make(chan UrlResult, len(urls))
 	for _, url := range urls {
 		go func(url Url) {
-			resp, err := http.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
+			resp, err := lib.Client.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
 			results <- UrlResult{resp, err, url}
 		}(url)
 	}
@@ -205,7 +205,7 @@ func Eval() {
 	cmd := os.Args[3]
 	server := lib.PickServer(key)
 	url := fmt.Sprintf("http://%s:%s/eval?key=%s", server.Address, server.Port, key)
-	resp, err := http.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
+	resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
 	Assert(err == nil, fmt.Sprint(err))
 	switch resp.StatusCode {
 	case 404:
@@ -282,7 +282,7 @@ func list_buckets() [][]string {
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port)
-			resp, err := http.Get(url)
+			resp, err := lib.Client.Get(url)
 			results <- Result{resp, err}
 		}(server)
 	}
@@ -322,7 +322,7 @@ func list(prefix string, recursive bool) [][]string {
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param)
-			resp, err := http.Get(url)
+			resp, err := lib.Client.Get(url)
 			results <- Result{resp, err}
 		}(server)
 	}
@@ -431,7 +431,7 @@ func get(src string, dst string) {
 	port := Panic2(freeport.GetFreePort()).(int)
 	temp_path := fmt.Sprintf("%s.temp", dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
-	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	resp := Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
 	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
 	Assert(resp.StatusCode == 200, string(_bytes))
@@ -447,7 +447,7 @@ func get(src string, dst string) {
 	Assert(result.Err == nil, fmt.Sprint(result.Err))
 	client_checksum := result.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
-	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	resp = Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 	if strings.HasSuffix(dst, "/") {
 		Panic1(os.MkdirAll(dst, os.ModePerm))
@@ -467,7 +467,7 @@ func put(src string, dst string) {
 	}
 	server := lib.PickServer(dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
-	resp := Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	resp := Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode != 409, fmt.Sprintf("fatal: key already exists: %s", dst))
 	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
 	Assert(resp.StatusCode == 200, string(_bytes))
@@ -484,7 +484,7 @@ func put(src string, dst string) {
 	Assert(result.Err == nil, fmt.Sprint(result.Err))
 	client_checksum := result.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
-	resp = Panic2(http.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
+	resp = Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
 	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
 }
 
@@ -497,10 +497,11 @@ func Config() {
 func Health() {
 	servers := lib.Servers()
 	results := make(chan string, len(servers))
+	client := http.Client{Timeout: 1}
 	for _, server := range servers {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/health", server.Address, server.Port)
-			resp, err := http.Get(url)
+			resp, err := client.Get(url)
 			if err != nil || resp.StatusCode != 200 {
 				results <- fmt.Sprintf("unhealthy: %s:%s", server.Address, server.Port)
 			} else {
