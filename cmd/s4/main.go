@@ -43,10 +43,10 @@ type Result struct {
 
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
-	recursive := cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("r", false, "recursive")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if cmd.NArg() != 1 {
-		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-recursive]"))
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-r]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
@@ -75,10 +75,130 @@ func Rm() {
 	}
 }
 
+func parseGlob(indir string) []string {
+	glob := ""
+	if strings.Contains(indir, "*") {
+		var base []string
+		var pattern []string
+		switched := false
+		for _, part := range strings.Split(indir, "/") {
+			if strings.Contains(part, "*") {
+				switched = true
+			}
+			if switched {
+				pattern = append(pattern, part)
+			} else {
+				base = append(base, part)
+			}
+		}
+		indir = strings.Join(base, "/") + "/"
+		glob = strings.Join(pattern, "/")
+	}
+	return []string{indir, glob}
+}
+
+func Map() {
+	if len(os.Args) != 5 {
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 map INDIR OUTDIR CMD"))
+		os.Exit(1)
+	}
+	indir := os.Args[2]
+	outdir := os.Args[3]
+	cmd := os.Args[4]
+
+	parts := parseGlob(indir)
+	indir = parts[0]
+	glob := parts[1]
+
+	Assert(strings.HasSuffix(indir, "/"), indir)
+	Assert(strings.HasSuffix(outdir, "/"), outdir)
+
+	lines := list(indir, true)
+
+	parts = strings.Split(indir, "://")
+	// proto := parts[0]
+	pth := parts[1]
+
+	parts = strings.SplitN(pth, "/", 2)
+	// bucket := parts[0]
+	pth = parts[1]
+
+	datas := make(map[string][][]string)
+
+	for _, line := range lines {
+		size := line[2]
+		key := line[3]
+		if pth != "" {
+			key = strings.SplitN(key, pth, 2)[1]
+		}
+		if size == "PRE" {
+			continue
+		}
+		if glob != "" && !Panic2(path.Match(glob, key)).(bool) {
+			continue
+		}
+		inkey := lib.Join(indir, key)
+		outkey := lib.Join(outdir, key)
+		server := lib.PickServer(inkey)
+		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
+		datas[url] = append(datas[url], []string{inkey, outkey})
+	}
+	var urls []Url
+	for url, data := range datas {
+		d := Data{cmd, data}
+		bytes := Panic2(json.Marshal(d)).([]byte)
+		urls = append(urls, Url{url, bytes})
+	}
+	postAll(urls)
+}
+
+type UrlResult struct {
+	resp *http.Response
+	err  error
+	url  Url
+}
+
+func postAll(urls []Url) {
+	results := make(chan UrlResult, len(urls))
+	for _, url := range urls {
+		go func(url Url) {
+			resp, err := http.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
+			results <- UrlResult{resp, err, url}
+		}(url)
+	}
+	for range urls {
+		result := <-results
+		body := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
+		if result.err != nil {
+			panic(result.err)
+		}
+		switch result.resp.StatusCode {
+		case 400, 409:
+			fmt.Printf("fatal: cmd failure %s\n", result.url.Url)
+			fmt.Println(string(body))
+			os.Exit(1)
+		default:
+			Assert(result.resp.StatusCode == 200, result.url.Url)
+			fmt.Printf("ok ")
+		}
+	}
+	fmt.Println("")
+}
+
+type Data struct {
+	Cmd string `json:"cmd"`
+
+	Args [][]string `json:"args"`
+}
+
+type Url struct {
+	Url  string
+	Data []byte
+}
+
 func Eval() {
 	if len(os.Args) != 4 {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 eval KEY CMD"))
-		Panic2(fmt.Println(len(os.Args)))
 		os.Exit(1)
 	}
 	key := os.Args[2]
@@ -120,10 +240,10 @@ func contains(parts []string, part string) bool {
 
 func Ls() {
 	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
-	recursive := cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("r", false, "recursive")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if contains(os.Args, "-h") || contains(os.Args, "--help") {
-		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
@@ -145,7 +265,7 @@ func Ls() {
 	case 0:
 		lines = list_buckets()
 	default:
-		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-recursive]"))
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
@@ -207,17 +327,17 @@ func list(prefix string, recursive bool) [][]string {
 		}(server)
 	}
 	var lines [][]string
-	var tmp [][]string
 	for range lib.Servers() {
 		result := <-results
 		Assert(result.err == nil, fmt.Sprint(result.err))
 		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		Assert(result.resp.StatusCode == 200, string(bytes))
+		var tmp [][]string
 		Panic1(json.Unmarshal(bytes, &tmp))
 		lines = append(lines, tmp...)
 	}
-	var deduped [][]string
 	sort.Slice(lines, func(i, j int) bool { return lines[i][3] < lines[j][3] })
+	var deduped [][]string
 	for _, val := range lines {
 		if len(deduped) == 0 || deduped[len(deduped)-1][3] != val[3] {
 			deduped = append(deduped, val)
@@ -250,10 +370,10 @@ func cp(src string, dst string, recursive bool) {
 
 func Cp() {
 	cmd := flag.NewFlagSet("cp", flag.ExitOnError)
-	recursive := cmd.Bool("recursive", false, "")
+	recursive := cmd.Bool("r", false, "recursive")
 	Panic1(cmd.Parse(os.Args[2:]))
 	if cmd.NArg() != 2 || contains(os.Args, "-h") || contains(os.Args, "--help") {
-		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-recursive]"))
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-r]"))
 		cmd.Usage()
 		os.Exit(1)
 	}
@@ -413,6 +533,8 @@ func main() {
 	switch os.Args[1] {
 	case "rm":
 		Rm()
+	case "map":
+		Map()
 	case "eval":
 		Eval()
 	case "ls":

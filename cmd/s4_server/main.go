@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"s4/lib"
 	"strings"
@@ -316,6 +317,125 @@ func checksum_path(prefix string) string {
 	return fmt.Sprintf("%s.xxh3", prefix)
 }
 
+type Data struct {
+	Cmd  string     `json:"cmd"`
+	Args [][]string `json:"args"`
+}
+
+type Result struct {
+	CmdResult *lib.ResultTempdir
+	Outkey    string
+}
+
+func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var data Data
+	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
+	Panic1(json.Unmarshal(bytes, &data))
+	if strings.HasPrefix(data.Cmd, "while read") {
+		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
+	}
+	results := make(chan Result, len(data.Args))
+	for _, arg := range data.Args {
+		Assert(len(arg) == 2, fmt.Sprint(arg))
+		inkey := arg[0]
+		outkey := arg[1]
+		Assert(lib.OnThisServer(inkey), inkey)
+		Assert(lib.OnThisServer(outkey), outkey)
+		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
+		go func(inpath string) {
+			Panic1(cpu_pool.Acquire(context.TODO(), 1))
+			defer cpu_pool.Release(1)
+			results <- Result{
+				lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)),
+				outkey,
+			}
+		}(inpath)
+	}
+	var tempdirs []string
+	defer func() {
+		for _, tempdir := range tempdirs {
+			Panic1(os.RemoveAll(tempdir))
+		}
+	}()
+	max_timeout := time.After(timeout * 2)
+	puts := make(chan error, len(data.Args))
+
+	for range data.Args {
+		select {
+		case result := <-results:
+			tempdirs = append(tempdirs, result.CmdResult.Tempdir)
+			if result.CmdResult.Err != nil {
+				w.WriteHeader(400)
+				Panic2(fmt.Fprint(w, result.CmdResult.Stdout+"\n"+result.CmdResult.Stderr))
+				return
+			} else {
+				go func(result Result) {
+					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
+					local_put(temp_path, result.Outkey)
+					puts <- nil
+				}(result)
+			}
+		case <-max_timeout:
+			w.WriteHeader(429)
+			return
+		}
+	}
+	for range data.Args {
+		select {
+		case <-puts:
+		case <-max_timeout:
+			w.WriteHeader(429)
+			return
+		}
+	}
+	w.WriteHeader(200)
+}
+
+func local_put(temp_path string, key string) {
+
+	Assert(!strings.Contains(key, " "), key)
+	Assert(lib.OnThisServer(key), key)
+	parts := strings.SplitN(key, "s4://", 2)
+	path := parts[len(parts)-1]
+	Assert(!strings.HasPrefix(path, "_"), path)
+
+	Panic1(misc_pool.Acquire(context.TODO(), 1))
+	checksum := xxh_checksum(temp_path)
+	misc_pool.Release(1)
+
+	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	confirm_local_put(temp_path, path, checksum)
+	solo_pool.Release(1)
+
+}
+
+func confirm_local_put(temp_path string, path string, checksum string) {
+	Panic1(os.MkdirAll(lib.Dir(path), os.ModePerm))
+	Assert(!lib.Exists(path), fmt.Sprintf("fatal: key already exists s4://%s", path))
+	Assert(!lib.Exists(checksum_path(path)), checksum_path(path))
+	Panic1(os.Chmod(temp_path, 0o444))
+	Panic1(os.Rename(temp_path, path))
+	checksum_write(path, checksum)
+}
+
+func checksum_write(path string, checksum string) {
+	Panic1(ioutil.WriteFile(checksum_path(path), []byte(checksum), 0o444))
+}
+
+// func checksum_read(path string) string {
+// 	return string(Panic2(ioutil.ReadFile(checksum_path(path))).([]byte))
+// }
+
+func xxh_checksum(path string) string {
+	return lib.Run("< %s s4-xxh", path)
+}
+
+func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+}
+
+func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+}
+
 func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	keys := r.URL.Query()["key"]
 	if len(keys) != 1 {
@@ -471,6 +591,9 @@ func main() {
 	router.POST("/prepare_get", PrepareGet)
 	router.POST("/confirm_get", ConfirmGet)
 	router.POST("/delete", Delete)
+	router.POST("/map", Map)
+	router.POST("/map_to_n", MapToN)
+	router.POST("/map_from_n", MapFromN)
 	router.POST("/eval", Eval)
 	router.GET("/list", List)
 	router.GET("/list_buckets", ListBuckets)

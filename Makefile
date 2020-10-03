@@ -1,4 +1,4 @@
-.PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh check check-static check-ineff check-err check-vet
+.PHONY: all clean test s4 s4-server s4-send s4-recv s4-xxh check check-static check-ineff check-err check-vet test-s4
 
 all: s4 s4-server s4-send s4-recv s4-xxh
 
@@ -26,13 +26,18 @@ s4-recv: setup
 check: check-static check-ineff check-err check-vet
 
 check-static:
-	find -name '*.go' | xargs -n1 staticcheck
+	find -name '*.go' | grep -v _test.go | xargs -n1 staticcheck
 
 check-ineff:
-	find -name '*.go' | xargs -n1 ineffassign
+	find -name '*.go' | grep -v _test.go | xargs -n1 ineffassign
 
 check-err:
-	find -name '*.go' | xargs -n1 errcheck
+	find -name '*.go' | grep -v _test.go | xargs -n1 errcheck
 
 check-vet:
-	find -name '*.go' | xargs -n1 go vet
+	find -name '*.go' | grep -v _test.go | xargs -n1 go vet
+
+test: test-s4
+
+test-s4:
+	go test -v cmd/s4/main.go cmd/s4/main_test.go
