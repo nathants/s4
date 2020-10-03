@@ -186,8 +186,7 @@ func postAll(urls []Url) {
 }
 
 type Data struct {
-	Cmd string `json:"cmd"`
-
+	Cmd  string     `json:"cmd"`
 	Args [][]string `json:"args"`
 }
 
@@ -253,7 +252,7 @@ func Ls() {
 		prefix := cmd.Arg(0)
 		val := strings.SplitN(prefix, "://", 2)[1]
 		if !*recursive && strings.Count(val, "/") == 0 {
-			for _, line := range list_buckets() {
+			for _, line := range listBuckets() {
 				if contains(line, val) {
 					lines = [][]string{line}
 					break
@@ -263,7 +262,7 @@ func Ls() {
 			lines = list(prefix, *recursive)
 		}
 	case 0:
-		lines = list_buckets()
+		lines = listBuckets()
 	default:
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
 		cmd.Usage()
@@ -277,7 +276,7 @@ func Ls() {
 	}
 }
 
-func list_buckets() [][]string {
+func listBuckets() [][]string {
 	results := make(chan Result)
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
@@ -353,9 +352,9 @@ func cp(src string, dst string, recursive bool) {
 	Assert(!strings.HasPrefix(dst, "s4://") || !strings.HasPrefix(strings.SplitN(dst, "s4://", 2)[1], "_"), "fatal: buckets cannot start with underscore")
 	if recursive {
 		if strings.HasPrefix(src, "s4://") {
-			get_recursive(src, dst)
+			getRecursive(src, dst)
 		} else if strings.HasPrefix(dst, "s4://") {
-			put_recursive(src, dst)
+			putRecursive(src, dst)
 		} else {
 			panic("fatal: src or dst needs s4://")
 		}
@@ -382,7 +381,7 @@ func Cp() {
 	cp(src, dst, *recursive)
 }
 
-func get_recursive(src string, dst string) {
+func getRecursive(src string, dst string) {
 	part := strings.SplitN(src, "s4://", 2)[1]
 	part = strings.TrimRight(part, "/")
 	parts := strings.Split(part, "/")
@@ -412,7 +411,7 @@ func get_recursive(src string, dst string) {
 	}
 }
 
-func put_recursive(src string, dst string) {
+func putRecursive(src string, dst string) {
 	Panic1(filepath.Walk(src, func(fullpath string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
 			src = strings.TrimRight(src, "/")

@@ -22,9 +22,10 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-const timeout = 5 * time.Second
-
-const printf = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
+const (
+	timeout = 5 * time.Second
+	printf  = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
+)
 
 var (
 	num_cpus     = runtime.GOMAXPROCS(0)
@@ -103,7 +104,6 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	w.WriteHeader(200)
-
 }
 
 func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -158,7 +158,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	disk_checksum := string(Panic2(ioutil.ReadFile(checksum_path(path))).([]byte))
+	disk_checksum := string(Panic2(ioutil.ReadFile(checksumPath(path))).([]byte))
 	solo_pool.Release(1)
 
 	job := &GetJob{
@@ -232,7 +232,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	case <-time.After(timeout):
 		io_jobs.Delete(uid)
 		_ = os.Remove(path)
-		_ = os.Remove(checksum_path(path))
+		_ = os.Remove(checksumPath(path))
 		w.WriteHeader(429)
 	case <-started:
 		w.Header().Set("Content-Type", "application/text")
@@ -282,7 +282,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Panic2(fmt.Fprintf(w, "already exists: %s\n", job.path))
 		return
 	}
-	Panic1(ioutil.WriteFile(checksum_path(job.path), []byte(server_checksum), 0o444))
+	Panic1(ioutil.WriteFile(checksumPath(job.path), []byte(server_checksum), 0o444))
 	Panic1(os.Chmod(job.temp_path, 0o444))
 	Panic1(os.Rename(job.temp_path, job.path))
 	w.WriteHeader(200)
@@ -308,11 +308,11 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	if recursive {
 		lib.Run("rm -rf %s*", prefix)
 	} else {
-		lib.Run("rm -rf %s %s", prefix, checksum_path(prefix))
+		lib.Run("rm -rf %s %s", prefix, checksumPath(prefix))
 	}
 }
 
-func checksum_path(prefix string) string {
+func checksumPath(prefix string) string {
 	Assert(!strings.HasSuffix(prefix, "/"), prefix)
 	return fmt.Sprintf("%s.xxh3", prefix)
 }
@@ -371,7 +371,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			} else {
 				go func(result Result) {
 					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
-					local_put(temp_path, result.Outkey)
+					localPut(temp_path, result.Outkey)
 					puts <- nil
 				}(result)
 			}
@@ -391,7 +391,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	w.WriteHeader(200)
 }
 
-func local_put(temp_path string, key string) {
+func localPut(temp_path string, key string) {
 
 	Assert(!strings.Contains(key, " "), key)
 	Assert(lib.OnThisServer(key), key)
@@ -400,33 +400,33 @@ func local_put(temp_path string, key string) {
 	Assert(!strings.HasPrefix(path, "_"), path)
 
 	Panic1(misc_pool.Acquire(context.TODO(), 1))
-	checksum := xxh_checksum(temp_path)
+	checksum := xxhChecksum(temp_path)
 	misc_pool.Release(1)
 
 	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	confirm_local_put(temp_path, path, checksum)
+	confirmLocalPut(temp_path, path, checksum)
 	solo_pool.Release(1)
 
 }
 
-func confirm_local_put(temp_path string, path string, checksum string) {
+func confirmLocalPut(temp_path string, path string, checksum string) {
 	Panic1(os.MkdirAll(lib.Dir(path), os.ModePerm))
 	Assert(!lib.Exists(path), fmt.Sprintf("fatal: key already exists s4://%s", path))
-	Assert(!lib.Exists(checksum_path(path)), checksum_path(path))
+	Assert(!lib.Exists(checksumPath(path)), checksumPath(path))
 	Panic1(os.Chmod(temp_path, 0o444))
 	Panic1(os.Rename(temp_path, path))
-	checksum_write(path, checksum)
+	checksumWrite(path, checksum)
 }
 
-func checksum_write(path string, checksum string) {
-	Panic1(ioutil.WriteFile(checksum_path(path), []byte(checksum), 0o444))
+func checksumWrite(path string, checksum string) {
+	Panic1(ioutil.WriteFile(checksumPath(path), []byte(checksum), 0o444))
 }
 
 // func checksum_read(path string) string {
-// 	return string(Panic2(ioutil.ReadFile(checksum_path(path))).([]byte))
+// 	return string(Panic2(ioutil.ReadFile(checksumPath(path))).([]byte))
 // }
 
-func xxh_checksum(path string) string {
+func xxhChecksum(path string) string {
 	return lib.Run("< %s s4-xxh", path)
 }
 
