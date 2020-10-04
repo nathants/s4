@@ -152,6 +152,58 @@ func Map() {
 	postAll(urls)
 }
 
+func MapToN() {
+	if len(os.Args) != 5 {
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-to-n INDIR OUTDIR CMD"))
+		os.Exit(1)
+	}
+	indir := os.Args[2]
+	outdir := os.Args[3]
+	cmd := os.Args[4]
+
+	parts := parseGlob(indir)
+	indir = parts[0]
+	glob := parts[1]
+
+	Assert(strings.HasSuffix(indir, "/"), indir)
+	Assert(strings.HasSuffix(outdir, "/"), outdir)
+
+	lines := list(indir, true)
+
+	parts = strings.Split(indir, "://")
+	// proto := parts[0]
+	pth := parts[1]
+
+	parts = strings.SplitN(pth, "/", 2)
+	// bucket := parts[0]
+	pth = parts[1]
+
+	datas := make(map[string][][]string)
+
+	for _, line := range lines {
+		size := line[2]
+		key := line[3]
+		if pth != "" {
+			key = strings.SplitN(key, pth, 2)[1]
+		}
+		Assert(size != "PRE", key)
+		if glob != "" && !Panic2(path.Match(glob, key)).(bool) {
+			continue
+		}
+		inkey := lib.Join(indir, key)
+		server := lib.PickServer(inkey)
+		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
+		datas[url] = append(datas[url], []string{inkey, outdir})
+	}
+	var urls []Url
+	for url, data := range datas {
+		d := Data{cmd, data}
+		bytes := Panic2(json.Marshal(d)).([]byte)
+		urls = append(urls, Url{url, bytes})
+	}
+	postAll(urls)
+}
+
 type UrlResult struct {
 	resp *http.Response
 	err  error
@@ -168,10 +220,10 @@ func postAll(urls []Url) {
 	}
 	for range urls {
 		result := <-results
-		body := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		if result.err != nil {
 			panic(result.err)
 		}
+		body := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
 		switch result.resp.StatusCode {
 		case 400, 409:
 			fmt.Printf("fatal: cmd failure %s\n", result.url.Url)
@@ -361,7 +413,7 @@ func cp(src string, dst string, recursive bool) {
 	} else if strings.HasPrefix(src, "s4://") {
 		get(src, dst)
 	} else if strings.HasPrefix(dst, "s4://") {
-		put(src, dst)
+		Panic1(lib.Put(src, dst))
 	} else {
 		panic("fatal: src or dst needs s4://")
 	}
@@ -460,33 +512,6 @@ func get(src string, dst string) {
 	_ = os.Remove(temp_path)
 }
 
-func put(src string, dst string) {
-	if strings.HasSuffix(dst, "/") {
-		dst = lib.Join(dst, path.Base(src))
-	}
-	server := lib.PickServer(dst)
-	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
-	resp := Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode != 409, fmt.Sprintf("fatal: key already exists: %s", dst))
-	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-	Assert(resp.StatusCode == 200, string(_bytes))
-	vals := strings.Split(string(_bytes), " ")
-	Assert(len(vals) == 2, fmt.Sprint(vals))
-	uid := vals[0]
-	port := vals[1]
-	var result *lib.Result
-	if src == "-" {
-		result = lib.WarnStreamIn("s4-xxh --stream | s4-send %s %s", server.Address, port)
-	} else {
-		result = lib.Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
-	}
-	Assert(result.Err == nil, fmt.Sprint(result.Err))
-	client_checksum := result.Stderr
-	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
-	resp = Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
-}
-
 func Config() {
 	for _, server := range lib.Servers() {
 		fmt.Printf("%s:%s\n", server.Address, server.Port)
@@ -535,6 +560,8 @@ func main() {
 		Rm()
 	case "map":
 		Map()
+	case "map-to-n":
+		MapToN()
 	case "eval":
 		Eval()
 	case "ls":

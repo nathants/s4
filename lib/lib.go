@@ -24,13 +24,14 @@ import (
 )
 
 const (
-	timeout     = 5 * time.Minute
-	max_timeout = timeout*2 + 15*time.Second
+	Timeout    = 5 * time.Minute
+	MaxTimeout = Timeout*2 + 15*time.Second
+	Printf     = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
 )
 
 var (
 	Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
-	Client = http.Client{Timeout: timeout}
+	Client = http.Client{Timeout: Timeout}
 )
 
 func Assert(cond bool, format string, a ...interface{}) {
@@ -139,7 +140,7 @@ func Warn(format string, args ...interface{}) *Result {
 	select {
 	case r := <-result:
 		return r
-	case <-time.After(timeout):
+	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		return &Result{
 			"",
@@ -171,7 +172,7 @@ func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
 	select {
 	case r := <-result:
 		return r
-	case <-time.After(timeout):
+	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		Panic1(os.RemoveAll(tempdir))
 		return &ResultTempdir{
@@ -204,7 +205,7 @@ func WarnStreamIn(format string, args ...interface{}) *Result {
 	select {
 	case r := <-result:
 		return r
-	case <-time.After(timeout):
+	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		return &Result{
 			"",
@@ -233,7 +234,7 @@ func WarnStreamOut(format string, args ...interface{}) *Result {
 	select {
 	case r := <-result:
 		return r
-	case <-time.After(timeout):
+	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		return &Result{
 			"",
@@ -441,4 +442,58 @@ func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wo := &ResponseObserver{w, 200}
 	l.Handler.ServeHTTP(wo, r)
 	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0])
+}
+
+var (
+	Err409 = errors.New("409")
+	ErrCmd = errors.New("ErrCmd")
+)
+
+func Put(src string, dst string) error {
+	if strings.HasSuffix(dst, "/") {
+		dst = Join(dst, path.Base(src))
+	}
+	server := PickServer(dst)
+	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
+	resp, err := Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == 409 {
+		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
+	}
+	val, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("%s", val)
+	}
+	vals := strings.Split(string(val), " ")
+	Assert(len(vals) == 2, fmt.Sprint(vals))
+	uid := vals[0]
+	port := vals[1]
+	var result *Result
+	if src == "-" {
+		result = WarnStreamIn("s4-xxh --stream | s4-send %s %s", server.Address, port)
+	} else {
+		result = Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
+	}
+	if result.Err != nil {
+		return result.Err
+	}
+	client_checksum := result.Stderr
+	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	resp, err = Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		val, err = ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("status code %d", resp.StatusCode)
+		}
+		return fmt.Errorf("%s", val)
+	}
+	return nil
 }
