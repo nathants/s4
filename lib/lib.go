@@ -184,11 +184,46 @@ func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
 	}
 }
 
-func WarnStreamIn(format string, args ...interface{}) *Result {
+func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *ResultTempdir {
+	tempdir := Panic2(ioutil.TempDir("_tempdirs", "")).(string)
+	str := fmt.Sprintf(format, args...)
+	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
+	cmd := exec.Command("bash", "-c", str)
+	cmd.Stdin = stdin
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	result := make(chan *ResultTempdir)
+	go func() {
+		err := cmd.Run()
+		result <- &ResultTempdir{
+			strings.TrimRight(stdout.String(), "\n"),
+			strings.TrimRight(stderr.String(), "\n"),
+			err,
+			tempdir,
+		}
+	}()
+	select {
+	case r := <-result:
+		return r
+	case <-time.After(Timeout):
+		Panic1(cmd.Process.Kill())
+		Panic1(os.RemoveAll(tempdir))
+		return &ResultTempdir{
+			"",
+			"",
+			errors.New("cmd timeout"),
+			"",
+		}
+	}
+}
+
+func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
 	cmd := exec.Command("bash", "-c", str)
-	cmd.Stdin = os.Stdin
+	cmd.Stdin = stdin
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
@@ -215,11 +250,11 @@ func WarnStreamIn(format string, args ...interface{}) *Result {
 	}
 }
 
-func WarnStreamOut(format string, args ...interface{}) *Result {
+func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *Result {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
 	cmd := exec.Command("bash", "-c", str)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	result := make(chan *Result)
@@ -318,23 +353,24 @@ func KeySuffix(key string) (string, bool) {
 	}
 }
 
-func Suffix(keys []string) (string, bool) {
-	var suffixes map[string]string
+func Suffix(keys []string) string {
+	suffixes := make(map[string]string)
 	var suffix string
+	var ok bool
 	for _, key := range keys {
-		suffix, ok := KeySuffix(key)
+		suffix, ok = KeySuffix(key)
 		if !ok {
-			return "", false
+			return ""
 		}
 		suffixes[suffix] = ""
 		if len(suffixes) != 1 {
-			return "", false
+			return ""
 		}
 	}
 	if len(suffixes) != 1 {
-		return "", false
+		return ""
 	}
-	return suffix, true
+	return fmt.Sprintf("_%s", suffix)
 }
 
 var cache = sync.Map{}
@@ -475,7 +511,7 @@ func Put(src string, dst string) error {
 	port := vals[1]
 	var result *Result
 	if src == "-" {
-		result = WarnStreamIn("s4-xxh --stream | s4-send %s %s", server.Address, port)
+		result = WarnStreamIn(os.Stdin, "s4-xxh --stream | s4-send %s %s", server.Address, port)
 	} else {
 		result = Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
 	}

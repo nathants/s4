@@ -11,6 +11,7 @@ import util.iter
 import util.log
 import util.time
 import util.net
+import uuid
 from shell import run
 from util.retry import retry
 
@@ -446,121 +447,121 @@ def test_map_to_n_should_fail_quickly_on_bad_file_paths():
         with pytest.raises(Exception):
             run(f's4 map-to-n {step1} {step2} "cat >/dev/null && echo does_not_exist"')
 
-# def test_map_from_n():
-#     # builds on map and map_to_n test
-#     with servers(1_000_000):
-#         step1 = 's4://bucket/step1/' # input data
-#         step2 = 's4://bucket/step2/' # bucketed
-#         step3 = 's4://bucket/step3/' # partitioned
-#         step4 = 's4://bucket/step4/' # merged buckets
-#         def fn(arg):
-#             i, chunk = arg
-#             run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
-#         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-#         assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-#         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
-#         assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-#         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
-#         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
-#         run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
-#         assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
-#             'step4/00000',
-#             'step4/00001',
-#             'step4/00002',
-#         ]
-#         run(f's4 cp -r {step4} step4/')
-#         result = []
-#         num_buckets = 3
-#         for word in words:
-#             hash_bytes = hashlib.md5(word.encode()).digest()
-#             hash_int = int.from_bytes(hash_bytes, 'big')
-#             bucket = hash_int % num_buckets
-#             if bucket == 0:
-#                 result.append(word)
-#         assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
+def test_map_from_n():
+    # builds on map and map_to_n test
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
+        step4 = 's4://bucket/step4/' # merged buckets
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
+        assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
+        assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
+            'step4/00000',
+            'step4/00001',
+            'step4/00002',
+        ]
+        run(f's4 cp -r {step4} step4/')
+        result = []
+        num_buckets = 3
+        for word in words:
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word)
+        assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
 
-# def test_map_from_n_without_numeric_prefixes():
-#     # builds on map and map_to_n test
-#     with servers(1_000_000):
-#         step1 = 's4://bucket/step1/' # input data
-#         step2 = 's4://bucket/step2/' # bucketed
-#         step3 = 's4://bucket/step3/' # partitioned
-#         step4 = 's4://bucket/step4/' # merged buckets
-#         def fn(arg):
-#             i, chunk = arg
-#             run(f's4 cp - {step1}{uuid.uuid4()}', stdin="\n".join(chunk) + "\n")
-#         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-#         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
-#         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
-#         run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
-#         assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
-#             'step4/00000',
-#             'step4/00001',
-#             'step4/00002',
-#         ]
-#         run(f's4 cp -r {step4} step4/')
-#         result = []
-#         num_buckets = 3
-#         for word in words:
-#             hash_bytes = hashlib.md5(word.encode()).digest()
-#             hash_int = int.from_bytes(hash_bytes, 'big')
-#             bucket = hash_int % num_buckets
-#             if bucket == 0:
-#                 result.append(word)
-#         assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
+def test_map_from_n_without_numeric_prefixes():
+    # builds on map and map_to_n test
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
+        step4 = 's4://bucket/step4/' # merged buckets
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{uuid.uuid4()}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        run(f"s4 map-from-n {step3} {step4} 'xargs cat'")
+        assert run(f"s4 ls -r {step4} | awk '{{print $NF}}'").splitlines() == [
+            'step4/00000',
+            'step4/00001',
+            'step4/00002',
+        ]
+        run(f's4 cp -r {step4} step4/')
+        result = []
+        num_buckets = 3
+        for word in words:
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word)
+        assert sorted(result) == sorted(run('cat step4/00000', stream=False).splitlines())
 
-# def test_map_should_work_on_the_output_of_map_to_n():
-#     with servers(1_000_000):
-#         step1 = 's4://bucket/step1/' # input data
-#         step2 = 's4://bucket/step2/' # bucketed
-#         step3 = 's4://bucket/step3/' # partitioned
-#         step4 = 's4://bucket/step4/' # mapped partitioned
-#         step5 = 's4://bucket/step5/' # merged buckets
-#         def fn(arg):
-#             i, chunk = arg
-#             run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
-#         list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
-#         assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-#         run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
-#         assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
-#         assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
-#         run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
-#         ## map is recursive, so it can work on the output of map-to-n
-#         run(f"s4 map {step3} {step4} 'while read row; do echo $(echo $row | head -c4); done'")
-#         ##
-#         run(f"s4 map-from-n {step4} {step5} 'xargs cat'")
-#         assert run(f"s4 ls -r {step5} | awk '{{print $NF}}'").splitlines() == [
-#             'step5/00000',
-#             'step5/00001',
-#             'step5/00002',
-#         ]
-#         run(f's4 cp -r {step5} step5/')
-#         result = []
-#         num_buckets = 3
-#         for word in words:
-#             hash_bytes = hashlib.md5(word.encode()).digest()
-#             hash_int = int.from_bytes(hash_bytes, 'big')
-#             bucket = hash_int % num_buckets
-#             if bucket == 0:
-#                 result.append(word[:4])
-#         assert result == run('cat step5/00000', stream=False).splitlines()
+def test_map_should_work_on_the_output_of_map_to_n():
+    with servers(1_000_000):
+        step1 = 's4://bucket/step1/' # input data
+        step2 = 's4://bucket/step2/' # bucketed
+        step3 = 's4://bucket/step3/' # partitioned
+        step4 = 's4://bucket/step4/' # mapped partitioned
+        step5 = 's4://bucket/step5/' # merged buckets
+        def fn(arg):
+            i, chunk = arg
+            run(f's4 cp - {step1}{i:05}', stdin="\n".join(chunk) + "\n")
+        list(pool.thread.map(fn, enumerate(util.iter.chunk(words, 180))))
+        assert run(f"s4 ls {step1} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        run(f's4 map {step1} {step2} "python3 /tmp/bucket.py 3"')
+        assert run(f"s4 ls {step2} | awk '{{print $NF}}'").splitlines() == ['00000', '00001', '00002', '00003', '00004', '00005']
+        assert run(f's4 cp {step2}/00000 - | head -n5').splitlines() == ['00000,Abelson', '00000,Aberdeen', '00002,Allison', '00001,Amsterdam', '00002,Apollos']
+        run(f's4 map-to-n {step2} {step3} "python3 /tmp/partition.py 3"')
+        ## map is recursive, so it can work on the output of map-to-n
+        run(f"s4 map {step3} {step4} 'while read row; do echo $(echo $row | head -c4); done'")
+        ##
+        run(f"s4 map-from-n {step4} {step5} 'xargs cat'")
+        assert run(f"s4 ls -r {step5} | awk '{{print $NF}}'").splitlines() == [
+            'step5/00000',
+            'step5/00001',
+            'step5/00002',
+        ]
+        run(f's4 cp -r {step5} step5/')
+        result = []
+        num_buckets = 3
+        for word in words:
+            hash_bytes = hashlib.md5(word.encode()).digest()
+            hash_int = int.from_bytes(hash_bytes, 'big')
+            bucket = hash_int % num_buckets
+            if bucket == 0:
+                result.append(word[:4])
+        assert result == run('cat step5/00000', stream=False).splitlines()
 
-# def test_map_should_preserve_suffix():
-#     with servers(1_000_000):
-#         run('echo | s4 cp - s4://step1/000_key0')
-#         run('s4 map s4://step1/ s4://step2/ "cat"')
-#         assert '000_key0' == run("s4 ls s4://step2/ | awk '{print $NF}'")
+def test_map_should_preserve_suffix():
+    with servers(1_000_000):
+        run('echo | s4 cp - s4://step1/000_key0')
+        run('s4 map s4://step1/ s4://step2/ "cat"')
+        assert '000_key0' == run("s4 ls s4://step2/ | awk '{print $NF}'")
 
-# def test_map_from_n_should_work_on_deep_directories_and_preserve_suffix():
-#     with servers(1_000_000):
-#         run('s4 cp - s4://step1/may/000_key0/000_bucket0', stdin="1\n")
-#         run('s4 cp - s4://step1/may/001_key1/000_bucket0', stdin="2\n")
-#         run('s4 cp - s4://step1/jun/000_key0/000_bucket0', stdin="3\n")
-#         run('s4 cp - s4://step1/jun/001_key1/000_bucket0', stdin="4\n")
-#         run('s4 cp - s4://step1/jul/000_key0/000_bucket0', stdin="5\n")
-#         run('s4 cp - s4://step1/jul/001_key1/000_bucket0', stdin="6\n")
-#         run("s4 map-from-n s4://step1/ s4://step2/ 'grep -e may -e jun | xargs cat | sort -n'")
-#         assert '1\n2\n3\n4' == run('s4 eval s4://step2/000_bucket0 "cat"')
+def test_map_from_n_should_work_on_deep_directories_and_preserve_suffix():
+    with servers(1_000_000):
+        run('s4 cp - s4://step1/may/000_key0/000_bucket0', stdin="1\n")
+        run('s4 cp - s4://step1/may/001_key1/000_bucket0', stdin="2\n")
+        run('s4 cp - s4://step1/jun/000_key0/000_bucket0', stdin="3\n")
+        run('s4 cp - s4://step1/jun/001_key1/000_bucket0', stdin="4\n")
+        run('s4 cp - s4://step1/jul/000_key0/000_bucket0', stdin="5\n")
+        run('s4 cp - s4://step1/jul/001_key1/000_bucket0', stdin="6\n")
+        run("s4 map-from-n s4://step1/ s4://step2/ 'grep -e may -e jun | xargs cat | sort -n'")
+        assert '1\n2\n3\n4' == run('s4 eval s4://step2/000_bucket0 "cat"')
 
 words = [
     "Abelson", "Aberdeen", "Allison", "Amsterdam", "Apollos", "Arabian", "Assad", "Austerlitz", "Bactria", "Baldwin", "Belinda", "Bethe", "Blondel",

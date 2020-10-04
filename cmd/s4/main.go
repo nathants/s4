@@ -98,6 +98,7 @@ func parseGlob(indir string) []string {
 }
 
 func Map() {
+	//
 	if len(os.Args) != 5 {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 map INDIR OUTDIR CMD"))
 		os.Exit(1)
@@ -105,26 +106,23 @@ func Map() {
 	indir := os.Args[2]
 	outdir := os.Args[3]
 	cmd := os.Args[4]
-
+	//
 	parts := parseGlob(indir)
 	indir = parts[0]
 	glob := parts[1]
-
+	//
 	Assert(strings.HasSuffix(indir, "/"), indir)
 	Assert(strings.HasSuffix(outdir, "/"), outdir)
-
+	//
 	lines := list(indir, true)
-
+	//
 	parts = strings.Split(indir, "://")
-	// proto := parts[0]
 	pth := parts[1]
-
+	//
 	parts = strings.SplitN(pth, "/", 2)
-	// bucket := parts[0]
 	pth = parts[1]
-
+	//
 	datas := make(map[string][][]string)
-
 	for _, line := range lines {
 		size := line[2]
 		key := line[3]
@@ -143,6 +141,7 @@ func Map() {
 		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outkey})
 	}
+	//
 	var urls []Url
 	for url, data := range datas {
 		d := Data{cmd, data}
@@ -153,6 +152,7 @@ func Map() {
 }
 
 func MapToN() {
+	//
 	if len(os.Args) != 5 {
 		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-to-n INDIR OUTDIR CMD"))
 		os.Exit(1)
@@ -160,26 +160,23 @@ func MapToN() {
 	indir := os.Args[2]
 	outdir := os.Args[3]
 	cmd := os.Args[4]
-
+	//
 	parts := parseGlob(indir)
 	indir = parts[0]
 	glob := parts[1]
-
+	//
 	Assert(strings.HasSuffix(indir, "/"), indir)
 	Assert(strings.HasSuffix(outdir, "/"), outdir)
-
+	//
 	lines := list(indir, true)
-
+	//
 	parts = strings.Split(indir, "://")
-	// proto := parts[0]
 	pth := parts[1]
-
+	//
 	parts = strings.SplitN(pth, "/", 2)
-	// bucket := parts[0]
 	pth = parts[1]
-
+	//
 	datas := make(map[string][][]string)
-
 	for _, line := range lines {
 		size := line[2]
 		key := line[3]
@@ -195,6 +192,69 @@ func MapToN() {
 		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outdir})
 	}
+	var urls []Url
+	for url, data := range datas {
+		d := Data{cmd, data}
+		bytes := Panic2(json.Marshal(d)).([]byte)
+		urls = append(urls, Url{url, bytes})
+	}
+	postAll(urls)
+}
+
+func MapFromN() {
+	//
+	if len(os.Args) != 5 {
+		Panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-from-n INDIR OUTDIR CMD"))
+		os.Exit(1)
+	}
+	indir := os.Args[2]
+	outdir := os.Args[3]
+	cmd := os.Args[4]
+	//
+	parts := parseGlob(indir)
+	indir = parts[0]
+	glob := parts[1]
+	//
+	Assert(strings.HasSuffix(indir, "/"), indir)
+	Assert(strings.HasSuffix(outdir, "/"), outdir)
+	//
+	lines := list(indir, true)
+	//
+	parts = strings.Split(indir, "://")
+	pth := parts[1]
+	//
+	parts = strings.SplitN(pth, "/", 2)
+	bucket := parts[0]
+	indir = parts[1]
+	//
+	buckets := make(map[string][]string)
+	for _, line := range lines {
+		key := line[3]
+		if indir != "" {
+			key = strings.SplitN(key, indir, 2)[1]
+		}
+		if glob != "" && !Panic2(path.Match(glob, key)).(bool) {
+			continue
+		}
+		prefix := lib.KeyPrefix(key)
+		buckets[prefix] = append(buckets[prefix], lib.Join(fmt.Sprintf("s4://%s", bucket), indir, key))
+	}
+	//
+	datas := make(map[string][][]string)
+	for _, inkeys := range buckets {
+		var servers []lib.Server
+		for i, inkey := range inkeys {
+			server := lib.PickServer(inkey)
+			servers = append(servers, server)
+			if i != 0 {
+				Assert(servers[0].Address == server.Address, "fail")
+				Assert(servers[0].Port == server.Port, "fail")
+			}
+		}
+		url := fmt.Sprintf("http://%s:%s/map_from_n?outdir=%s", servers[0].Address, servers[0].Port, outdir)
+		datas[url] = append(datas[url], inkeys)
+	}
+	//
 	var urls []Url
 	for url, data := range datas {
 		d := Data{cmd, data}
@@ -224,15 +284,12 @@ func postAll(urls []Url) {
 			panic(result.err)
 		}
 		body := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
-		switch result.resp.StatusCode {
-		case 400, 409:
-			fmt.Printf("fatal: cmd failure %s\n", result.url.Url)
+		if result.resp.StatusCode != 200 {
+			fmt.Printf("fatal: %d %s\n", result.resp.StatusCode, result.url.Url)
 			fmt.Println(string(body))
 			os.Exit(1)
-		default:
-			Assert(result.resp.StatusCode == 200, result.url.Url)
-			fmt.Printf("ok ")
 		}
+		fmt.Printf("ok ")
 	}
 	fmt.Println("")
 }
@@ -494,7 +551,7 @@ func get(src string, dst string) {
 		Assert(!lib.Exists(temp_path), temp_path)
 		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
 	}
-	result := lib.WarnStreamOut(cmd)
+	result := lib.WarnStreamOut(os.Stdout, cmd)
 	Assert(result.Err == nil, fmt.Sprint(result.Err))
 	client_checksum := result.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
@@ -562,6 +619,8 @@ func main() {
 		Map()
 	case "map-to-n":
 		MapToN()
+	case "map-from-n":
+		MapFromN()
 	case "eval":
 		Eval()
 	case "ls":
