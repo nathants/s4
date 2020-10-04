@@ -88,18 +88,10 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	job := v.(*GetJob)
 	result := <-job.result
-	if result.Err != nil {
-		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, result.Stdout+"\n"+result.Stderr))
-		return
-	}
+	Assert(result.Err == nil, result.Stdout+"\n"+result.Stderr)
 	// TODO compare 3 checksums: server, client, disk
 	server_checksum := result.Stderr
-	if client_checksum != server_checksum {
-		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, "checksum mismatch: %s %s\n", client_checksum, server_checksum))
-		return
-	}
+	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	w.WriteHeader(200)
 }
 
@@ -116,11 +108,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	key := keys[0]
-	if !lib.OnThisServer(key) {
-		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, "wrong server for request\n"))
-		return
-	}
+	Assert(lib.OnThisServer(key), "wrong server for request\n")
 	remote := strings.Split(r.RemoteAddr, ":")[0]
 	if remote == "127.0.0.1" {
 		remote = "0.0.0.0"
