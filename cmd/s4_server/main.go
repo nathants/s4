@@ -57,13 +57,13 @@ func Panic2(x interface{}, e error) interface{} {
 
 type GetJob struct {
 	start         time.Time
-	result        chan *lib.Result
+	result        chan *lib.CmdResult
 	disk_checksum string
 }
 
 type PutJob struct {
 	start     time.Time
-	result    chan *lib.Result
+	result    chan *lib.CmdResult
 	path      string
 	temp_path string
 }
@@ -84,8 +84,9 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	//
 	result := <-job.result
 	Assert(result.Err == nil, result.Stdout+"\n"+result.Stderr)
-	server_checksum := result.Stderr // TODO compare 3 checksums: server, client, disk
-	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
+	disk_checksum := job.disk_checksum
+	server_checksum := result.Stderr
+	Assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
 	w.WriteHeader(200)
 }
 
@@ -106,7 +107,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	path := strings.Split(key, "s4://")[1]
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	exists := lib.Exists(path)
 	solo_pool.Release(1)
 	//
@@ -116,16 +117,16 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
-	result := make(chan *lib.Result, 1)
+	result := make(chan *lib.CmdResult, 1)
 	go func() {
-		Panic1(io_send_pool.Acquire(context.TODO(), 1))
+		Panic1(io_send_pool.Acquire(context.Background(), 1))
 		defer io_send_pool.Release(1)
 		started <- true
 		result <- lib.Warn("< %s s4-xxh --stream | s4-send %s %s", path, remote, port)
 	}()
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
-	disk_checksum := string(Panic2(ioutil.ReadFile(checksumPath(path))).([]byte))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
+	disk_checksum := checksumRead(path)
 	solo_pool.Release(1)
 	//
 	job := &GetJob{
@@ -155,7 +156,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.Split(key, "s4://")[1]
 	Assert(!strings.HasPrefix(path, "_"), path)
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	port := Panic2(freeport.GetFreePort()).(int)
 	exists := lib.Exists(path)
 	temp_path := lib.NewTempPath("_tempfiles")
@@ -167,9 +168,9 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
-	result := make(chan *lib.Result, 1)
+	result := make(chan *lib.CmdResult, 1)
 	go func() {
-		Panic1(io_recv_pool.Acquire(context.TODO(), 1))
+		Panic1(io_recv_pool.Acquire(context.Background(), 1))
 		defer io_recv_pool.Release(1)
 		started <- true
 		result <- lib.Warn("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
@@ -212,7 +213,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	server_checksum := result.Stderr
 	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
 	Assert(!lib.Exists(job.path), job.path)
 	Panic1(ioutil.WriteFile(checksumPath(job.path), []byte(server_checksum), 0o444))
@@ -239,7 +240,7 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		recursive = true
 	}
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	defer solo_pool.Release(1)
 	if recursive {
 		lib.Run("rm -rf %s*", prefix)
@@ -253,19 +254,14 @@ func checksumPath(prefix string) string {
 	return fmt.Sprintf("%s.xxh3", prefix)
 }
 
-type Data struct {
-	Cmd  string     `json:"cmd"`
-	Args [][]string `json:"args"`
-}
-
 type MapResult struct {
-	CmdResult *lib.ResultTempdir
+	CmdResult *lib.CmdResultTempdir
 	Outkey    string
 }
 
 func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	//
-	var data Data
+	var data lib.Data
 	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
 	Panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -282,7 +278,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			// solo pool
-			Panic1(cpu_pool.Acquire(context.TODO(), 1))
+			Panic1(cpu_pool.Acquire(context.Background(), 1))
 			defer cpu_pool.Release(1)
 			results <- MapResult{
 				lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)),
@@ -340,11 +336,11 @@ func localPut(temp_path string, key string) {
 	path := parts[len(parts)-1]
 	Assert(!strings.HasPrefix(path, "_"), path)
 	// misc pool
-	Panic1(misc_pool.Acquire(context.TODO(), 1))
+	Panic1(misc_pool.Acquire(context.Background(), 1))
 	checksum := xxhChecksum(temp_path)
 	misc_pool.Release(1)
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	confirmLocalPut(temp_path, path, checksum)
 	solo_pool.Release(1)
 }
@@ -363,23 +359,23 @@ func checksumWrite(path string, checksum string) {
 	Panic1(ioutil.WriteFile(checksumPath(path), []byte(checksum), 0o444))
 }
 
-// func checksumRead(path string) string {
-// 	return string(Panic2(ioutil.ReadFile(checksumPath(path))).([]byte))
-// }
+func checksumRead(path string) string {
+	return string(Panic2(ioutil.ReadFile(checksumPath(path))).([]byte))
+}
 
 func xxhChecksum(path string) string {
 	return lib.Run("< %s s4-xxh", path)
 }
 
 type MapToNResult struct {
-	CmdResult *lib.ResultTempdir
+	CmdResult *lib.CmdResultTempdir
 	Inpath    string
 	Outdir    string
 }
 
 func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	//
-	var data Data
+	var data lib.Data
 	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
 	Panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -396,7 +392,7 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			// cpu pool
-			Panic1(cpu_pool.Acquire(context.TODO(), 1))
+			Panic1(cpu_pool.Acquire(context.Background(), 1))
 			defer cpu_pool.Release(1)
 			results <- MapToNResult{
 				lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd)),
@@ -442,7 +438,7 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 							} else {
 								Panic1(retry.Do(func() error {
 									// io send pool
-									Panic1(io_send_pool.Acquire(context.TODO(), 1))
+									Panic1(io_send_pool.Acquire(context.Background(), 1))
 									err := lib.Put(temp_path, outkey)
 									io_send_pool.Release(1)
 									if errors.Is(err, lib.Err409) {
@@ -490,7 +486,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	outdir := outdirs[0]
 	Assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 	//
-	var data Data
+	var data lib.Data
 	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
 	Panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -509,7 +505,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		outkey := lib.Join(outdir, lib.KeyPrefix(inkeys[0])+lib.Suffix(inkeys))
 		go func(inpaths []string) {
 			// cpu pool
-			Panic1(cpu_pool.Acquire(context.TODO(), 1))
+			Panic1(cpu_pool.Acquire(context.Background(), 1))
 			defer cpu_pool.Release(1)
 			stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
 			results <- MapResult{
@@ -570,7 +566,7 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	parts := strings.SplitN(key, "s4://", 2)
 	path := parts[len(parts)-1]
 	// solo pool
-	Panic1(solo_pool.Acquire(context.TODO(), 1))
+	Panic1(solo_pool.Acquire(context.Background(), 1))
 	exists := lib.Exists(path)
 	solo_pool.Release(1)
 	//
@@ -578,7 +574,7 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.WriteHeader(404)
 	} else {
 		// cpu pool
-		Panic1(cpu_pool.Acquire(context.TODO(), 1))
+		Panic1(cpu_pool.Acquire(context.Background(), 1))
 		defer cpu_pool.Release(1)
 		res := lib.Warn("< %s %s", path, cmd)
 		if res.Err == nil {
@@ -618,7 +614,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			prefix += "*"
 		}
 		// misc pool
-		Panic1(misc_pool.Acquire(context.TODO(), 1))
+		Panic1(misc_pool.Acquire(context.Background(), 1))
 		res := lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, lib.Printf)
 		misc_pool.Release(1)
 		//
@@ -639,7 +635,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			prefix = lib.Dir(prefix)
 		}
 		// misc pool
-		Panic1(misc_pool.Acquire(context.TODO(), 1))
+		Panic1(misc_pool.Acquire(context.Background(), 1))
 		res := lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, lib.Printf)
 		misc_pool.Release(1)
 		//
@@ -652,7 +648,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			}
 		}
 		// misc pool
-		Panic1(misc_pool.Acquire(context.TODO(), 1))
+		Panic1(misc_pool.Acquire(context.Background(), 1))
 		res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
 		misc_pool.Release(1)
 		//
@@ -679,7 +675,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	// misc pool
-	Panic1(misc_pool.Acquire(context.TODO(), 1))
+	Panic1(misc_pool.Acquire(context.Background(), 1))
 	stdout := lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", lib.Printf)
 	misc_pool.Release(1)
 	//

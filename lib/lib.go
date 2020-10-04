@@ -107,20 +107,20 @@ func Run(format string, args ...interface{}) string {
 	return strings.TrimRight(stdout.String(), "\n")
 }
 
-type Result struct {
+type CmdResult struct {
 	Stdout string
 	Stderr string
 	Err    error
 }
 
-type ResultTempdir struct {
+type CmdResultTempdir struct {
 	Stdout  string
 	Stderr  string
 	Err     error
 	Tempdir string
 }
 
-func Warn(format string, args ...interface{}) *Result {
+func Warn(format string, args ...interface{}) *CmdResult {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
 	cmd := exec.Command("bash", "-c", str)
@@ -128,10 +128,10 @@ func Warn(format string, args ...interface{}) *Result {
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *Result)
+	result := make(chan *CmdResult)
 	go func() {
 		err := cmd.Run()
-		result <- &Result{
+		result <- &CmdResult{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -142,7 +142,7 @@ func Warn(format string, args ...interface{}) *Result {
 		return r
 	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
-		return &Result{
+		return &CmdResult{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -150,7 +150,7 @@ func Warn(format string, args ...interface{}) *Result {
 	}
 }
 
-func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
+func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
 	tempdir := Panic2(ioutil.TempDir("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
@@ -159,10 +159,10 @@ func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *ResultTempdir)
+	result := make(chan *CmdResultTempdir)
 	go func() {
 		err := cmd.Run()
-		result <- &ResultTempdir{
+		result <- &CmdResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -175,7 +175,7 @@ func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
 	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		Panic1(os.RemoveAll(tempdir))
-		return &ResultTempdir{
+		return &CmdResultTempdir{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -184,7 +184,7 @@ func WarnTempdir(format string, args ...interface{}) *ResultTempdir {
 	}
 }
 
-func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *ResultTempdir {
+func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *CmdResultTempdir {
 	tempdir := Panic2(ioutil.TempDir("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
@@ -194,10 +194,10 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *R
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *ResultTempdir)
+	result := make(chan *CmdResultTempdir)
 	go func() {
 		err := cmd.Run()
-		result <- &ResultTempdir{
+		result <- &CmdResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -210,7 +210,7 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *R
 	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
 		Panic1(os.RemoveAll(tempdir))
-		return &ResultTempdir{
+		return &CmdResultTempdir{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -219,7 +219,7 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *R
 	}
 }
 
-func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *Result {
+func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *CmdResult {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
 	cmd := exec.Command("bash", "-c", str)
@@ -228,10 +228,10 @@ func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *Result {
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *Result)
+	result := make(chan *CmdResult)
 	go func() {
 		err := cmd.Run()
-		result <- &Result{
+		result <- &CmdResult{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -242,7 +242,7 @@ func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *Result {
 		return r
 	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
-		return &Result{
+		return &CmdResult{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -250,17 +250,17 @@ func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *Result {
 	}
 }
 
-func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *Result {
+func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *CmdResult {
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; %s", str)
 	cmd := exec.Command("bash", "-c", str)
 	cmd.Stdout = stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *Result)
+	result := make(chan *CmdResult)
 	go func() {
 		err := cmd.Run()
-		result <- &Result{
+		result <- &CmdResult{
 			"",
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -271,7 +271,7 @@ func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *Result
 		return r
 	case <-time.After(Timeout):
 		Panic1(cmd.Process.Kill())
-		return &Result{
+		return &CmdResult{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -509,7 +509,7 @@ func Put(src string, dst string) error {
 	Assert(len(vals) == 2, fmt.Sprint(vals))
 	uid := vals[0]
 	port := vals[1]
-	var result *Result
+	var result *CmdResult
 	if src == "-" {
 		result = WarnStreamIn(os.Stdin, "s4-xxh --stream | s4-send %s %s", server.Address, port)
 	} else {
@@ -532,4 +532,9 @@ func Put(src string, dst string) error {
 		return fmt.Errorf("%s", val)
 	}
 	return nil
+}
+
+type Data struct {
+	Cmd  string     `json:"cmd"`
+	Args [][]string `json:"args"`
 }

@@ -36,7 +36,7 @@ func Panic2(x interface{}, e error) interface{} {
 	return x
 }
 
-type Result struct {
+type HttpResult struct {
 	resp *http.Response
 	err  error
 }
@@ -53,12 +53,12 @@ func Rm() {
 	prefix := cmd.Arg(0)
 	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	if *recursive {
-		results := make(chan Result)
+		results := make(chan HttpResult)
 		for _, server := range lib.Servers() {
 			go func(server lib.Server) {
 				url := fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix)
 				resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-				results <- Result{resp, err}
+				results <- HttpResult{resp, err}
 			}(server)
 		}
 		for range lib.Servers() {
@@ -144,7 +144,7 @@ func Map() {
 	//
 	var urls []Url
 	for url, data := range datas {
-		d := Data{cmd, data}
+		d := lib.Data{cmd, data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -194,7 +194,7 @@ func MapToN() {
 	}
 	var urls []Url
 	for url, data := range datas {
-		d := Data{cmd, data}
+		d := lib.Data{cmd, data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -257,25 +257,25 @@ func MapFromN() {
 	//
 	var urls []Url
 	for url, data := range datas {
-		d := Data{cmd, data}
+		d := lib.Data{cmd, data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
 	postAll(urls)
 }
 
-type UrlResult struct {
+type HttpResultUrl struct {
 	resp *http.Response
 	err  error
 	url  Url
 }
 
 func postAll(urls []Url) {
-	results := make(chan UrlResult, len(urls))
+	results := make(chan HttpResultUrl, len(urls))
 	for _, url := range urls {
 		go func(url Url) {
 			resp, err := lib.Client.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
-			results <- UrlResult{resp, err, url}
+			results <- HttpResultUrl{resp, err, url}
 		}(url)
 	}
 	for range urls {
@@ -292,11 +292,6 @@ func postAll(urls []Url) {
 		fmt.Printf("ok ")
 	}
 	fmt.Println("")
-}
-
-type Data struct {
-	Cmd  string     `json:"cmd"`
-	Args [][]string `json:"args"`
 }
 
 type Url struct {
@@ -320,7 +315,7 @@ func Eval() {
 		Panic2(fmt.Fprintln(os.Stderr, "fatal: no such key"))
 		os.Exit(1)
 	case 400:
-		var result lib.Result
+		var result lib.CmdResult
 		bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
 		if len(bytes) == 0 {
 			return
@@ -386,12 +381,12 @@ func Ls() {
 }
 
 func listBuckets() [][]string {
-	results := make(chan Result)
+	results := make(chan HttpResult)
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port)
 			resp, err := lib.Client.Get(url)
-			results <- Result{resp, err}
+			results <- HttpResult{resp, err}
 		}(server)
 	}
 	buckets := make(map[string][]string)
@@ -426,12 +421,12 @@ func list(prefix string, recursive bool) [][]string {
 	if recursive {
 		recursive_param = "&recursive=true"
 	}
-	results := make(chan Result)
+	results := make(chan HttpResult)
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param)
 			resp, err := lib.Client.Get(url)
-			results <- Result{resp, err}
+			results <- HttpResult{resp, err}
 		}(server)
 	}
 	var lines [][]string
