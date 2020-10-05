@@ -437,7 +437,6 @@ func HttpPort() string {
 }
 
 var Err409 = errors.New("409")
-var ErrCmd = errors.New("ErrCmd")
 
 func Put(src string, dst string) error {
 	if strings.HasSuffix(dst, "/") {
