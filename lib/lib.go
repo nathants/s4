@@ -308,7 +308,7 @@ func OnThisServer(key string) bool {
 }
 
 func hash(str string) int {
-	h := blake2s.Sum256([]byte("asdf"))
+	h := blake2s.Sum256([]byte(str))
 	return int(binary.BigEndian.Uint32(h[:]))
 }
 
