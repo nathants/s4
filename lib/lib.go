@@ -2,6 +2,7 @@ package lib
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -305,7 +307,7 @@ func OnThisServer(key string) bool {
 	return server.Address == "0.0.0.0" && server.Port == HttpPort()
 }
 
-func Hash(str string) int {
+func hash(str string) int {
 	h := blake2s.Sum256([]byte("asdf"))
 	return int(binary.BigEndian.Uint32(h[:]))
 }
@@ -316,7 +318,7 @@ func PickServer(key string) Server {
 	prefix := KeyPrefix(key)
 	val, err := strconv.Atoi(prefix)
 	if err != nil {
-		val = Hash(prefix)
+		val = hash(prefix)
 	}
 	servers := Servers()
 	index := val % len(servers)
@@ -388,7 +390,7 @@ func Servers() []Server {
 	} else {
 		bytes := Panic2(ioutil.ReadFile(ConfPath())).([]byte)
 		lines := strings.Split(string(bytes), "\n")
-		local_addresses := LocalAddresses()
+		local_addresses := localAddresses()
 		for _, line := range lines {
 			if strings.Trim(line, " ") == "" {
 				continue
@@ -409,7 +411,7 @@ func Servers() []Server {
 	return servers
 }
 
-func LocalAddresses() []string {
+func localAddresses() []string {
 	vals := []string{"0.0.0.0", "localhost", "127.0.0.1"}
 	for _, line := range strings.Split(Run("ifconfig"), "\n") {
 		if strings.Contains(line, " inet ") {
@@ -436,54 +438,8 @@ func HttpPort() string {
 	}
 }
 
-func ServerNum() int {
-	for i, server := range Servers() {
-		if server.Address == "0.0.0.0" && server.Port == HttpPort() {
-			return i
-		}
-	}
-	panic("impossible")
-}
-
-func NewTempPath(dir string) string {
-	for i := 0; i < 5; i++ {
-		uid := uuid.NewV4().String()
-		temp_path := Panic2(filepath.Abs(Join(dir, uid))).(string)
-		if !Exists(temp_path) {
-			return temp_path
-		}
-	}
-	panic("failure")
-}
-
-type ResponseObserver struct {
-	http.ResponseWriter
-	Status int
-}
-
-func (o *ResponseObserver) Write(p []byte) (int, error) {
-	return o.ResponseWriter.Write(p)
-}
-
-func (o *ResponseObserver) WriteHeader(code int) {
-	o.ResponseWriter.WriteHeader(code)
-	o.Status = code
-}
-
-type LoggingHandler struct {
-	Handler http.Handler
-}
-
-func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	wo := &ResponseObserver{w, 200}
-	l.Handler.ServeHTTP(wo, r)
-	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0])
-}
-
-var (
-	Err409 = errors.New("409")
-	ErrCmd = errors.New("ErrCmd")
-)
+var Err409 = errors.New("409")
+var ErrCmd = errors.New("ErrCmd")
 
 func Put(src string, dst string) error {
 	if strings.HasSuffix(dst, "/") {
@@ -539,28 +495,58 @@ type Data struct {
 	Args [][]string `json:"args"`
 }
 
-type HttpResult struct {
-	StatusCode int
-	Body       []byte
-	Err        error
+func NewTempPath(dir string) string {
+	for i := 0; i < 5; i++ {
+		uid := uuid.NewV4().String()
+		temp_path := Panic2(filepath.Abs(Join(dir, uid))).(string)
+		if !Exists(temp_path) {
+			return temp_path
+		}
+	}
+	panic("failure")
 }
 
-func Post(url, contentType string, body io.Reader) *HttpResult {
-	resp, err := Client.Post(url, contentType, body)
-	if err == nil {
-		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-		return &HttpResult{resp.StatusCode, body, nil}
-	} else {
-		return &HttpResult{-1, []byte{}, err}
+func With(pool *semaphore.Weighted, fn func()) {
+	Panic1(pool.Acquire(context.Background(), 1))
+	fn()
+	pool.Release(1)
+}
+
+func QueryParam(r *http.Request, name string) string {
+	vals := r.URL.Query()[name]
+	Assert(len(vals) == 1, "missing query parameter: %s", name)
+	return vals[0]
+}
+
+func QueryParamDefault(r *http.Request, name string, default_val string) string {
+	vals := r.URL.Query()[name]
+	switch len(vals) {
+	case 0:
+		return default_val
+	case 1:
+		return vals[0]
+	default:
+		panic(len(vals))
 	}
 }
 
-func Get(url string) *HttpResult {
-	resp, err := Client.Get(url)
-	if err == nil {
-		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-		return &HttpResult{resp.StatusCode, body, nil}
-	} else {
-		return &HttpResult{-1, []byte{}, err}
-	}
+func ChecksumWrite(path string, checksum string) {
+	Panic1(ioutil.WriteFile(ChecksumPath(path), []byte(checksum), 0o444))
+}
+
+func ChecksumRead(path string) string {
+	return string(Panic2(ioutil.ReadFile(ChecksumPath(path))).([]byte))
+}
+
+func Checksum(path string) string {
+	return Run("< %s s4-xxh", path)
+}
+
+func ChecksumPath(prefix string) string {
+	Assert(!strings.HasSuffix(prefix, "/"), prefix)
+	return fmt.Sprintf("%s.xxh3", prefix)
+}
+
+func Last(parts []string) string {
+	return parts[len(parts)-1]
 }

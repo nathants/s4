@@ -37,7 +37,10 @@ check-err:
 check-vet:
 	find -name '*.go' | grep -v _test.go | xargs -n1 go vet
 
-test: test-s4
+test: test-s4 tox
+
+tox:
+	tox
 
 test-s4:
 	go test -v cmd/s4/main.go cmd/s4/main_test.go
