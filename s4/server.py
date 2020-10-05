@@ -228,9 +228,9 @@ async def list_buckets_handler(request: web.Request) -> web.Response:
 async def list_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
     assert prefix.startswith('s4://')
-    _prefix = prefix = prefix.split('s4://', 1)[-1]
-    if not _prefix.endswith('/'):
-        _prefix = os.path.dirname(_prefix) + '/'
+    token = prefix = prefix.split('s4://', 1)[-1]
+    if not token.endswith('/'):
+        token = os.path.dirname(token) + '/'
     recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         if not prefix.endswith('/'):
@@ -252,7 +252,7 @@ async def list_handler(request: web.Request) -> web.Response:
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
-        xs = [[date, time.split(".")[0], size, path.split(_prefix, 1)[-1]] for date, time, size, path in files + dirs]
+        xs = [[date, time.split(".")[0], size, path.split(token, 1)[-1]] for date, time, size, path in files + dirs]
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
     return {'code': 200, 'body': json.dumps(xs)}
 
