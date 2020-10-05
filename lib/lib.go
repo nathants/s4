@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -410,11 +411,13 @@ func Servers() []Server {
 
 func localAddresses() []string {
 	vals := []string{"0.0.0.0", "localhost", "127.0.0.1"}
-	for _, line := range strings.Split(Run("ifconfig"), "\n") {
-		if strings.Contains(line, " inet ") {
-			parts := strings.Split(line, " ")
-			address := parts[1]
-			vals = append(vals, address)
+	ifaces, err := net.Interfaces()
+	Assert(err == nil, "%s", err)
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		Assert(err == nil, "%s", err)
+		for _, addr := range addrs {
+			vals = append(vals, strings.SplitN(addr.String(), "/", 2)[0])
 		}
 	}
 	return vals
