@@ -495,12 +495,12 @@ func Put(src string, dst string) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode == 409 {
-		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
-	}
 	val, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == 409 {
+		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
 	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("%s", val)
@@ -537,4 +537,30 @@ func Put(src string, dst string) error {
 type Data struct {
 	Cmd  string     `json:"cmd"`
 	Args [][]string `json:"args"`
+}
+
+type HttpResult struct {
+	StatusCode int
+	Body       []byte
+	Err        error
+}
+
+func Post(url, contentType string, body io.Reader) *HttpResult {
+	resp, err := Client.Post(url, contentType, body)
+	if err == nil {
+		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		return &HttpResult{resp.StatusCode, body, nil}
+	} else {
+		return &HttpResult{-1, []byte{}, err}
+	}
+}
+
+func Get(url string) *HttpResult {
+	resp, err := Client.Get(url)
+	if err == nil {
+		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		return &HttpResult{resp.StatusCode, body, nil}
+	} else {
+		return &HttpResult{-1, []byte{}, err}
+	}
 }

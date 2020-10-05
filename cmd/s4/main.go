@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -36,11 +35,6 @@ func Panic2(x interface{}, e error) interface{} {
 	return x
 }
 
-type HttpResult struct {
-	resp *http.Response
-	err  error
-}
-
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
@@ -53,25 +47,22 @@ func Rm() {
 	prefix := cmd.Arg(0)
 	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	if *recursive {
-		results := make(chan HttpResult)
+		results := make(chan *lib.HttpResult)
 		for _, server := range lib.Servers() {
 			go func(server lib.Server) {
-				url := fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix)
-				resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-				results <- HttpResult{resp, err}
+				results <- lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
 			}(server)
 		}
 		for range lib.Servers() {
 			result := <-results
-			Assert(result.err == nil, fmt.Sprint(result.err))
-			Assert(result.resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)))
+			Assert(result.Err == nil, fmt.Sprint(result.Err))
+			Assert(result.StatusCode == 200, "%d %s", result.StatusCode, result.Body)
 		}
 	} else {
 		server := lib.PickServer(prefix)
-		url := fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix)
-		resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-		Assert(err == nil, fmt.Sprint(err))
-		Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
+		result := lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
+		Assert(result.Err == nil, fmt.Sprint(result.Err))
+		Assert(result.StatusCode == 200, "%s", result.Body)
 	}
 }
 
@@ -118,7 +109,6 @@ func Map() {
 	//
 	parts = strings.Split(indir, "://")
 	pth := parts[1]
-	//
 	parts = strings.SplitN(pth, "/", 2)
 	pth = parts[1]
 	//
@@ -144,7 +134,7 @@ func Map() {
 	//
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{cmd, data}
+		d := lib.Data{Cmd: cmd, Args: data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -194,7 +184,7 @@ func MapToN() {
 	}
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{cmd, data}
+		d := lib.Data{Cmd: cmd, Args: data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -257,46 +247,44 @@ func MapFromN() {
 	//
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{cmd, data}
+		d := lib.Data{Cmd: cmd, Args: data}
 		bytes := Panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
 	postAll(urls)
 }
 
+type Url struct {
+	Url  string
+	Data []byte
+}
+
 type HttpResultUrl struct {
-	resp *http.Response
-	err  error
-	url  Url
+	StatusCode int
+	Body       []byte
+	Err        error
+	Url        Url
 }
 
 func postAll(urls []Url) {
-	results := make(chan HttpResultUrl, len(urls))
+	results := make(chan *HttpResultUrl, len(urls))
 	for _, url := range urls {
 		go func(url Url) {
-			resp, err := lib.Client.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
-			results <- HttpResultUrl{resp, err, url}
+			result := lib.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
+			results <- &HttpResultUrl{result.StatusCode, result.Body, result.Err, url}
 		}(url)
 	}
 	for range urls {
 		result := <-results
-		if result.err != nil {
-			panic(result.err)
-		}
-		body := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
-		if result.resp.StatusCode != 200 {
-			fmt.Printf("fatal: %d %s\n", result.resp.StatusCode, result.url.Url)
-			fmt.Println(string(body))
+		Assert(result.Err == nil, "%s", result.Err)
+		if result.StatusCode != 200 {
+			fmt.Printf("fatal: %d %s\n", result.StatusCode, result.Url.Url)
+			fmt.Println(result.Body)
 			os.Exit(1)
 		}
 		fmt.Printf("ok ")
 	}
 	fmt.Println("")
-}
-
-type Url struct {
-	Url  string
-	Data []byte
 }
 
 func Eval() {
@@ -308,27 +296,25 @@ func Eval() {
 	cmd := os.Args[3]
 	server := lib.PickServer(key)
 	url := fmt.Sprintf("http://%s:%s/eval?key=%s", server.Address, server.Port, key)
-	resp, err := lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
-	Assert(err == nil, fmt.Sprint(err))
-	switch resp.StatusCode {
+	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
+	Assert(result.Err == nil, "%s", result.Err)
+	switch result.StatusCode {
 	case 404:
 		Panic2(fmt.Fprintln(os.Stderr, "fatal: no such key"))
 		os.Exit(1)
 	case 400:
-		var result lib.CmdResult
-		bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-		if len(bytes) == 0 {
+		if len(result.Body) == 0 {
 			return
 		}
-		Panic1(json.Unmarshal(bytes, &result))
-		Panic2(fmt.Fprintln(os.Stderr, result.Stdout))
-		Panic2(fmt.Fprintln(os.Stderr, result.Stderr))
-		Panic2(fmt.Fprintf(os.Stderr, "%s\n", result.Err))
+		var val lib.CmdResult
+		Panic1(json.Unmarshal(result.Body, &val))
+		Panic2(fmt.Fprintln(os.Stderr, val.Stdout))
+		Panic2(fmt.Fprintln(os.Stderr, val.Stderr))
+		Panic2(fmt.Fprintf(os.Stderr, "%s\n", val.Err))
 	case 200:
-		bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-		Panic2(os.Stdout.Write(bytes))
+		Panic2(os.Stdout.Write(result.Body))
 	default:
-		panic(resp)
+		panic(fmt.Sprintf("%d %s", result.StatusCode, result.Body))
 	}
 }
 
@@ -381,22 +367,19 @@ func Ls() {
 }
 
 func listBuckets() [][]string {
-	results := make(chan HttpResult)
+	results := make(chan *lib.HttpResult)
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
-			url := fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port)
-			resp, err := lib.Client.Get(url)
-			results <- HttpResult{resp, err}
+			results <- lib.Get(fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port))
 		}(server)
 	}
 	buckets := make(map[string][]string)
 	for range lib.Servers() {
 		result := <-results
-		Assert(result.err == nil, fmt.Sprint(result.err))
-		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
-		Assert(result.resp.StatusCode == 200, string(bytes))
+		Assert(result.Err == nil, fmt.Sprint(result.Err))
+		Assert(result.StatusCode == 200, "%s", result.Body)
 		var res [][]string
-		Panic1(json.Unmarshal(bytes, &res))
+		Panic1(json.Unmarshal(result.Body, &res))
 		for _, line := range res {
 			path := line[3]
 			buckets[path] = line
@@ -421,22 +404,19 @@ func list(prefix string, recursive bool) [][]string {
 	if recursive {
 		recursive_param = "&recursive=true"
 	}
-	results := make(chan HttpResult)
+	results := make(chan *lib.HttpResult)
 	for _, server := range lib.Servers() {
 		go func(server lib.Server) {
-			url := fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param)
-			resp, err := lib.Client.Get(url)
-			results <- HttpResult{resp, err}
+			results <- lib.Get(fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param))
 		}(server)
 	}
 	var lines [][]string
 	for range lib.Servers() {
 		result := <-results
-		Assert(result.err == nil, fmt.Sprint(result.err))
-		bytes := Panic2(ioutil.ReadAll(result.resp.Body)).([]byte)
-		Assert(result.resp.StatusCode == 200, string(bytes))
+		Assert(result.Err == nil, fmt.Sprint(result.Err))
+		Assert(result.StatusCode == 200, "%s", result.Body)
 		var tmp [][]string
-		Panic1(json.Unmarshal(bytes, &tmp))
+		Panic1(json.Unmarshal(result.Body, &tmp))
 		lines = append(lines, tmp...)
 	}
 	sort.Slice(lines, func(i, j int) bool { return lines[i][3] < lines[j][3] })
@@ -534,11 +514,10 @@ func get(src string, dst string) {
 	port := Panic2(freeport.GetFreePort()).(int)
 	temp_path := fmt.Sprintf("%s.temp", dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
-	resp := Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
-	_bytes := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
-	Assert(resp.StatusCode == 200, string(_bytes))
-	uid := _bytes
+	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+	Assert(result.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
+	Assert(result.StatusCode == 200, "%s", result.Body)
+	uid := result.Body
 	var cmd string
 	if dst == "-" {
 		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream", port)
@@ -546,12 +525,12 @@ func get(src string, dst string) {
 		Assert(!lib.Exists(temp_path), temp_path)
 		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
 	}
-	result := lib.WarnStreamOut(os.Stdout, cmd)
-	Assert(result.Err == nil, fmt.Sprint(result.Err))
-	client_checksum := result.Stderr
+	val := lib.WarnStreamOut(os.Stdout, cmd)
+	Assert(val.Err == nil, fmt.Sprint(val.Err))
+	client_checksum := val.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
-	resp = Panic2(lib.Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))).(*http.Response)
-	Assert(resp.StatusCode == 200, string(Panic2(ioutil.ReadAll(resp.Body)).([]byte)))
+	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
+	Assert(result.StatusCode == 200, "%s", result.Body)
 	if strings.HasSuffix(dst, "/") {
 		Panic1(os.MkdirAll(dst, os.ModePerm))
 		dst = lib.Join(dst, path.Base(src))
