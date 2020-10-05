@@ -322,8 +322,7 @@ func PickServer(key string) Server {
 	}
 	servers := Servers()
 	index := val % len(servers)
-	server := servers[index]
-	return server
+	return servers[index]
 }
 
 func IsDigits(str string) bool {
