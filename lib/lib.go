@@ -332,8 +332,7 @@ func IsDigits(str string) bool {
 }
 
 func KeyPrefix(key string) string {
-	parts := strings.Split(key, "/")
-	key = parts[len(parts)-1]
+	key = Last(strings.Split(key, "/"))
 	prefix := strings.Split(key, "_")[0]
 	if !IsDigits(prefix) {
 		prefix = key
@@ -345,9 +344,8 @@ func KeySuffix(key string) (string, bool) {
 	if !IsDigits(KeyPrefix(key)) {
 		return "", false
 	}
-	parts := strings.Split(key, "/")
-	part := parts[len(parts)-1]
-	parts = strings.SplitN(part, "_", 2)
+	part := Last(strings.Split(key, "/"))
+	parts := strings.SplitN(part, "_", 2)
 	if len(parts) == 2 {
 		return parts[1], true
 	} else {
