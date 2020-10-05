@@ -36,6 +36,12 @@ var (
 	io_jobs      = sync.Map{}
 )
 
+func with(pool *semaphore.Weighted, fn func()) {
+	Panic1(pool.Acquire(context.Background(), 1))
+	fn()
+	pool.Release(1)
+}
+
 func Assert(cond bool, format string, a ...interface{}) {
 	if !cond {
 		panic(fmt.Sprintf(format, a...))
@@ -106,11 +112,8 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		remote = "0.0.0.0"
 	}
 	path := strings.Split(key, "s4://")[1]
-	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	exists := lib.Exists(path)
-	solo_pool.Release(1)
-	//
+	var exists bool
+	with(solo_pool, func() { exists = lib.Exists(path) })
 	if !exists {
 		w.WriteHeader(404)
 		return
@@ -118,16 +121,13 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.CmdResult, 1)
-	go func() {
-		Panic1(io_send_pool.Acquire(context.Background(), 1))
-		defer io_send_pool.Release(1)
+	go with(io_send_pool, func() {
 		started <- true
 		result <- lib.Warn("< %s s4-xxh --stream | s4-send %s %s", path, remote, port)
-	}()
+	})
 	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	disk_checksum := checksumRead(path)
-	solo_pool.Release(1)
+	var disk_checksum string
+	with(solo_pool, func() { disk_checksum = checksumRead(path) })
 	//
 	job := &GetJob{
 		time.Now(),
@@ -156,11 +156,14 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.Split(key, "s4://")[1]
 	Assert(!strings.HasPrefix(path, "_"), path)
 	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	port := Panic2(freeport.GetFreePort()).(int)
-	exists := lib.Exists(path)
-	temp_path := lib.NewTempPath("_tempfiles")
-	solo_pool.Release(1)
+	var port int
+	var exists bool
+	var temp_path string
+	with(solo_pool, func() {
+		port = Panic2(freeport.GetFreePort()).(int)
+		exists = lib.Exists(path)
+		temp_path = lib.NewTempPath("_tempfiles")
+	})
 	//
 	if exists {
 		w.WriteHeader(409)
@@ -169,12 +172,10 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	result := make(chan *lib.CmdResult, 1)
-	go func() {
-		Panic1(io_recv_pool.Acquire(context.Background(), 1))
-		defer io_recv_pool.Release(1)
+	go with(io_recv_pool, func() {
 		started <- true
 		result <- lib.Warn("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
-	}()
+	})
 	job := &PutJob{
 		time.Now(),
 		result,
@@ -196,15 +197,12 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	//
 	uids := r.URL.Query()["uuid"]
 	Assert(len(uids) == 1, "missing query parameter: uuid")
 	uid := uids[0]
-	//
 	client_checksums := r.URL.Query()["checksum"]
 	Assert(len(client_checksums) == 1, "missing query parameter: checksum")
 	client_checksum := client_checksums[0]
-	//
 	v, ok := io_jobs.LoadAndDelete(uid)
 	Assert(ok, "no such job: %s", uid)
 	job := v.(*PutJob)
@@ -212,41 +210,35 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Assert(result.Err == nil, result.Stdout+"\n"+result.Stderr)
 	server_checksum := result.Stderr
 	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
-	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
-	Assert(!lib.Exists(job.path), job.path)
-	Panic1(ioutil.WriteFile(checksumPath(job.path), []byte(server_checksum), 0o444))
-	Panic1(os.Chmod(job.temp_path, 0o444))
-	Panic1(os.Rename(job.temp_path, job.path))
-	solo_pool.Release(1)
-	//
+	with(solo_pool, func() {
+		Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
+		Assert(!lib.Exists(job.path), job.path)
+		Panic1(ioutil.WriteFile(checksumPath(job.path), []byte(server_checksum), 0o444))
+		Panic1(os.Chmod(job.temp_path, 0o444))
+		Panic1(os.Rename(job.temp_path, job.path))
+	})
 	w.WriteHeader(200)
 }
 
 func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	//
 	prefixes := r.URL.Query()["prefix"]
 	Assert(len(prefixes) == 1, "missing query parameter: prefix")
 	prefix := prefixes[0]
-	//
 	parts := strings.SplitN(prefix, "s4://", 2)
 	prefix = parts[len(parts)-1]
 	Assert(!strings.HasPrefix(prefix, "/"), prefix)
-	//
 	recursive := false
 	recursives := r.URL.Query()["recursive"]
 	if len(recursives) == 1 && recursives[0] == "true" {
 		recursive = true
 	}
-	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	defer solo_pool.Release(1)
-	if recursive {
-		lib.Run("rm -rf %s*", prefix)
-	} else {
-		lib.Run("rm -rf %s %s", prefix, checksumPath(prefix))
-	}
+	with(solo_pool, func() {
+		if recursive {
+			lib.Run("rm -rf %s*", prefix)
+		} else {
+			lib.Run("rm -rf %s %s", prefix, checksumPath(prefix))
+		}
+	})
 }
 
 func checksumPath(prefix string) string {
@@ -277,13 +269,12 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Assert(lib.OnThisServer(outkey), outkey)
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
-			// solo pool
-			Panic1(cpu_pool.Acquire(context.Background(), 1))
-			defer cpu_pool.Release(1)
-			results <- MapResult{
-				lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)),
-				outkey,
-			}
+			with(cpu_pool, func() {
+				results <- MapResult{
+					lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)),
+					outkey,
+				}
+			})
 		}(inpath)
 	}
 	//
@@ -329,20 +320,14 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func localPut(temp_path string, key string) {
-	//
 	Assert(!strings.Contains(key, " "), key)
 	Assert(lib.OnThisServer(key), key)
 	parts := strings.SplitN(key, "s4://", 2)
 	path := parts[len(parts)-1]
 	Assert(!strings.HasPrefix(path, "_"), path)
-	// misc pool
-	Panic1(misc_pool.Acquire(context.Background(), 1))
-	checksum := xxhChecksum(temp_path)
-	misc_pool.Release(1)
-	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	confirmLocalPut(temp_path, path, checksum)
-	solo_pool.Release(1)
+	var checksum string
+	with(misc_pool, func() { checksum = xxhChecksum(temp_path) })
+	with(solo_pool, func() { confirmLocalPut(temp_path, path, checksum) })
 }
 
 func confirmLocalPut(temp_path string, path string, checksum string) {
@@ -391,14 +376,13 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
-			// cpu pool
-			Panic1(cpu_pool.Acquire(context.Background(), 1))
-			defer cpu_pool.Release(1)
-			results <- MapToNResult{
-				lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd)),
-				inpath,
-				outdir,
-			}
+			with(cpu_pool, func() {
+				results <- MapToNResult{
+					lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd)),
+					inpath,
+					outdir,
+				}
+			})
 		}(inpath)
 	}
 	//
@@ -437,13 +421,9 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 								localPut(temp_path, outkey)
 							} else {
 								Panic1(retry.Do(func() error {
-									// io send pool
-									Panic1(io_send_pool.Acquire(context.Background(), 1))
-									err := lib.Put(temp_path, outkey)
-									io_send_pool.Release(1)
-									if errors.Is(err, lib.Err409) {
-										panic(err) // don't retry on 409
-									}
+									var err error
+									with(io_send_pool, func() { err = lib.Put(temp_path, outkey) })
+									Assert(!errors.Is(err, lib.Err409), "%s", err)
 									return err
 								}))
 							}
@@ -504,14 +484,13 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 		outkey := lib.Join(outdir, lib.KeyPrefix(inkeys[0])+lib.Suffix(inkeys))
 		go func(inpaths []string) {
-			// cpu pool
-			Panic1(cpu_pool.Acquire(context.Background(), 1))
-			defer cpu_pool.Release(1)
-			stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
-			results <- MapResult{
-				lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd)),
-				outkey,
-			}
+			with(cpu_pool, func() {
+				stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
+				results <- MapResult{
+					lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd)),
+					outkey,
+				}
+			})
 		}(inpaths)
 	}
 	//
@@ -557,34 +536,28 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	//
 	keys := r.URL.Query()["key"]
 	Assert(len(keys) == 1, "missing query parameter: key")
 	key := keys[0]
-	//
 	cmd := Panic2(ioutil.ReadAll(r.Body)).([]byte)
 	parts := strings.SplitN(key, "s4://", 2)
 	path := parts[len(parts)-1]
-	// solo pool
-	Panic1(solo_pool.Acquire(context.Background(), 1))
-	exists := lib.Exists(path)
-	solo_pool.Release(1)
-	//
+	var exists bool
+	with(solo_pool, func() { exists = lib.Exists(path) })
 	if !exists {
 		w.WriteHeader(404)
 	} else {
-		// cpu pool
-		Panic1(cpu_pool.Acquire(context.Background(), 1))
-		defer cpu_pool.Release(1)
-		res := lib.Warn("< %s %s", path, cmd)
-		if res.Err == nil {
-			Panic2(fmt.Fprintf(w, res.Stdout))
-		} else {
-			w.WriteHeader(400)
-			w.Header().Set("Content-Type", "application/json")
-			bytes := Panic2(json.Marshal(res))
-			Panic2(w.Write(bytes.([]byte)))
-		}
+		with(cpu_pool, func() {
+			res := lib.Warn("< %s %s", path, cmd)
+			if res.Err == nil {
+				Panic2(fmt.Fprintf(w, res.Stdout))
+			} else {
+				w.WriteHeader(400)
+				w.Header().Set("Content-Type", "application/json")
+				bytes := Panic2(json.Marshal(res))
+				Panic2(w.Write(bytes.([]byte)))
+			}
+		})
 	}
 }
 
@@ -608,15 +581,14 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	//
 	var xs [][]string
+	var res *lib.CmdResult
 	if recursive {
 		//
 		if !strings.HasSuffix(prefix, "/") {
 			prefix += "*"
 		}
 		// misc pool
-		Panic1(misc_pool.Acquire(context.Background(), 1))
-		res := lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, lib.Printf)
-		misc_pool.Release(1)
+		with(misc_pool, func() { res = lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, lib.Printf) })
 		//
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		for _, line := range strings.Split(res.Stdout, "\n") {
@@ -634,11 +606,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			name = fmt.Sprintf("-name '%s*'", name)
 			prefix = lib.Dir(prefix)
 		}
-		// misc pool
-		Panic1(misc_pool.Acquire(context.Background(), 1))
-		res := lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, lib.Printf)
-		misc_pool.Release(1)
-		//
+		with(misc_pool, func() { res = lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, lib.Printf) })
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var files [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
@@ -647,11 +615,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				files = append(files, parts)
 			}
 		}
-		// misc pool
-		Panic1(misc_pool.Acquire(context.Background(), 1))
-		res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
-		misc_pool.Release(1)
-		//
+		with(misc_pool, func() { res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name) })
 		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
 		var dirs [][]string
 		for _, line := range strings.Split(res.Stdout, "\n") {
@@ -674,11 +638,8 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	// misc pool
-	Panic1(misc_pool.Acquire(context.Background(), 1))
-	stdout := lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", lib.Printf)
-	misc_pool.Release(1)
-	//
+	var stdout string
+	with(misc_pool, func() { stdout = lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", lib.Printf) })
 	var res [][]string
 	for _, line := range strings.Split(stdout, "\n") {
 		parts := strings.Split(line, " ")
