@@ -59,13 +59,6 @@ def on_this_server(key):
     server, port = pick_server(key).split(':')
     return server == '0.0.0.0' and port == str(http_port())
 
-@util.cached.func
-def server_num():
-    for i, (address, port) in enumerate(servers()):
-        if address == '0.0.0.0' and str(port) == str(http_port()):
-            return i
-    assert False, [servers(), http_port()]
-
 def key_prefix(key):
     key = key.split('/')[-1]
     prefix = key.split('_')[0]
