@@ -30,7 +30,7 @@ def start(port, conf):
     with shell.cd(f'_{port}'):
         for i in range(5):
             try:
-                shell.run(f's4-server -port {port} -conf {conf}', stream=True)
+                shell.run(f'timeout 60 s4-server -port {port} -conf {conf}', stream=True)
             except:
                 logging.exception('')
                 continue
