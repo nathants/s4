@@ -438,6 +438,32 @@ func HttpPort() string {
 	}
 }
 
+type HttpResult struct {
+	StatusCode int
+	Body       []byte
+	Err        error
+}
+
+func Post(url, contentType string, body io.Reader) *HttpResult {
+	resp, err := Client.Post(url, contentType, body)
+	if err == nil {
+		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		return &HttpResult{resp.StatusCode, body, nil}
+	} else {
+		return &HttpResult{-1, []byte{}, err}
+	}
+}
+
+func Get(url string) *HttpResult {
+	resp, err := Client.Get(url)
+	if err == nil {
+		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		return &HttpResult{resp.StatusCode, body, nil}
+	} else {
+		return &HttpResult{-1, []byte{}, err}
+	}
+}
+
 var Err409 = errors.New("409")
 
 func Put(src string, dst string) error {
@@ -446,45 +472,37 @@ func Put(src string, dst string) error {
 	}
 	server := PickServer(dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
-	resp, err := Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-	if err != nil {
-		return err
-	}
-	val, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode == 409 {
-		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
-	}
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("%s", val)
-	}
-	vals := strings.Split(string(val), " ")
-	Assert(len(vals) == 2, fmt.Sprint(vals))
-	uid := vals[0]
-	port := vals[1]
-	var result *CmdResult
-	if src == "-" {
-		result = WarnStreamIn(os.Stdin, "s4-xxh --stream | s4-send %s %s", server.Address, port)
-	} else {
-		result = Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
-	}
+	result := Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.Err != nil {
 		return result.Err
 	}
-	client_checksum := result.Stderr
-	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
-	resp, err = Client.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-	if err != nil {
-		return err
+	if result.StatusCode == 409 {
+		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
 	}
-	if resp.StatusCode != 200 {
-		val, err = ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("status code %d", resp.StatusCode)
-		}
-		return fmt.Errorf("%s", val)
+	if result.StatusCode != 200 {
+		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
+	}
+	vals := strings.Split(string(result.Body), " ")
+	Assert(len(vals) == 2, fmt.Sprint(vals))
+	uid := vals[0]
+	port := vals[1]
+	var val *CmdResult
+	if src == "-" {
+		val = WarnStreamIn(os.Stdin, "s4-xxh --stream | s4-send %s %s", server.Address, port)
+	} else {
+		val = Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
+	}
+	if val.Err != nil {
+		return val.Err
+	}
+	client_checksum := val.Stderr
+	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	result = Post(url, "application/text", bytes.NewBuffer([]byte{}))
+	if result.Err != nil {
+		return result.Err
+	}
+	if result.StatusCode != 200 {
+		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
 	}
 	return nil
 }
