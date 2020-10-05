@@ -576,6 +576,7 @@ func main() {
 	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
 	flag.Parse()
 	lib.Panic1(os.Setenv("LC_ALL", "C"))
+	_ = lib.Servers()
 	if !lib.Exists("s4_data") {
 		lib.Panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
 		lib.Panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
