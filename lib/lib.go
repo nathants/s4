@@ -305,10 +305,15 @@ func (rwc RWCallback) Close() error {
 	return rwc.Rw.Close()
 }
 
-func OnThisServer(key string) bool {
-	Assert(strings.HasPrefix(key, "s4://"), key)
-	server := PickServer(key)
-	return server.Address == "0.0.0.0" && server.Port == HttpPort()
+func OnThisServer(key string) (bool, error) {
+	if !strings.HasPrefix(key, "s4://") {
+		return false, fmt.Errorf("missing s4:// prefix: %s", key)
+	}
+	server, err := PickServer(key)
+	if err != nil {
+		return false, err
+	}
+	return server.Address == "0.0.0.0" && server.Port == HttpPort(), nil
 }
 
 func hash(str string) int {
@@ -316,9 +321,13 @@ func hash(str string) int {
 	return int(binary.BigEndian.Uint32(h[:]))
 }
 
-func PickServer(key string) Server {
-	Assert(!strings.HasSuffix(key, "/"), key)
-	Assert(strings.HasPrefix(key, "s4://"), key)
+func PickServer(key string) (*Server, error) {
+	if strings.HasSuffix(key, "/") {
+		return nil, fmt.Errorf("needed key, got directory: %s", key)
+	}
+	if !strings.HasPrefix(key, "s4://") {
+		return nil, fmt.Errorf("missing s4:// prefix: %s", key)
+	}
 	prefix := KeyPrefix(key)
 	val, err := strconv.Atoi(prefix)
 	if err != nil {
@@ -326,7 +335,7 @@ func PickServer(key string) Server {
 	}
 	servers := Servers()
 	index := val % len(servers)
-	return servers[index]
+	return &servers[index], nil
 }
 
 func IsDigits(str string) bool {
@@ -450,7 +459,10 @@ type HttpResult struct {
 func Post(url, contentType string, body io.Reader) *HttpResult {
 	resp, err := Client.Post(url, contentType, body)
 	if err == nil {
-		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return &HttpResult{-1, []byte{}, err}
+		}
 		return &HttpResult{resp.StatusCode, body, nil}
 	} else {
 		return &HttpResult{-1, []byte{}, err}
@@ -460,7 +472,10 @@ func Post(url, contentType string, body io.Reader) *HttpResult {
 func Get(url string) *HttpResult {
 	resp, err := Client.Get(url)
 	if err == nil {
-		body := Panic2(ioutil.ReadAll(resp.Body)).([]byte)
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return &HttpResult{-1, []byte{}, err}
+		}
 		return &HttpResult{resp.StatusCode, body, nil}
 	} else {
 		return &HttpResult{-1, []byte{}, err}
@@ -473,7 +488,10 @@ func Put(src string, dst string) error {
 	if strings.HasSuffix(dst, "/") {
 		dst = Join(dst, path.Base(src))
 	}
-	server := PickServer(dst)
+	server, err := PickServer(dst)
+	if err != nil {
+		return err
+	}
 	url := fmt.Sprintf("http://%s:%s/prepare_put?key=%s", server.Address, server.Port, dst)
 	result := Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.Err != nil {
@@ -491,9 +509,12 @@ func Put(src string, dst string) error {
 	port := vals[1]
 	var client_checksum string
 	if src == "-" {
-		client_checksum = Send(os.Stdin, server.Address, port)
+		client_checksum, err = Send(os.Stdin, server.Address, port)
 	} else {
-		client_checksum = SendFile(src, server.Address, port)
+		client_checksum, err = SendFile(src, server.Address, port)
+	}
+	if err != nil {
+		return err
 	}
 	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	result = Post(url, "application/text", bytes.NewBuffer([]byte{}))
@@ -555,12 +576,18 @@ func ChecksumRead(path string) string {
 	return string(Panic2(ioutil.ReadFile(ChecksumPath(path))).([]byte))
 }
 
-func Checksum(path string) string {
-	f := Panic2(os.Open(path)).(*os.File)
+func Checksum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
 	bf := bufio.NewReaderSize(f, BufSize)
 	val := XXH(bf)
-	Panic1(f.Close())
-	return val
+	err = f.Close()
+	if err != nil {
+		return "", err
+	}
+	return val, nil
 }
 
 func ChecksumPath(prefix string) string {
@@ -572,88 +599,149 @@ func Last(parts []string) string {
 	return parts[len(parts)-1]
 }
 
-func RecvFile(path string, port string) string {
-	f := Panic2(os.Create(path)).(*os.File)
-	bf := bufio.NewWriterSize(f, BufSize)
-	checksum := Recv(bf, port)
-	Panic1(bf.Flush())
-	Panic1(f.Close())
-	return checksum
-}
-
-func Recv(w io.Writer, port string) string {
-	h := xxhash.New()
-	timeout := 5 * time.Second
-	src := fmt.Sprintf(":%s", port)
-	li := Panic2(net.Listen("tcp", src)).(net.Listener)
-	stop := make(chan error)
-	start := time.Now()
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				Assert(time.Since(start) < timeout, "timeout reading")
-				time.Sleep(time.Microsecond * 10000)
-			}
-		}
-	}()
-	conn := Panic2(li.Accept()).(net.Conn)
-	start = time.Now()
-	rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
-	t := io.TeeReader(rwc, h)
-	Panic2(io.Copy(w, t))
-	Panic1(rwc.Close())
-	Panic1(li.Close())
-	checksum := fmt.Sprintf("%x", h.Sum64())
-	stop <- nil
-	return checksum
-}
-
-func SendFile(path string, addr string, port string) string {
-	f := Panic2(os.Open(path)).(*os.File)
-	bf := bufio.NewReaderSize(f, BufSize)
-	checksum := Send(bf, addr, port)
-	Panic1(f.Close())
-	return checksum
-}
-
-func Send(r io.Reader, addr string, port string) string {
-	h := xxhash.New()
-	timeout := 5 * time.Second
-	dst := fmt.Sprintf("%s:%s", addr, port)
-	var conn net.Conn
-	var err error
-	start := time.Now()
-	for {
-		conn, err = net.DialTimeout("tcp", dst, timeout)
-		if err == nil {
-			break
-		}
-		Assert(time.Since(start) < timeout, "timeout dialing")
-		time.Sleep(time.Microsecond * 10000)
+func RecvFile(path string, port string) (string, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return "", err
 	}
+	bf := bufio.NewWriterSize(f, BufSize)
+	checksum, err := Recv(bf, port)
+	if err != nil {
+		return "", err
+	}
+	err = bf.Flush()
+	if err != nil {
+		return "", err
+	}
+	err = f.Close()
+	if err != nil {
+		return "", err
+	}
+	return checksum, nil
+}
+
+func Recv(w io.Writer, port string) (string, error) {
 	stop := make(chan error)
-	start = time.Now()
+	fail := make(chan error)
+	checksum := make(chan string)
+	start := time.Now()
 	go func() {
 		for {
 			select {
 			case <-stop:
 				return
 			default:
-				Assert(time.Since(start) < timeout, "timeout writing")
+				if time.Since(start) > 5*time.Second {
+					fail <- fmt.Errorf("recv timeout")
+					return
+				}
 				time.Sleep(time.Microsecond * 10000)
 			}
 		}
 	}()
-	rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
-	t := io.TeeReader(r, h)
-	Panic2(io.Copy(rwc, t))
-	Panic1(rwc.Close())
-	checksum := fmt.Sprintf("%x", h.Sum64())
-	stop <- nil
-	return checksum
+	go func() {
+		h := xxhash.New()
+		src := fmt.Sprintf(":%s", port)
+		li := Panic2(net.Listen("tcp", src)).(net.Listener)
+		conn := Panic2(li.Accept()).(net.Conn)
+		rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+		t := io.TeeReader(rwc, h)
+		_, err := io.Copy(w, t)
+		if err != nil {
+			fail <- err
+			return
+		}
+		err = rwc.Close()
+		if err != nil {
+			fail <- err
+			return
+		}
+		err = li.Close()
+		if err != nil {
+			fail <- err
+			return
+		}
+		checksum <- fmt.Sprintf("%x", h.Sum64())
+	}()
+	select {
+	case c := <-checksum:
+		stop <- nil
+		return c, nil
+	case err := <-fail:
+		return "", err
+	}
+}
+
+func SendFile(path string, addr string, port string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	bf := bufio.NewReaderSize(f, BufSize)
+	checksum, err := Send(bf, addr, port)
+	if err != nil {
+		return "", err
+	}
+	err = f.Close()
+	if err != nil {
+		return "", err
+	}
+	return checksum, nil
+}
+
+func Send(r io.Reader, addr string, port string) (string, error) {
+	stop := make(chan error)
+	fail := make(chan error)
+	checksum := make(chan string)
+	start := time.Now()
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if time.Since(start) > 5*time.Second {
+					fail <- fmt.Errorf("send timeout")
+					return
+				}
+				time.Sleep(time.Microsecond * 10000)
+			}
+		}
+	}()
+	go func() {
+		h := xxhash.New()
+		dst := fmt.Sprintf("%s:%s", addr, port)
+		var conn net.Conn
+		var err error
+		for {
+			conn, err = net.Dial("tcp", dst)
+			if err == nil {
+				break
+			}
+			time.Sleep(time.Microsecond * 10000)
+		}
+		rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+		t := io.TeeReader(r, h)
+		_, err = io.Copy(rwc, t)
+		if err != nil {
+			fail <- err
+			return
+		}
+		err = rwc.Close()
+		if err != nil {
+			fail <- err
+			return
+		}
+		checksum <- fmt.Sprintf("%x", h.Sum64())
+	}()
+	select {
+	case chk := <-checksum:
+		stop <- nil
+		return chk, nil
+	case err := <-fail:
+		return "", err
+	}
+
 }
 
 func XXH(r io.Reader) string {

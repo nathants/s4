@@ -38,12 +38,14 @@ var (
 type GetJob struct {
 	start           time.Time
 	server_checksum chan string
+	fail            chan error
 	disk_checksum   string
 }
 
 type PutJob struct {
 	start           time.Time
 	server_checksum chan string
+	fail            chan error
 	path            string
 	temp_path       string
 }
@@ -54,6 +56,7 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	v, ok := io_jobs.LoadAndDelete(uid)
 	Assert(ok, uid)
 	job := v.(*GetJob)
+	Panic1(<-job.fail)
 	server_checksum := <-job.server_checksum
 	disk_checksum := job.disk_checksum
 	Assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
@@ -63,7 +66,7 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	port := lib.QueryParam(r, "port")
 	key := lib.QueryParam(r, "key")
-	Assert(lib.OnThisServer(key), "wrong server for request\n")
+	Assert(Panic2(lib.OnThisServer(key)).(bool), "wrong server for request\n")
 	remote := strings.SplitN(r.RemoteAddr, ":", 2)[0]
 	if remote == "127.0.0.1" {
 		remote = "0.0.0.0"
@@ -79,10 +82,13 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
+	fail := make(chan error)
 	server_checksum := make(chan string, 1)
 	go lib.With(io_send_pool, func() {
 		started <- true
-		server_checksum <- lib.SendFile(path, remote, port)
+		chk, err := lib.SendFile(path, remote, port)
+		fail <- err
+		server_checksum <- chk
 	})
 	var disk_checksum string
 	lib.With(solo_pool, func() {
@@ -91,6 +97,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	job := &GetJob{
 		time.Now(),
 		server_checksum,
+		fail,
 		disk_checksum,
 	}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
@@ -107,9 +114,10 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	key := lib.QueryParam(r, "key")
 	Assert(!strings.Contains(key, " "), "key contains spaces: %s\n", key)
-	Assert(lib.OnThisServer(key), "wronger server for request")
+	Assert(Panic2(lib.OnThisServer(key)).(bool), "wronger server for request")
 	path := strings.SplitN(key, "s4://", 2)[1]
 	Assert(!strings.HasPrefix(path, "_"), path)
+	fail := make(chan error)
 	var port int
 	var exists bool
 	var temp_path string
@@ -127,9 +135,11 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	server_checksum := make(chan string, 1)
 	go lib.With(io_recv_pool, func() {
 		started <- true
-		server_checksum <- lib.RecvFile(temp_path, fmt.Sprint(port))
+		chk, err := lib.RecvFile(temp_path, fmt.Sprint(port))
+		fail <- err
+		server_checksum <- chk
 	})
-	job := &PutJob{time.Now(), server_checksum, path, temp_path}
+	job := &PutJob{time.Now(), server_checksum, fail, path, temp_path}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
 	Assert(!loaded, uid)
 	select {
@@ -150,6 +160,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	v, ok := io_jobs.LoadAndDelete(uid)
 	Assert(ok, "no such job: %s", uid)
 	job := v.(*PutJob)
+	Panic1(<-job.fail)
 	server_checksum := <-job.server_checksum
 	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	lib.With(solo_pool, func() {
@@ -193,8 +204,8 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		Assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outkey := arg[1]
-		Assert(lib.OnThisServer(inkey), inkey)
-		Assert(lib.OnThisServer(outkey), outkey)
+		Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
+		Assert(Panic2(lib.OnThisServer(outkey)).(bool), outkey)
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
@@ -210,8 +221,12 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}()
 	max_timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
+	fail := make(chan error)
 	for range data.Args {
 		select {
+		case <-max_timeout:
+			w.WriteHeader(429)
+			return
 		case result := <-results:
 			tempdirs = append(tempdirs, result.CmdResult.Tempdir)
 			if result.CmdResult.Err != nil {
@@ -221,18 +236,22 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
-					localPut(temp_path, result.Outkey)
+					err := localPut(temp_path, result.Outkey)
+					if err != nil {
+						fail <- err
+					}
 					jobs <- nil
 				}(result)
 			}
-		case <-max_timeout:
-			w.WriteHeader(429)
-			return
 		}
 	}
 	for range data.Args {
 		select {
 		case <-jobs:
+		case err := <-fail:
+			w.WriteHeader(500)
+			Panic2(fmt.Fprintf(w, "%s", err))
+			return
 		case <-max_timeout:
 			w.WriteHeader(429)
 			return
@@ -241,26 +260,49 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	w.WriteHeader(200)
 }
 
-func localPut(temp_path string, key string) {
-	Assert(!strings.Contains(key, " "), key)
-	Assert(lib.OnThisServer(key), key)
+func localPut(temp_path string, key string) error {
+	if strings.Contains(key, " ") {
+		return fmt.Errorf("key contains space: %s", key)
+	}
+	if !Panic2(lib.OnThisServer(key)).(bool) {
+		return fmt.Errorf("wrong server for key: %s", key)
+	}
 	path := strings.SplitN(key, "s4://", 2)[1]
-	Assert(!strings.HasPrefix(path, "_"), path)
+	if strings.HasPrefix(path, "_") {
+		return fmt.Errorf("path cannot start with underscore: %s", path)
+	}
 	var checksum string
+	var err error
 	lib.With(misc_pool, func() {
-		checksum = lib.Checksum(temp_path)
+		checksum, err = lib.Checksum(temp_path)
 	})
+	if err != nil {
+		return err
+	}
 	lib.With(solo_pool, func() {
-		confirmLocalPut(temp_path, path, checksum)
+		err = confirmLocalPut(temp_path, path, checksum)
 	})
+	return err
 }
 
-func confirmLocalPut(temp_path string, path string, checksum string) {
-	Panic1(os.MkdirAll(lib.Dir(path), os.ModePerm))
-	Assert(!lib.Exists(path), fmt.Sprintf("fatal: key already exists s4://%s", path))
-	Panic1(os.Chmod(temp_path, 0o444))
-	Panic1(os.Rename(temp_path, path))
+func confirmLocalPut(temp_path string, path string, checksum string) error {
+	err := os.MkdirAll(lib.Dir(path), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	if lib.Exists(path) {
+		return fmt.Errorf("fatal: key already exists s4://%s", path)
+	}
+	err = os.Chmod(temp_path, 0o444)
+	if err != nil {
+		return err
+	}
+	err = os.Rename(temp_path, path)
+	if err != nil {
+		return err
+	}
 	lib.ChecksumWrite(path, checksum)
+	return nil
 }
 
 type MapToNResult struct {
@@ -277,11 +319,13 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
 	results := make(chan MapToNResult, len(data.Args))
+	fail := make(chan error)
+	stop := false
 	for _, arg := range data.Args {
 		Assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outdir := arg[1]
-		Assert(lib.OnThisServer(inkey), inkey)
+		Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
 		Assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
@@ -314,6 +358,9 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				outer.Add(1)
 				go func(result MapToNResult) {
 					for _, temp_path := range strings.Split(result.CmdResult.Stdout, "\n") {
+						if stop {
+							return
+						}
 						if temp_path == "" {
 							continue
 						}
@@ -321,15 +368,24 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 						temp_path = lib.Join(result.CmdResult.Tempdir, temp_path)
 						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(temp_path))
 						go func(temp_path string, outkey string) {
-							if lib.OnThisServer(outkey) {
-								localPut(temp_path, outkey)
+							if Panic2(lib.OnThisServer(outkey)).(bool) {
+								err := localPut(temp_path, outkey)
+								if err != nil {
+									fail <- err
+								}
 							} else {
 								Panic1(retry.Do(func() error {
 									var err error
 									lib.With(io_send_pool, func() {
+										if stop {
+											return
+										}
 										err = lib.Put(temp_path, outkey)
 									})
-									Assert(!errors.Is(err, lib.Err409), "%s", err)
+									if errors.Is(err, lib.Err409) {
+										fail <- err
+										return nil
+									}
 									return err
 								}))
 							}
@@ -348,12 +404,17 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		done <- nil
 	}()
 	select {
+	case err := <-fail:
+		w.WriteHeader(500)
+		Panic2(fmt.Fprintf(w, "%s", err))
 	case <-done:
+		w.WriteHeader(200)
 	case <-max_timeout:
+		stop = true
 		w.WriteHeader(429)
-		return
 	}
-	w.WriteHeader(200)
+	stop = true
+
 }
 
 func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -369,7 +430,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	for _, inkeys := range data.Args {
 		var inpaths []string
 		for _, inkey := range inkeys {
-			Assert(lib.OnThisServer(inkey), inkey)
+			Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
 			inpath := strings.SplitN(inkey, "s4://", 2)[1]
 			inpath = Panic2(filepath.Abs(inpath)).(string)
 			inpaths = append(inpaths, inpath)
@@ -393,6 +454,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}()
 	max_timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
+	fail := make(chan error)
 	for range data.Args {
 		select {
 		case <-max_timeout:
@@ -407,7 +469,10 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
-					localPut(temp_path, result.Outkey)
+					err := localPut(temp_path, result.Outkey)
+					if err != nil {
+						fail <- err
+					}
 					jobs <- nil
 				}(result)
 			}
@@ -416,6 +481,10 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	for range data.Args {
 		select {
 		case <-jobs:
+		case err := <-fail:
+			w.WriteHeader(500)
+			Panic2(fmt.Fprintf(w, "%s", err))
+			return
 		case <-max_timeout:
 			w.WriteHeader(429)
 			return

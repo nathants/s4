@@ -41,7 +41,8 @@ func Rm() {
 			Assert(result.StatusCode == 200, "%d %s", result.StatusCode, result.Body)
 		}
 	} else {
-		server := lib.PickServer(prefix)
+		server, err := lib.PickServer(prefix)
+		Panic1(err)
 		result := lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
 		Assert(result.Err == nil, fmt.Sprint(result.Err))
 		Assert(result.StatusCode == 200, "%s", result.Body)
@@ -99,7 +100,8 @@ func Map() {
 		}
 		inkey := lib.Join(indir, key)
 		outkey := lib.Join(outdir, key)
-		server := lib.PickServer(inkey)
+		server, err := lib.PickServer(inkey)
+		Panic1(err)
 		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outkey})
 	}
@@ -138,7 +140,8 @@ func MapToN() {
 			continue
 		}
 		inkey := lib.Join(indir, key)
-		server := lib.PickServer(inkey)
+		server, err := lib.PickServer(inkey)
+		Panic1(err)
 		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outdir})
 	}
@@ -181,9 +184,10 @@ func MapFromN() {
 	}
 	datas := make(map[string][][]string)
 	for _, inkeys := range buckets {
-		var servers []lib.Server
+		var servers []*lib.Server
 		for i, inkey := range inkeys {
-			server := lib.PickServer(inkey)
+			server, err := lib.PickServer(inkey)
+			Panic1(err)
 			servers = append(servers, server)
 			if i != 0 {
 				Assert(servers[0].Address == server.Address, "fail")
@@ -242,7 +246,8 @@ func Eval() {
 	}
 	key := os.Args[2]
 	cmd := os.Args[3]
-	server := lib.PickServer(key)
+	server, err := lib.PickServer(key)
+	Panic1(err)
 	url := fmt.Sprintf("http://%s:%s/eval?key=%s", server.Address, server.Port, key)
 	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte(cmd)))
 	Assert(result.Err == nil, "%s", result.Err)
@@ -456,7 +461,8 @@ func putRecursive(src string, dst string) {
 }
 
 func get(src string, dst string) {
-	server := lib.PickServer(src)
+	server, err := lib.PickServer(src)
+	Panic1(err)
 	port := Panic2(freeport.GetFreePort()).(int)
 	temp_path := fmt.Sprintf("%s.temp", dst)
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
@@ -466,11 +472,12 @@ func get(src string, dst string) {
 	uid := result.Body
 	var client_checksum string
 	if dst == "-" {
-		client_checksum = lib.Recv(os.Stdout, fmt.Sprint(port))
+		client_checksum, err = lib.Recv(os.Stdout, fmt.Sprint(port))
 	} else {
 		Assert(!lib.Exists(temp_path), temp_path)
-		client_checksum = lib.RecvFile(temp_path, fmt.Sprint(port))
+		client_checksum, err = lib.RecvFile(temp_path, fmt.Sprint(port))
 	}
+	Panic1(err)
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	Assert(result.StatusCode == 200, "%s", result.Body)
