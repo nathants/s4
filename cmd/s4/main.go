@@ -12,6 +12,7 @@ import (
 	"s4/lib"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/phayes/freeport"
 )
@@ -516,7 +517,7 @@ func Config() {
 func Health() {
 	servers := lib.Servers()
 	results := make(chan string, len(servers))
-	client := http.Client{Timeout: 1}
+	client := http.Client{Timeout: 1 * time.Second}
 	for _, server := range servers {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/health", server.Address, server.Port)

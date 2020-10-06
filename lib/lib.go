@@ -34,7 +34,7 @@ const (
 
 var (
 	Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
-	Client = http.Client{Timeout: Timeout}
+	Client = http.Client{Timeout: MaxTimeout}
 )
 
 func Assert(cond bool, format string, a ...interface{}) {
