@@ -147,7 +147,7 @@ func Warn(format string, args ...interface{}) *CmdResult {
 	case r := <-result:
 		return r
 	case <-time.After(Timeout):
-		Panic1(cmd.Process.Kill())
+		_ = cmd.Process.Kill()
 		return &CmdResult{
 			"",
 			"",
@@ -179,7 +179,7 @@ func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
 	case r := <-result:
 		return r
 	case <-time.After(Timeout):
-		Panic1(cmd.Process.Kill())
+		_ = cmd.Process.Kill()
 		Panic1(os.RemoveAll(tempdir))
 		return &CmdResultTempdir{
 			"",
@@ -214,7 +214,7 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *C
 	case r := <-result:
 		return r
 	case <-time.After(Timeout):
-		Panic1(cmd.Process.Kill())
+		_ = cmd.Process.Kill()
 		Panic1(os.RemoveAll(tempdir))
 		return &CmdResultTempdir{
 			"",
@@ -247,7 +247,7 @@ func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *CmdResul
 	case r := <-result:
 		return r
 	case <-time.After(Timeout):
-		Panic1(cmd.Process.Kill())
+		_ = cmd.Process.Kill()
 		return &CmdResult{
 			"",
 			"",
@@ -276,7 +276,7 @@ func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *CmdRes
 	case r := <-result:
 		return r
 	case <-time.After(Timeout):
-		Panic1(cmd.Process.Kill())
+		_ = cmd.Process.Kill()
 		return &CmdResult{
 			"",
 			"",
@@ -515,7 +515,8 @@ func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
 		uid := uuid.NewV4().String()
 		temp_path := Panic2(filepath.Abs(Join(dir, uid))).(string)
-		if !Exists(temp_path) {
+		_, err := os.Stat(temp_path)
+		if err != nil {
 			return temp_path
 		}
 	}

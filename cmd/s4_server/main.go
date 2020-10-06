@@ -258,7 +258,6 @@ func localPut(temp_path string, key string) {
 func confirmLocalPut(temp_path string, path string, checksum string) {
 	Panic1(os.MkdirAll(lib.Dir(path), os.ModePerm))
 	Assert(!lib.Exists(path), fmt.Sprintf("fatal: key already exists s4://%s", path))
-	Assert(!lib.Exists(lib.ChecksumPath(path)), lib.ChecksumPath(path))
 	Panic1(os.Chmod(temp_path, 0o444))
 	Panic1(os.Rename(temp_path, path))
 	lib.ChecksumWrite(path, checksum)
@@ -573,11 +572,9 @@ func main() {
 	flag.Parse()
 	Panic1(os.Setenv("LC_ALL", "C"))
 	_ = lib.Servers()
-	if !lib.Exists("s4_data") {
-		Panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
-		Panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
-		Panic1(os.Chdir("s4_data"))
-	}
+	Panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
+	Panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
+	Panic1(os.Chdir("s4_data"))
 	router := httprouter.New()
 	router.POST("/prepare_put", PreparePut)
 	router.POST("/confirm_put", ConfirmPut)
