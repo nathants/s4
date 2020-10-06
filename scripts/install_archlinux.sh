@@ -3,11 +3,11 @@ set -euo pipefail
 
 sudo pacman --needed --noconfirm --noprogressbar -Sy \
      entr \
+     make \
      gcc \
      git \
      man \
      go \
-     pypy3 \
      python
 
 curl -s https://raw.githubusercontent.com/nathants/bootstraps/master/scripts/limits.sh | bash

@@ -1,0 +1,4 @@
+SELECT cast(floor(distance) as bigint)
+FROM taxi
+ORDER BY distance desc
+LIMIT 9;
