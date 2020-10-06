@@ -17,25 +17,6 @@ import (
 	"github.com/phayes/freeport"
 )
 
-func Assert(cond bool, format string, a ...interface{}) {
-	if !cond {
-		panic(fmt.Sprintf(format, a...))
-	}
-}
-
-func Panic1(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func Panic2(x interface{}, e error) interface{} {
-	if e != nil {
-		panic(e)
-	}
-	return x
-}
-
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
@@ -483,16 +464,13 @@ func get(src string, dst string) {
 	Assert(result.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
 	Assert(result.StatusCode == 200, "%s", result.Body)
 	uid := result.Body
-	var cmd string
+	var client_checksum string
 	if dst == "-" {
-		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream", port)
+		client_checksum = lib.Recv(os.Stdout, fmt.Sprint(port))
 	} else {
 		Assert(!lib.Exists(temp_path), temp_path)
-		cmd = fmt.Sprintf("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
+		client_checksum = lib.RecvFile(temp_path, fmt.Sprint(port))
 	}
-	val := lib.WarnStreamOut(os.Stdout, cmd)
-	Assert(val.Err == nil, fmt.Sprint(val.Err))
-	client_checksum := val.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	Assert(result.StatusCode == 200, "%s", result.Body)
@@ -573,4 +551,23 @@ func main() {
 	default:
 		Usage()
 	}
+}
+
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
+
+func Panic1(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func Panic2(x interface{}, e error) interface{} {
+	if e != nil {
+		panic(e)
+	}
+	return x
 }

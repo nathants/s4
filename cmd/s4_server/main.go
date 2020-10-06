@@ -23,25 +23,6 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-func Assert(cond bool, format string, a ...interface{}) {
-	if !cond {
-		panic(fmt.Sprintf(format, a...))
-	}
-}
-
-func Panic1(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func Panic2(x interface{}, e error) interface{} {
-	if e != nil {
-		panic(e)
-	}
-	return x
-}
-
 var (
 	num_cpus     = runtime.GOMAXPROCS(0)
 	max_io_jobs  = num_cpus * 4
@@ -55,16 +36,16 @@ var (
 )
 
 type GetJob struct {
-	start         time.Time
-	result        chan *lib.CmdResult
-	disk_checksum string
+	start           time.Time
+	server_checksum chan string
+	disk_checksum   string
 }
 
 type PutJob struct {
-	start     time.Time
-	result    chan *lib.CmdResult
-	path      string
-	temp_path string
+	start           time.Time
+	server_checksum chan string
+	path            string
+	temp_path       string
 }
 
 func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -73,10 +54,8 @@ func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	v, ok := io_jobs.LoadAndDelete(uid)
 	Assert(ok, uid)
 	job := v.(*GetJob)
-	result := <-job.result
-	Assert(result.Err == nil, result.Stdout+"\n"+result.Stderr)
+	server_checksum := <-job.server_checksum
 	disk_checksum := job.disk_checksum
-	server_checksum := result.Stderr
 	Assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
 	w.WriteHeader(200)
 }
@@ -100,10 +79,10 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
-	result := make(chan *lib.CmdResult, 1)
+	server_checksum := make(chan string, 1)
 	go lib.With(io_send_pool, func() {
 		started <- true
-		result <- lib.Warn("< %s s4-xxh --stream | s4-send %s %s", path, remote, port)
+		server_checksum <- lib.SendFile(path, remote, port)
 	})
 	var disk_checksum string
 	lib.With(solo_pool, func() {
@@ -111,7 +90,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	})
 	job := &GetJob{
 		time.Now(),
-		result,
+		server_checksum,
 		disk_checksum,
 	}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
@@ -145,12 +124,12 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
-	result := make(chan *lib.CmdResult, 1)
+	server_checksum := make(chan string, 1)
 	go lib.With(io_recv_pool, func() {
 		started <- true
-		result <- lib.Warn("s4-recv %d | s4-xxh --stream > %s", port, temp_path)
+		server_checksum <- lib.RecvFile(temp_path, fmt.Sprint(port))
 	})
-	job := &PutJob{time.Now(), result, path, temp_path}
+	job := &PutJob{time.Now(), server_checksum, path, temp_path}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
 	Assert(!loaded, uid)
 	select {
@@ -171,9 +150,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	v, ok := io_jobs.LoadAndDelete(uid)
 	Assert(ok, "no such job: %s", uid)
 	job := v.(*PutJob)
-	result := <-job.result
-	Assert(result.Err == nil, result.Stdout+"\n"+result.Stderr)
-	server_checksum := result.Stderr
+	server_checksum := <-job.server_checksum
 	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	lib.With(solo_pool, func() {
 		Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
@@ -618,4 +595,23 @@ func main() {
 	port := fmt.Sprintf(":%s", lib.HttpPort())
 	lib.Logger.Println("s4-server", port)
 	Panic1(http.ListenAndServe(port, &LoggingHandler{Handler: router}))
+}
+
+func Assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
+
+func Panic1(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func Panic2(x interface{}, e error) interface{} {
+	if e != nil {
+		panic(e)
+	}
+	return x
 }

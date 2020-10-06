@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cespare/xxhash"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
 	"golang.org/x/sync/semaphore"
@@ -30,6 +32,7 @@ const (
 	Timeout    = 5 * time.Minute
 	MaxTimeout = Timeout*2 + 15*time.Second
 	Printf     = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
+	BufSize    = 4096
 )
 
 var (
@@ -486,16 +489,12 @@ func Put(src string, dst string) error {
 	Assert(len(vals) == 2, fmt.Sprint(vals))
 	uid := vals[0]
 	port := vals[1]
-	var val *CmdResult
+	var client_checksum string
 	if src == "-" {
-		val = WarnStreamIn(os.Stdin, "s4-xxh --stream | s4-send %s %s", server.Address, port)
+		client_checksum = Send(os.Stdin, server.Address, port)
 	} else {
-		val = Warn("< %s s4-xxh --stream | s4-send %s %s", src, server.Address, port)
+		client_checksum = SendFile(src, server.Address, port)
 	}
-	if val.Err != nil {
-		return val.Err
-	}
-	client_checksum := val.Stderr
 	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	result = Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.Err != nil {
@@ -556,7 +555,11 @@ func ChecksumRead(path string) string {
 }
 
 func Checksum(path string) string {
-	return Run("< %s s4-xxh", path)
+	f := Panic2(os.Open(path)).(*os.File)
+	bf := bufio.NewReaderSize(f, BufSize)
+	val := XXH(bf)
+	Panic1(f.Close())
+	return val
 }
 
 func ChecksumPath(prefix string) string {
@@ -566,4 +569,81 @@ func ChecksumPath(prefix string) string {
 
 func Last(parts []string) string {
 	return parts[len(parts)-1]
+}
+
+func RecvFile(path string, port string) string {
+	f := Panic2(os.Create(path)).(*os.File)
+	bf := bufio.NewWriterSize(f, BufSize)
+	checksum := Recv(bf, port)
+	Panic1(bf.Flush())
+	Panic1(f.Close())
+	return checksum
+}
+
+func Recv(w io.Writer, port string) string {
+	h := xxhash.New()
+	timeout := 5 * time.Second
+	src := fmt.Sprintf(":%s", port)
+	li := Panic2(net.Listen("tcp", src)).(net.Listener)
+	start := time.Now()
+	go func() {
+		for {
+			Assert(time.Since(start) < timeout, "timeout reading")
+			time.Sleep(time.Microsecond * 10000)
+		}
+	}()
+	conn := Panic2(li.Accept()).(net.Conn)
+	start = time.Now()
+	rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+	t := io.TeeReader(rwc, h)
+	Panic2(io.Copy(w, t))
+	Panic1(rwc.Close())
+	Panic1(li.Close())
+	checksum := fmt.Sprintf("%x", h.Sum64())
+	return checksum
+}
+
+func SendFile(path string, addr string, port string) string {
+	f := Panic2(os.Open(path)).(*os.File)
+	bf := bufio.NewReaderSize(f, BufSize)
+	checksum := Send(bf, addr, port)
+	Panic1(f.Close())
+	return checksum
+}
+
+func Send(r io.Reader, addr string, port string) string {
+	h := xxhash.New()
+	timeout := 5 * time.Second
+	dst := fmt.Sprintf("%s:%s", addr, port)
+	var conn net.Conn
+	var err error
+	start := time.Now()
+	for {
+		conn, err = net.DialTimeout("tcp", dst, timeout)
+		if err == nil {
+			break
+		}
+		Assert(time.Since(start) < timeout, "timeout dialing")
+		time.Sleep(time.Microsecond * 10000)
+	}
+	start = time.Now()
+	go func() {
+		for {
+			Assert(time.Since(start) < timeout, "timeout writing")
+			time.Sleep(time.Microsecond * 10000)
+		}
+	}()
+	rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+	t := io.TeeReader(r, h)
+	Panic2(io.Copy(rwc, t))
+	Panic1(rwc.Close())
+	checksum := fmt.Sprintf("%x", h.Sum64())
+	return checksum
+}
+
+func XXH(r io.Reader) string {
+	h := xxhash.New()
+	Panic2(io.Copy(h, r))
+	sum := h.Sum64()
+	return fmt.Sprintf("%x", sum)
 }
