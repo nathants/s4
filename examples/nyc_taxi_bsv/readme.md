@@ -104,16 +104,16 @@ pull csv data from s3 and convert to bzv
 run queries
 ```bash
 >> bash count_rides_by_passengers.sh
-3.345 seconds
+3.206 seconds
 
 >> bash count_rides_by_date.sh
-5.062 seconds
+4.950 seconds
 
 >> bash sum_distance_by_date.sh
-10.626 seconds
+10.496 seconds
 
 >> bash top_n_by_distance.sh
-2.188 seconds
+1.820 seconds
 
 >> bash sort_by_distance.sh
 150.351 seconds
