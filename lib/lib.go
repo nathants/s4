@@ -585,11 +585,17 @@ func Recv(w io.Writer, port string) string {
 	timeout := 5 * time.Second
 	src := fmt.Sprintf(":%s", port)
 	li := Panic2(net.Listen("tcp", src)).(net.Listener)
+	stop := make(chan error)
 	start := time.Now()
 	go func() {
 		for {
-			Assert(time.Since(start) < timeout, "timeout reading")
-			time.Sleep(time.Microsecond * 10000)
+			select {
+			case <-stop:
+				return
+			default:
+				Assert(time.Since(start) < timeout, "timeout reading")
+				time.Sleep(time.Microsecond * 10000)
+			}
 		}
 	}()
 	conn := Panic2(li.Accept()).(net.Conn)
@@ -600,6 +606,7 @@ func Recv(w io.Writer, port string) string {
 	Panic1(rwc.Close())
 	Panic1(li.Close())
 	checksum := fmt.Sprintf("%x", h.Sum64())
+	stop <- nil
 	return checksum
 }
 
@@ -626,11 +633,17 @@ func Send(r io.Reader, addr string, port string) string {
 		Assert(time.Since(start) < timeout, "timeout dialing")
 		time.Sleep(time.Microsecond * 10000)
 	}
+	stop := make(chan error)
 	start = time.Now()
 	go func() {
 		for {
-			Assert(time.Since(start) < timeout, "timeout writing")
-			time.Sleep(time.Microsecond * 10000)
+			select {
+			case <-stop:
+				return
+			default:
+				Assert(time.Since(start) < timeout, "timeout writing")
+				time.Sleep(time.Microsecond * 10000)
+			}
 		}
 	}()
 	rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
@@ -638,6 +651,7 @@ func Send(r io.Reader, addr string, port string) string {
 	Panic2(io.Copy(rwc, t))
 	Panic1(rwc.Close())
 	checksum := fmt.Sprintf("%x", h.Sum64())
+	stop <- nil
 	return checksum
 }
 
