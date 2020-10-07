@@ -518,83 +518,80 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 }
 
+type File struct {
+	Date string
+	Time string
+	Size string
+	Path string
+}
+
 func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix := lib.QueryParam(r, "prefix")
 	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	prefix = strings.Split(prefix, "s4://")[1]
-	token := prefix
-	if !strings.HasSuffix(token, "/") {
-		token = lib.Dir(token) + "/"
-	}
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
-	var xs [][]string
-	var res *lib.CmdResult
+	var res []*File
 	if recursive {
-		if !strings.HasSuffix(prefix, "/") {
-			prefix += "*"
+		root := prefix
+		if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
+			root = lib.Dir(prefix)
 		}
 		lib.With(misc_pool, func() {
-			res = lib.Warn("find %s -type f ! -name '*.xxh3' %s", prefix, lib.Printf)
-		})
-		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
-		for _, line := range strings.Split(res.Stdout, "\n") {
-			parts := strings.Split(line, " ")
-			if len(parts) == 4 {
-				date, time, size, path := parts[0], parts[1], parts[2], parts[3]
-				xs = append(xs, []string{date, strings.Split(time, ".")[0], size, strings.Join(strings.Split(path, "/")[1:], "/")})
+			_, err := os.Stat(root)
+			if err == nil {
+				Panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
+					Panic1(err)
+					matched := strings.HasPrefix(fullpath, prefix)
+					is_checksum := strings.HasSuffix(fullpath, ".xxh")
+					if !info.IsDir() && matched && !is_checksum {
+						parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
+						path := strings.Join(strings.Split(fullpath, "/")[1:], "/")
+						res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), path})
+					}
+					return nil
+				}))
 			}
-		}
+		})
 	} else {
-		name := ""
-		if !strings.HasSuffix(prefix, "/") {
-			name = path.Base(prefix)
-			name = fmt.Sprintf("-name '%s*'", name)
-			prefix = lib.Dir(prefix)
+		root := prefix
+		if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
+			root = lib.Dir(prefix)
 		}
 		lib.With(misc_pool, func() {
-			res = lib.Warn("find %s -maxdepth 1 -type f ! -name '*.xxh3' %s %s", prefix, name, lib.Printf)
-		})
-		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
-		var files [][]string
-		for _, line := range strings.Split(res.Stdout, "\n") {
-			parts := strings.Split(line, " ")
-			if len(parts) > 0 && len(strings.TrimSpace(parts[len(parts)-1])) > 0 {
-				files = append(files, parts)
+			_, err := os.Stat(root)
+			if err == nil {
+				for _, info := range Panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+					name := info.Name()
+					matched := strings.HasPrefix(lib.Join(root, name), prefix)
+					is_checksum := strings.HasSuffix(name, ".xxh")
+					if matched && !is_checksum {
+						if info.IsDir() {
+							res = append(res, &File{"", "", "PRE", name + "/"})
+						} else {
+							parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
+							res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), info.Name()})
+						}
+					}
+				}
 			}
-		}
-		lib.With(misc_pool, func() {
-			res = lib.Warn("find %s -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' %s", prefix, name)
 		})
-		Assert(res.Err == nil || strings.Contains(res.Stderr, "No such file or directory"), res.Stdout+"\n"+res.Stderr)
-		var dirs [][]string
-		for _, line := range strings.Split(res.Stdout, "\n") {
-			if line != "" {
-				dirs = append(dirs, []string{"", "", "PRE", line + "/"})
-			}
-		}
-		for _, parts := range append(files, dirs...) {
-			date, time, size, path := parts[0], parts[1], parts[2], parts[3]
-			time = strings.Split(time, ".")[0]
-			path = lib.Last(strings.SplitN(path, token, 2))
-			xs = append(xs, []string{date, time, size, path})
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	var xs [][]string
+	for _, file := range res {
+		xs = append(xs, []string{file.Date, file.Time, file.Size, file.Path})
+	}
 	bytes := Panic2(json.Marshal(xs))
 	Panic2(w.Write(bytes.([]byte)))
 }
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	var stdout string
-	lib.With(misc_pool, func() {
-		stdout = lib.Run("find -maxdepth 1 -mindepth 1 -type d ! -name '_*' %s", lib.Printf)
-	})
 	var res [][]string
-	for _, line := range strings.Split(stdout, "\n") {
-		parts := strings.Split(line, " ")
-		if len(parts) == 4 {
-			date, time, size, path := parts[0], parts[1], parts[2], parts[3]
-			res = append(res, []string{date, time, size, strings.TrimLeft(path, "./")})
+	for _, info := range Panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
+		name := info.Name()
+		if info.IsDir() && !strings.HasPrefix(name, "_") {
+			parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
+			res = append(res, []string{parts[0], parts[1], fmt.Sprint(info.Size()), name})
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

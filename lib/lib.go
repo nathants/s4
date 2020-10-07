@@ -85,7 +85,7 @@ func Exists(path string) bool {
 	if err != nil {
 		return false
 	} else {
-		_, err = os.Stat(path + ".xxh3")
+		_, err = os.Stat(ChecksumPath(path))
 		return err == nil
 	}
 }
@@ -592,7 +592,7 @@ func Checksum(path string) (string, error) {
 
 func ChecksumPath(prefix string) string {
 	Assert(!strings.HasSuffix(prefix, "/"), prefix)
-	return fmt.Sprintf("%s.xxh3", prefix)
+	return fmt.Sprintf("%s.xxh", prefix)
 }
 
 func Last(parts []string) string {

@@ -449,6 +449,7 @@ func getRecursive(src string, dst string) {
 
 func putRecursive(src string, dst string) {
 	Panic1(filepath.Walk(src, func(fullpath string, info os.FileInfo, err error) error {
+		Panic1(err)
 		if !info.IsDir() {
 			src = strings.TrimRight(src, "/")
 			file := path.Base(fullpath)
