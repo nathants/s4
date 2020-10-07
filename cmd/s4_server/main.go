@@ -104,7 +104,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
-		io_jobs.Delete(uid) // TODO kill process
+		io_jobs.Delete(uid)
 		w.WriteHeader(429)
 	case <-started:
 		Panic2(w.Write([]byte(uid)))
@@ -144,7 +144,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	Assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
-		io_jobs.Delete(uid) // TODO kill process
+		io_jobs.Delete(uid)
 		_ = os.Remove(path)
 		_ = os.Remove(lib.ChecksumPath(path))
 		w.WriteHeader(429)
@@ -180,9 +180,17 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	lib.With(solo_pool, func() {
 		if recursive {
-			lib.Run("rm -rf %s*", prefix)
+			files, dirs := list_recursive(prefix, false)
+			for _, info := range *files {
+				Panic1(os.Remove(info.Path))
+				Panic1(os.Remove(lib.ChecksumPath(info.Path)))
+			}
+			for _, info := range *dirs {
+				Panic1(os.RemoveAll(info.Path))
+			}
 		} else {
-			lib.Run("rm -rf %s %s", prefix, lib.ChecksumPath(prefix))
+			Panic1(os.Remove(prefix))
+			Panic1(os.Remove(lib.ChecksumPath(prefix)))
 		}
 	})
 }
@@ -525,60 +533,78 @@ type File struct {
 	Path string
 }
 
+func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
+	root := prefix
+	if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
+		root = lib.Dir(prefix)
+	}
+	var files []*File
+	var dirs []*File
+	_, err := os.Stat(root)
+	if err == nil {
+		Panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
+			Panic1(err)
+			matched := strings.HasPrefix(fullpath, prefix)
+			is_checksum := strings.HasSuffix(fullpath, ".xxh")
+			if matched && !is_checksum {
+				path := fullpath
+				if strip_bucket {
+					path = strings.Join(strings.Split(fullpath, "/")[1:], "/")
+				}
+				if info.IsDir() {
+					dirs = append(dirs, &File{"", "", "", path})
+				} else {
+					parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
+					files = append(files, &File{parts[0], parts[1], fmt.Sprint(info.Size()), path})
+				}
+			}
+			return nil
+		}))
+	}
+	return &files, &dirs
+}
+
+func list(prefix string) *[]*File {
+	root := prefix
+	if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
+		root = lib.Dir(prefix)
+	}
+	var res []*File
+	_, err := os.Stat(root)
+	if err == nil {
+		for _, info := range Panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+			name := info.Name()
+			matched := strings.HasPrefix(lib.Join(root, name), prefix)
+			is_checksum := strings.HasSuffix(name, ".xxh")
+			if matched && !is_checksum {
+				if info.IsDir() {
+					res = append(res, &File{"", "", "PRE", name + "/"})
+				} else {
+					parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
+					res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), info.Name()})
+				}
+			}
+		}
+	}
+	return &res
+}
+
 func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix := lib.QueryParam(r, "prefix")
 	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	prefix = strings.Split(prefix, "s4://")[1]
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
-	var res []*File
-	if recursive {
-		root := prefix
-		if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
-			root = lib.Dir(prefix)
+	var res *[]*File
+	lib.With(misc_pool, func() {
+		if recursive {
+			res, _ = list_recursive(prefix, true)
+		} else {
+			res = list(prefix)
 		}
-		lib.With(misc_pool, func() {
-			_, err := os.Stat(root)
-			if err == nil {
-				Panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
-					Panic1(err)
-					matched := strings.HasPrefix(fullpath, prefix)
-					is_checksum := strings.HasSuffix(fullpath, ".xxh")
-					if !info.IsDir() && matched && !is_checksum {
-						parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
-						path := strings.Join(strings.Split(fullpath, "/")[1:], "/")
-						res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), path})
-					}
-					return nil
-				}))
-			}
-		})
-	} else {
-		root := prefix
-		if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
-			root = lib.Dir(prefix)
-		}
-		lib.With(misc_pool, func() {
-			_, err := os.Stat(root)
-			if err == nil {
-				for _, info := range Panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
-					name := info.Name()
-					matched := strings.HasPrefix(lib.Join(root, name), prefix)
-					is_checksum := strings.HasSuffix(name, ".xxh")
-					if matched && !is_checksum {
-						if info.IsDir() {
-							res = append(res, &File{"", "", "PRE", name + "/"})
-						} else {
-							parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
-							res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), info.Name()})
-						}
-					}
-				}
-			}
-		})
-	}
+	})
 	w.Header().Set("Content-Type", "application/json")
 	var xs [][]string
-	for _, file := range res {
+	for _, file := range *res {
 		xs = append(xs, []string{file.Date, file.Time, file.Size, file.Path})
 	}
 	bytes := Panic2(json.Marshal(xs))
