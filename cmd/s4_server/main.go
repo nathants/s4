@@ -32,7 +32,7 @@ var (
 	cpu_pool     = semaphore.NewWeighted(int64(max_cpu_jobs))
 	misc_pool    = semaphore.NewWeighted(int64(max_cpu_jobs))
 	solo_pool    = semaphore.NewWeighted(int64(1))
-	io_jobs      = sync.Map{}
+	io_jobs      = &sync.Map{}
 )
 
 type GetJob struct {
@@ -527,10 +527,9 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 type File struct {
-	Date string
-	Time string
-	Size string
-	Path string
+	ModTime time.Time
+	Size    string
+	Path    string
 }
 
 func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
@@ -552,10 +551,9 @@ func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
 					path = strings.Join(strings.Split(fullpath, "/")[1:], "/")
 				}
 				if info.IsDir() {
-					dirs = append(dirs, &File{"", "", "", path})
+					dirs = append(dirs, &File{info.ModTime(), "", path})
 				} else {
-					parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
-					files = append(files, &File{parts[0], parts[1], fmt.Sprint(info.Size()), path})
+					files = append(files, &File{info.ModTime(), fmt.Sprint(info.Size()), path})
 				}
 			}
 			return nil
@@ -578,10 +576,9 @@ func list(prefix string) *[]*File {
 			is_checksum := strings.HasSuffix(name, ".xxh")
 			if matched && !is_checksum {
 				if info.IsDir() {
-					res = append(res, &File{"", "", "PRE", name + "/"})
+					res = append(res, &File{info.ModTime(), "PRE", name + "/"})
 				} else {
-					parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
-					res = append(res, &File{parts[0], parts[1], fmt.Sprint(info.Size()), info.Name()})
+					res = append(res, &File{info.ModTime(), fmt.Sprint(info.Size()), info.Name()})
 				}
 			}
 		}
@@ -603,11 +600,15 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 	})
 	w.Header().Set("Content-Type", "application/json")
-	var xs [][]string
+	var vals [][]string
 	for _, file := range *res {
-		xs = append(xs, []string{file.Date, file.Time, file.Size, file.Path})
+		parts := []string{"", ""}
+		if file.Size != "PRE" {
+			parts = strings.SplitN(file.ModTime.Format(time.RFC3339), "T", 2)
+		}
+		vals = append(vals, []string{parts[0], parts[1], file.Size, file.Path})
 	}
-	bytes := Panic2(json.Marshal(xs))
+	bytes := Panic2(json.Marshal(vals))
 	Panic2(w.Write(bytes.([]byte)))
 }
 
@@ -638,16 +639,13 @@ type ResponseObserver struct {
 	http.ResponseWriter
 	Status int
 }
-
 func (o *ResponseObserver) Write(p []byte) (int, error) {
 	return o.ResponseWriter.Write(p)
 }
-
 func (o *ResponseObserver) WriteHeader(code int) {
 	o.ResponseWriter.WriteHeader(code)
 	o.Status = code
 }
-
 type LoggingHandler struct {
 	Handler http.Handler
 }
@@ -656,6 +654,52 @@ func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wo := &ResponseObserver{w, 200}
 	l.Handler.ServeHTTP(wo, r)
 	lib.Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0])
+}
+
+func GCExpiredData() {
+	for {
+		io_jobs.Range(func(k, v interface{}) bool {
+			var start time.Time
+			var path string
+			var temp_path string
+			switch v := v.(type) {
+			case *PutJob:
+				start = v.start
+				path = v.path
+				temp_path = v.temp_path
+			case *GetJob:
+				start = v.start
+			}
+			if time.Since(start) > lib.MaxTimeout {
+				lib.Logger.Printf("gc expired job: %s\n", k)
+				go func() {
+					lib.With(misc_pool, func() {
+						if path != "" {
+							_ = os.Remove(path)
+						}
+						if temp_path != "" {
+							_ = os.Remove(temp_path)
+						}
+					})
+				}()
+				io_jobs.Delete(k)
+			}
+			return true
+		})
+		for _, info := range Panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
+			if time.Since(info.ModTime()) > lib.MaxTimeout {
+				lib.Logger.Printf("gc expired tempfile: %s\n", info.Name())
+				Panic1(os.Remove(info.Name()))
+			}
+		}
+		for _, info := range Panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
+			if time.Since(info.ModTime()) > lib.MaxTimeout {
+				lib.Logger.Printf("gc expired tempdir: %s\n", info.Name())
+				Panic1(os.RemoveAll(info.Name()))
+			}
+		}
+		time.Sleep(time.Second * 5)
+	}
 }
 
 func main() {
@@ -683,6 +727,7 @@ func main() {
 	router.PanicHandler = PanicHandler
 	port := fmt.Sprintf(":%s", lib.HttpPort())
 	lib.Logger.Println("s4-server", port)
+	go GCExpiredData()
 	Panic1(http.ListenAndServe(port, &LoggingHandler{Handler: router}))
 }
 
