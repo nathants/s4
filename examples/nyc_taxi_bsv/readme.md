@@ -98,23 +98,23 @@ tunnel cluster internal traffic through a cluster node via ssh
 pull csv data from s3 and convert to bzv
 ```bash
 >> time bash schema.sh
-139.286 seconds
+134.444 seconds
 ```
 
 run queries
 ```bash
 >> bash count_rides_by_passengers.sh
-3.206 seconds
+3.136 seconds
 
 >> bash count_rides_by_date.sh
-4.950 seconds
+4.743 seconds
 
 >> bash sum_distance_by_date.sh
-10.496 seconds
+10.419 seconds
 
 >> bash top_n_by_distance.sh
-1.820 seconds
+1.804 seconds
 
 >> bash sort_by_distance.sh
-150.351 seconds
+149.200 seconds
 ```
