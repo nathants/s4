@@ -639,21 +639,26 @@ type ResponseObserver struct {
 	http.ResponseWriter
 	Status int
 }
+
 func (o *ResponseObserver) Write(p []byte) (int, error) {
 	return o.ResponseWriter.Write(p)
 }
+
 func (o *ResponseObserver) WriteHeader(code int) {
 	o.ResponseWriter.WriteHeader(code)
 	o.Status = code
 }
+
 type LoggingHandler struct {
 	Handler http.Handler
 }
 
 func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	wo := &ResponseObserver{w, 200}
 	l.Handler.ServeHTTP(wo, r)
-	lib.Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0])
+	seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
+	lib.Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
 }
 
 func GCExpiredData() {
