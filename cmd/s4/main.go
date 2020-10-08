@@ -20,12 +20,12 @@ import (
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
-	panic1(cmd.Parse(os.Args[2:]))
-	if cmd.NArg() != 1 {
+	if len(os.Args) < 2 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-r]"))
-		cmd.Usage()
+		cmd.PrintDefaults()
 		os.Exit(1)
 	}
+	panic1(cmd.Parse(os.Args[2:]))
 	prefix := cmd.Arg(0)
 	assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	if *recursive {
@@ -49,7 +49,7 @@ func Rm() {
 }
 
 func Map() {
-	if len(os.Args) != 5 {
+	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map INDIR OUTDIR CMD"))
 		os.Exit(1)
 	}
@@ -92,7 +92,7 @@ func Map() {
 }
 
 func MapToN() {
-	if len(os.Args) != 5 {
+	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-to-n INDIR OUTDIR CMD"))
 		os.Exit(1)
 	}
@@ -132,7 +132,7 @@ func MapToN() {
 }
 
 func MapFromN() {
-	if len(os.Args) != 5 {
+	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-from-n INDIR OUTDIR CMD"))
 		os.Exit(1)
 	}
@@ -217,7 +217,7 @@ func postAll(urls []Url) {
 }
 
 func Eval() {
-	if len(os.Args) != 4 {
+	if len(os.Args) != 4 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 eval KEY CMD"))
 		os.Exit(1)
 	}
@@ -251,12 +251,12 @@ func Eval() {
 func Ls() {
 	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
-	panic1(cmd.Parse(os.Args[2:]))
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
-		cmd.Usage()
+		cmd.PrintDefaults()
 		os.Exit(1)
 	}
+	panic1(cmd.Parse(os.Args[2:]))
 	var lines [][]string
 	switch cmd.NArg() {
 	case 1:
@@ -375,12 +375,12 @@ func cp(src string, dst string, recursive bool) {
 func Cp() {
 	cmd := flag.NewFlagSet("cp", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
-	panic1(cmd.Parse(os.Args[2:]))
-	if cmd.NArg() != 2 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-r]"))
-		cmd.Usage()
+		cmd.PrintDefaults()
 		os.Exit(1)
 	}
+	panic1(cmd.Parse(os.Args[2:]))
 	src := cmd.Arg(0)
 	dst := cmd.Arg(1)
 	cp(src, dst, *recursive)
@@ -498,7 +498,18 @@ func Health() {
 }
 
 func Usage() {
-	panic2(fmt.Println("usage:"))
+	panic2(fmt.Println(`usage: s4 {rm,eval,ls,cp,map,map-to-n,map-from-n,config,health}
+
+    rm                  delete data from s4
+    eval                eval a bash cmd with key data as stdin
+    ls                  list keys
+    cp                  copy data to or from s4
+    map                 process data
+    map-to-n            shuffle data
+    map-from-n          merge shuffled data
+    config              list the server addresses
+    health              health check every server
+`))
 	os.Exit(1)
 }
 
