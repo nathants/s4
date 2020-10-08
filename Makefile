@@ -1,4 +1,4 @@
-.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-s4
+.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-lib
 
 all: s4 s4-server
 
@@ -28,10 +28,10 @@ check-err:
 check-vet:
 	find -name '*.go' | grep -v _test.go | xargs -n1 go vet
 
-test: test-s4 tox
+test: test-lib tox
 
 tox:
 	tox
 
-test-s4:
-	go test -v cmd/s4/main.go cmd/s4/main_test.go
+test-lib:
+	go test -v lib/lib.go lib/lib_test.go

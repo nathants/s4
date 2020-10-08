@@ -42,31 +42,10 @@ type GetJob struct {
 	disk_checksum   string
 }
 
-type PutJob struct {
-	start           time.Time
-	server_checksum chan string
-	fail            chan error
-	path            string
-	temp_path       string
-}
-
-func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	uid := lib.QueryParam(r, "uuid")
-	client_checksum := lib.QueryParam(r, "checksum")
-	v, ok := io_jobs.LoadAndDelete(uid)
-	Assert(ok, uid)
-	job := v.(*GetJob)
-	Panic1(<-job.fail)
-	server_checksum := <-job.server_checksum
-	disk_checksum := job.disk_checksum
-	Assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
-	w.WriteHeader(200)
-}
-
 func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	port := lib.QueryParam(r, "port")
 	key := lib.QueryParam(r, "key")
-	Assert(Panic2(lib.OnThisServer(key)).(bool), "wrong server for request\n")
+	assert(panic2(lib.OnThisServer(key)).(bool), "wrong server for request\n")
 	remote := strings.SplitN(r.RemoteAddr, ":", 2)[0]
 	if remote == "127.0.0.1" {
 		remote = "0.0.0.0"
@@ -101,28 +80,49 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		disk_checksum,
 	}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
-	Assert(!loaded, uid)
+	assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
 		io_jobs.Delete(uid)
 		w.WriteHeader(429)
 	case <-started:
-		Panic2(w.Write([]byte(uid)))
+		panic2(w.Write([]byte(uid)))
 	}
+}
+
+func ConfirmGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	uid := lib.QueryParam(r, "uuid")
+	client_checksum := lib.QueryParam(r, "checksum")
+	v, ok := io_jobs.LoadAndDelete(uid)
+	assert(ok, uid)
+	job := v.(*GetJob)
+	panic1(<-job.fail)
+	server_checksum := <-job.server_checksum
+	disk_checksum := job.disk_checksum
+	assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
+	w.WriteHeader(200)
+}
+
+type PutJob struct {
+	start           time.Time
+	server_checksum chan string
+	fail            chan error
+	path            string
+	temp_path       string
 }
 
 func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	key := lib.QueryParam(r, "key")
-	Assert(!strings.Contains(key, " "), "key contains spaces: %s\n", key)
-	Assert(Panic2(lib.OnThisServer(key)).(bool), "wronger server for request")
+	assert(!strings.Contains(key, " "), "key contains spaces: %s\n", key)
+	assert(panic2(lib.OnThisServer(key)).(bool), "wronger server for request")
 	path := strings.SplitN(key, "s4://", 2)[1]
-	Assert(!strings.HasPrefix(path, "_"), path)
+	assert(!strings.HasPrefix(path, "_"), path)
 	fail := make(chan error)
 	var port int
 	var exists bool
 	var temp_path string
 	lib.With(solo_pool, func() {
-		port = Panic2(freeport.GetFreePort()).(int)
+		port = panic2(freeport.GetFreePort()).(int)
 		exists = lib.Exists(path)
 		temp_path = lib.NewTempPath("_tempfiles")
 	})
@@ -141,7 +141,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	})
 	job := &PutJob{time.Now(), server_checksum, fail, path, temp_path}
 	_, loaded := io_jobs.LoadOrStore(uid, job)
-	Assert(!loaded, uid)
+	assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
 		io_jobs.Delete(uid)
@@ -150,7 +150,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.WriteHeader(429)
 	case <-started:
 		w.Header().Set("Content-Type", "application/text")
-		Panic2(fmt.Fprintf(w, "%s %d", uid, port))
+		panic2(fmt.Fprintf(w, "%s %d", uid, port))
 	}
 }
 
@@ -158,17 +158,17 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	uid := lib.QueryParam(r, "uuid")
 	client_checksum := lib.QueryParam(r, "checksum")
 	v, ok := io_jobs.LoadAndDelete(uid)
-	Assert(ok, "no such job: %s", uid)
+	assert(ok, "no such job: %s", uid)
 	job := v.(*PutJob)
-	Panic1(<-job.fail)
+	panic1(<-job.fail)
 	server_checksum := <-job.server_checksum
-	Assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
+	assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	lib.With(solo_pool, func() {
-		Panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
-		Assert(!lib.Exists(job.path), job.path)
-		Panic1(ioutil.WriteFile(lib.ChecksumPath(job.path), []byte(server_checksum), 0o444))
-		Panic1(os.Chmod(job.temp_path, 0o444))
-		Panic1(os.Rename(job.temp_path, job.path))
+		panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
+		assert(!lib.Exists(job.path), job.path)
+		panic1(ioutil.WriteFile(lib.ChecksumPath(job.path), []byte(server_checksum), 0o444))
+		panic1(os.Chmod(job.temp_path, 0o444))
+		panic1(os.Rename(job.temp_path, job.path))
 	})
 	w.WriteHeader(200)
 }
@@ -176,45 +176,45 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix := lib.QueryParam(r, "prefix")
 	prefix = strings.SplitN(prefix, "s4://", 2)[1]
-	Assert(!strings.HasPrefix(prefix, "/"), prefix)
+	assert(!strings.HasPrefix(prefix, "/"), prefix)
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	lib.With(solo_pool, func() {
 		if recursive {
 			files, dirs := list_recursive(prefix, false)
 			for _, info := range *files {
-				Panic1(os.Remove(info.Path))
-				Panic1(os.Remove(lib.ChecksumPath(info.Path)))
+				panic1(os.Remove(info.Path))
+				panic1(os.Remove(lib.ChecksumPath(info.Path)))
 			}
 			for _, info := range *dirs {
-				Panic1(os.RemoveAll(info.Path))
+				panic1(os.RemoveAll(info.Path))
 			}
 		} else {
-			Panic1(os.Remove(prefix))
-			Panic1(os.Remove(lib.ChecksumPath(prefix)))
+			panic1(os.Remove(prefix))
+			panic1(os.Remove(lib.ChecksumPath(prefix)))
 		}
 	})
 }
 
 type MapResult struct {
-	CmdResult *lib.CmdResultTempdir
-	Outkey    string
+	WarnResult *lib.WarnResultTempdir
+	Outkey     string
 }
 
 func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var data lib.Data
-	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
-	Panic1(json.Unmarshal(bytes, &data))
+	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
 	results := make(chan MapResult, len(data.Args))
 	for _, arg := range data.Args {
-		Assert(len(arg) == 2, fmt.Sprint(arg))
+		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outkey := arg[1]
-		Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
-		Assert(Panic2(lib.OnThisServer(outkey)).(bool), outkey)
-		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
+		assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
+		assert(panic2(lib.OnThisServer(outkey)).(bool), outkey)
+		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
 				results <- MapResult{lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)), outkey}
@@ -224,7 +224,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var tempdirs []string
 	defer func() {
 		for _, tempdir := range tempdirs {
-			Panic1(os.RemoveAll(tempdir))
+			panic1(os.RemoveAll(tempdir))
 		}
 	}()
 	max_timeout := time.After(lib.MaxTimeout)
@@ -236,14 +236,14 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			w.WriteHeader(429)
 			return
 		case result := <-results:
-			tempdirs = append(tempdirs, result.CmdResult.Tempdir)
-			if result.CmdResult.Err != nil {
+			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
+			if result.WarnResult.Err != nil {
 				w.WriteHeader(400)
-				Panic2(fmt.Fprint(w, result.CmdResult.Stdout+"\n"+result.CmdResult.Stderr))
+				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
 				return
 			} else {
 				go func(result MapResult) {
-					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
+					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
 					err := localPut(temp_path, result.Outkey)
 					if err != nil {
 						fail <- err
@@ -258,7 +258,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		case <-jobs:
 		case err := <-fail:
 			w.WriteHeader(500)
-			Panic2(fmt.Fprintf(w, "%s", err))
+			panic2(fmt.Fprintf(w, "%s", err))
 			return
 		case <-max_timeout:
 			w.WriteHeader(429)
@@ -272,7 +272,7 @@ func localPut(temp_path string, key string) error {
 	if strings.Contains(key, " ") {
 		return fmt.Errorf("key contains space: %s", key)
 	}
-	if !Panic2(lib.OnThisServer(key)).(bool) {
+	if !panic2(lib.OnThisServer(key)).(bool) {
 		return fmt.Errorf("wrong server for key: %s", key)
 	}
 	path := strings.SplitN(key, "s4://", 2)[1]
@@ -314,15 +314,15 @@ func confirmLocalPut(temp_path string, path string, checksum string) error {
 }
 
 type MapToNResult struct {
-	CmdResult *lib.CmdResultTempdir
-	Inpath    string
-	Outdir    string
+	WarnResult *lib.WarnResultTempdir
+	Inpath     string
+	Outdir     string
 }
 
 func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var data lib.Data
-	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
-	Panic1(json.Unmarshal(bytes, &data))
+	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
@@ -330,12 +330,12 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	fail := make(chan error)
 	stop := false
 	for _, arg := range data.Args {
-		Assert(len(arg) == 2, fmt.Sprint(arg))
+		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outdir := arg[1]
-		Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
-		Assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
-		inpath := Panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
+		assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
+		assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
+		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
 				results <- MapToNResult{lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd)), inpath, outdir}
@@ -345,7 +345,7 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var tempdirs []string
 	defer func() {
 		for _, tempdir := range tempdirs {
-			Panic1(os.RemoveAll(tempdir))
+			panic1(os.RemoveAll(tempdir))
 		}
 	}()
 	max_timeout := time.After(lib.MaxTimeout)
@@ -357,15 +357,15 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			w.WriteHeader(429)
 			return
 		case result := <-results:
-			tempdirs = append(tempdirs, result.CmdResult.Tempdir)
-			if result.CmdResult.Err != nil {
+			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
+			if result.WarnResult.Err != nil {
 				w.WriteHeader(400)
-				Panic2(fmt.Fprint(w, result.CmdResult.Stdout+"\n"+result.CmdResult.Stderr))
+				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
 				return
 			} else {
 				outer.Add(1)
 				go func(result MapToNResult) {
-					for _, temp_path := range strings.Split(result.CmdResult.Stdout, "\n") {
+					for _, temp_path := range strings.Split(result.WarnResult.Stdout, "\n") {
 						if stop {
 							return
 						}
@@ -373,16 +373,16 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 							continue
 						}
 						inner.Add(1)
-						temp_path = lib.Join(result.CmdResult.Tempdir, temp_path)
+						temp_path = lib.Join(result.WarnResult.Tempdir, temp_path)
 						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(temp_path))
 						go func(temp_path string, outkey string) {
-							if Panic2(lib.OnThisServer(outkey)).(bool) {
+							if panic2(lib.OnThisServer(outkey)).(bool) {
 								err := localPut(temp_path, outkey)
 								if err != nil {
 									fail <- err
 								}
 							} else {
-								Panic1(retry.Do(func() error {
+								panic1(retry.Do(func() error {
 									var err error
 									lib.With(io_send_pool, func() {
 										if stop {
@@ -414,7 +414,7 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	select {
 	case err := <-fail:
 		w.WriteHeader(500)
-		Panic2(fmt.Fprintf(w, "%s", err))
+		panic2(fmt.Fprintf(w, "%s", err))
 	case <-done:
 		w.WriteHeader(200)
 	case <-max_timeout:
@@ -422,15 +422,14 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.WriteHeader(429)
 	}
 	stop = true
-
 }
 
 func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	outdir := lib.QueryParam(r, "outdir")
-	Assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
+	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 	var data lib.Data
-	bytes := Panic2(ioutil.ReadAll(r.Body)).([]byte)
-	Panic1(json.Unmarshal(bytes, &data))
+	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
@@ -438,9 +437,9 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	for _, inkeys := range data.Args {
 		var inpaths []string
 		for _, inkey := range inkeys {
-			Assert(Panic2(lib.OnThisServer(inkey)).(bool), inkey)
+			assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
 			inpath := strings.SplitN(inkey, "s4://", 2)[1]
-			inpath = Panic2(filepath.Abs(inpath)).(string)
+			inpath = panic2(filepath.Abs(inpath)).(string)
 			inpaths = append(inpaths, inpath)
 		}
 		outkey := lib.Join(outdir, lib.KeyPrefix(inkeys[0])+lib.Suffix(inkeys))
@@ -457,7 +456,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var tempdirs []string
 	defer func() {
 		for _, tempdir := range tempdirs {
-			Panic1(os.RemoveAll(tempdir))
+			panic1(os.RemoveAll(tempdir))
 		}
 	}()
 	max_timeout := time.After(lib.MaxTimeout)
@@ -469,14 +468,14 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			w.WriteHeader(429)
 			return
 		case result := <-results:
-			tempdirs = append(tempdirs, result.CmdResult.Tempdir)
-			if result.CmdResult.Err != nil {
+			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
+			if result.WarnResult.Err != nil {
 				w.WriteHeader(400)
-				Panic2(fmt.Fprint(w, result.CmdResult.Stdout+"\n"+result.CmdResult.Stderr))
+				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
 				return
 			} else {
 				go func(result MapResult) {
-					temp_path := lib.Join(result.CmdResult.Tempdir, "output")
+					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
 					err := localPut(temp_path, result.Outkey)
 					if err != nil {
 						fail <- err
@@ -491,7 +490,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		case <-jobs:
 		case err := <-fail:
 			w.WriteHeader(500)
-			Panic2(fmt.Fprintf(w, "%s", err))
+			panic2(fmt.Fprintf(w, "%s", err))
 			return
 		case <-max_timeout:
 			w.WriteHeader(429)
@@ -503,7 +502,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
 func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	key := lib.QueryParam(r, "key")
-	cmd := Panic2(ioutil.ReadAll(r.Body)).([]byte)
+	cmd := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
 	lib.With(solo_pool, func() {
@@ -515,12 +514,12 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		lib.With(cpu_pool, func() {
 			res := lib.Warn("< %s %s", path, cmd)
 			if res.Err == nil {
-				Panic2(fmt.Fprintf(w, res.Stdout))
+				panic2(fmt.Fprintf(w, res.Stdout))
 			} else {
 				w.WriteHeader(400)
 				w.Header().Set("Content-Type", "application/json")
-				bytes := Panic2(json.Marshal(res))
-				Panic2(w.Write(bytes.([]byte)))
+				bytes := panic2(json.Marshal(res))
+				panic2(w.Write(bytes.([]byte)))
 			}
 		})
 	}
@@ -541,8 +540,8 @@ func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
 	var dirs []*File
 	_, err := os.Stat(root)
 	if err == nil {
-		Panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
-			Panic1(err)
+		panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
+			panic1(err)
 			matched := strings.HasPrefix(fullpath, prefix)
 			is_checksum := strings.HasSuffix(fullpath, ".xxh")
 			if matched && !is_checksum {
@@ -570,7 +569,7 @@ func list(prefix string) *[]*File {
 	var res []*File
 	_, err := os.Stat(root)
 	if err == nil {
-		for _, info := range Panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+		for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
 			name := info.Name()
 			matched := strings.HasPrefix(lib.Join(root, name), prefix)
 			is_checksum := strings.HasSuffix(name, ".xxh")
@@ -588,7 +587,7 @@ func list(prefix string) *[]*File {
 
 func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	prefix := lib.QueryParam(r, "prefix")
-	Assert(strings.HasPrefix(prefix, "s4://"), prefix)
+	assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	prefix = strings.Split(prefix, "s4://")[1]
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	var res *[]*File
@@ -608,13 +607,13 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 		vals = append(vals, []string{parts[0], parts[1], file.Size, file.Path})
 	}
-	bytes := Panic2(json.Marshal(vals))
-	Panic2(w.Write(bytes.([]byte)))
+	bytes := panic2(json.Marshal(vals))
+	panic2(w.Write(bytes.([]byte)))
 }
 
 func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var res [][]string
-	for _, info := range Panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
+	for _, info := range panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
 		name := info.Name()
 		if info.IsDir() && !strings.HasPrefix(name, "_") {
 			parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
@@ -622,46 +621,20 @@ func ListBuckets(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	bytes := Panic2(json.Marshal(res))
-	Panic2(w.Write(bytes.([]byte)))
+	bytes := panic2(json.Marshal(res))
+	panic2(w.Write(bytes.([]byte)))
 }
 
 func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	Panic2(fmt.Fprintf(w, "healthy\n"))
+	panic2(fmt.Fprintf(w, "healthy\n"))
 }
 
 func PanicHandler(w http.ResponseWriter, r *http.Request, err interface{}) {
 	w.WriteHeader(500)
-	Panic2(fmt.Fprintf(w, "%s\n", err))
+	panic2(fmt.Fprintf(w, "%s\n", err))
 }
 
-type ResponseObserver struct {
-	http.ResponseWriter
-	Status int
-}
-
-func (o *ResponseObserver) Write(p []byte) (int, error) {
-	return o.ResponseWriter.Write(p)
-}
-
-func (o *ResponseObserver) WriteHeader(code int) {
-	o.ResponseWriter.WriteHeader(code)
-	o.Status = code
-}
-
-type LoggingHandler struct {
-	Handler http.Handler
-}
-
-func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	wo := &ResponseObserver{w, 200}
-	l.Handler.ServeHTTP(wo, r)
-	seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
-	lib.Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
-}
-
-func GCExpiredData() {
+func expiredDataDeleter() {
 	for {
 		io_jobs.Range(func(k, v interface{}) bool {
 			var start time.Time
@@ -691,16 +664,16 @@ func GCExpiredData() {
 			}
 			return true
 		})
-		for _, info := range Panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
+		for _, info := range panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
 			if time.Since(info.ModTime()) > lib.MaxTimeout {
 				lib.Logger.Printf("gc expired tempfile: %s\n", info.Name())
-				Panic1(os.Remove(info.Name()))
+				panic1(os.Remove(info.Name()))
 			}
 		}
-		for _, info := range Panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
+		for _, info := range panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
 			if time.Since(info.ModTime()) > lib.MaxTimeout {
 				lib.Logger.Printf("gc expired tempdir: %s\n", info.Name())
-				Panic1(os.RemoveAll(info.Name()))
+				panic1(os.RemoveAll(info.Name()))
 			}
 		}
 		time.Sleep(time.Second * 5)
@@ -711,11 +684,11 @@ func main() {
 	lib.Port = flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
 	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
 	flag.Parse()
-	Panic1(os.Setenv("LC_ALL", "C"))
+	panic1(os.Setenv("LC_ALL", "C"))
 	_ = lib.Servers()
-	Panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
-	Panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
-	Panic1(os.Chdir("s4_data"))
+	panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
+	panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
+	panic1(os.Chdir("s4_data"))
 	router := httprouter.New()
 	router.POST("/prepare_put", PreparePut)
 	router.POST("/confirm_put", ConfirmPut)
@@ -732,23 +705,23 @@ func main() {
 	router.PanicHandler = PanicHandler
 	port := fmt.Sprintf(":%s", lib.HttpPort())
 	lib.Logger.Println("s4-server", port)
-	go GCExpiredData()
-	Panic1(http.ListenAndServe(port, &LoggingHandler{Handler: router}))
+	go expiredDataDeleter()
+	panic1(http.ListenAndServe(port, &lib.LoggingHandler{Handler: router}))
 }
 
-func Assert(cond bool, format string, a ...interface{}) {
+func assert(cond bool, format string, a ...interface{}) {
 	if !cond {
 		panic(fmt.Sprintf(format, a...))
 	}
 }
 
-func Panic1(e error) {
+func panic1(e error) {
 	if e != nil {
 		panic(e)
 	}
 }
 
-func Panic2(x interface{}, e error) interface{} {
+func panic2(x interface{}, e error) interface{} {
 	if e != nil {
 		panic(e)
 	}

@@ -1,4 +1,4 @@
-package main
+package lib
 
 import "testing"
 
@@ -15,7 +15,7 @@ func TestParseGlob(t *testing.T) {
 		{"s4://dir1/dir2/*/*_1", "s4://dir1/dir2/", "*/*_1"},
 	}
 	for _, test := range tests {
-		output, glob := parseGlob(test.input)
+		output, glob := ParseGlob(test.input)
 		if output != test.output {
 			t.Errorf("got: %s, want: %s", output, test.output)
 		}

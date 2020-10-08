@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cespare/xxhash"
@@ -31,33 +30,13 @@ import (
 const (
 	Timeout    = 5 * time.Minute
 	MaxTimeout = Timeout*2 + 15*time.Second
-	Printf     = "-printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n'"
-	BufSize    = 4096
+	bufSize    = 4096
 )
 
 var (
+	client = http.Client{Timeout: MaxTimeout}
 	Logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
-	Client = http.Client{Timeout: MaxTimeout}
 )
-
-func Assert(cond bool, format string, a ...interface{}) {
-	if !cond {
-		panic(fmt.Sprintf(format, a...))
-	}
-}
-
-func Panic1(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func Panic2(x interface{}, e error) interface{} {
-	if e != nil {
-		panic(e)
-	}
-	return x
-}
 
 func Dir(pth string) string {
 	pth = path.Dir(pth)
@@ -98,66 +77,56 @@ func ConfPath() string {
 	} else if os.Getenv("S4_CONF_PATH") != "" {
 		return os.Getenv("S4_CONF_PATH")
 	} else {
-		usr := Panic2(user.Current()).(*user.User)
+		usr := panic2(user.Current()).(*user.User)
 		return Join(usr.HomeDir, ".s4.conf")
 	}
 }
 
-func Run(format string, args ...interface{}) string {
-	cmd := exec.Command("bash", "-c", fmt.Sprintf(format, args...))
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	Assert(cmd.Run() == nil, stdout.String()+"\n"+stderr.String())
-	return strings.TrimRight(stdout.String(), "\n")
-}
-
-type CmdResult struct {
+type WarnResult struct {
 	Stdout string
 	Stderr string
 	Err    error
 }
 
-type CmdResultTempdir struct {
+func Warn(format string, args ...interface{}) *WarnResult {
+	str := fmt.Sprintf(format, args...)
+	str = fmt.Sprintf("set -eou pipefail; %s", str)
+	cmd := exec.Command("bash", "-c", str)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	result := make(chan *WarnResult)
+	go func() {
+		err := cmd.Run()
+		result <- &WarnResult{
+			strings.TrimRight(stdout.String(), "\n"),
+			strings.TrimRight(stderr.String(), "\n"),
+			err,
+		}
+	}()
+	select {
+	case r := <-result:
+		return r
+	case <-time.After(Timeout):
+		_ = cmd.Process.Kill()
+		return &WarnResult{
+			"",
+			"",
+			errors.New("cmd timeout"),
+		}
+	}
+}
+
+type WarnResultTempdir struct {
 	Stdout  string
 	Stderr  string
 	Err     error
 	Tempdir string
 }
 
-func Warn(format string, args ...interface{}) *CmdResult {
-	str := fmt.Sprintf(format, args...)
-	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	cmd := exec.Command("bash", "-c", str)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	result := make(chan *CmdResult)
-	go func() {
-		err := cmd.Run()
-		result <- &CmdResult{
-			strings.TrimRight(stdout.String(), "\n"),
-			strings.TrimRight(stderr.String(), "\n"),
-			err,
-		}
-	}()
-	select {
-	case r := <-result:
-		return r
-	case <-time.After(Timeout):
-		_ = cmd.Process.Kill()
-		return &CmdResult{
-			"",
-			"",
-			errors.New("cmd timeout"),
-		}
-	}
-}
-
-func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
-	tempdir := Panic2(ioutil.TempDir("_tempdirs", "")).(string)
+func WarnTempdir(format string, args ...interface{}) *WarnResultTempdir {
+	tempdir := panic2(ioutil.TempDir("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
 	cmd := exec.Command("bash", "-c", str)
@@ -165,10 +134,10 @@ func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *CmdResultTempdir)
+	result := make(chan *WarnResultTempdir)
 	go func() {
 		err := cmd.Run()
-		result <- &CmdResultTempdir{
+		result <- &WarnResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -180,8 +149,8 @@ func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
 		return r
 	case <-time.After(Timeout):
 		_ = cmd.Process.Kill()
-		Panic1(os.RemoveAll(tempdir))
-		return &CmdResultTempdir{
+		panic1(os.RemoveAll(tempdir))
+		return &WarnResultTempdir{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -190,8 +159,8 @@ func WarnTempdir(format string, args ...interface{}) *CmdResultTempdir {
 	}
 }
 
-func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *CmdResultTempdir {
-	tempdir := Panic2(ioutil.TempDir("_tempdirs", "")).(string)
+func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *WarnResultTempdir {
+	tempdir := panic2(ioutil.TempDir("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
 	cmd := exec.Command("bash", "-c", str)
@@ -200,10 +169,10 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *C
 	cmd.Stdout = &stdout
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	result := make(chan *CmdResultTempdir)
+	result := make(chan *WarnResultTempdir)
 	go func() {
 		err := cmd.Run()
-		result <- &CmdResultTempdir{
+		result <- &WarnResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
 			strings.TrimRight(stderr.String(), "\n"),
 			err,
@@ -215,8 +184,8 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *C
 		return r
 	case <-time.After(Timeout):
 		_ = cmd.Process.Kill()
-		Panic1(os.RemoveAll(tempdir))
-		return &CmdResultTempdir{
+		panic1(os.RemoveAll(tempdir))
+		return &WarnResultTempdir{
 			"",
 			"",
 			errors.New("cmd timeout"),
@@ -225,84 +194,29 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *C
 	}
 }
 
-func WarnStreamIn(stdin io.Reader, format string, args ...interface{}) *CmdResult {
-	str := fmt.Sprintf(format, args...)
-	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	cmd := exec.Command("bash", "-c", str)
-	cmd.Stdin = stdin
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	result := make(chan *CmdResult)
-	go func() {
-		err := cmd.Run()
-		result <- &CmdResult{
-			strings.TrimRight(stdout.String(), "\n"),
-			strings.TrimRight(stderr.String(), "\n"),
-			err,
-		}
-	}()
-	select {
-	case r := <-result:
-		return r
-	case <-time.After(Timeout):
-		_ = cmd.Process.Kill()
-		return &CmdResult{
-			"",
-			"",
-			errors.New("cmd timeout"),
-		}
-	}
+type rwcCallback struct {
+	rwc io.ReadWriteCloser
+	cb  func()
 }
 
-func WarnStreamOut(stdout io.Writer, format string, args ...interface{}) *CmdResult {
-	str := fmt.Sprintf(format, args...)
-	str = fmt.Sprintf("set -eou pipefail; %s", str)
-	cmd := exec.Command("bash", "-c", str)
-	cmd.Stdout = stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	result := make(chan *CmdResult)
-	go func() {
-		err := cmd.Run()
-		result <- &CmdResult{
-			"",
-			strings.TrimRight(stderr.String(), "\n"),
-			err,
-		}
-	}()
-	select {
-	case r := <-result:
-		return r
-	case <-time.After(Timeout):
-		_ = cmd.Process.Kill()
-		return &CmdResult{
-			"",
-			"",
-			errors.New("cmd timeout"),
-		}
-	}
+func (rwc rwcCallback) Read(p []byte) (n int, err error) {
+	defer rwc.cb()
+	return rwc.rwc.Read(p)
 }
 
-type RWCallback struct {
-	Rw io.ReadWriteCloser
-	Cb func()
+func (rwc rwcCallback) Write(p []byte) (n int, err error) {
+	defer rwc.cb()
+	return rwc.rwc.Write(p)
 }
 
-func (rwc RWCallback) Read(p []byte) (n int, err error) {
-	defer rwc.Cb()
-	return rwc.Rw.Read(p)
+func (rwc rwcCallback) Close() error {
+	defer rwc.cb()
+	return rwc.rwc.Close()
 }
 
-func (rwc RWCallback) Write(p []byte) (n int, err error) {
-	defer rwc.Cb()
-	return rwc.Rw.Write(p)
-}
-
-func (rwc RWCallback) Close() error {
-	defer rwc.Cb()
-	return rwc.Rw.Close()
+func hash(str string) int {
+	h := blake2s.Sum256([]byte(str))
+	return int(binary.BigEndian.Uint32(h[:]))
 }
 
 func OnThisServer(key string) (bool, error) {
@@ -314,11 +228,6 @@ func OnThisServer(key string) (bool, error) {
 		return false, err
 	}
 	return server.Address == "0.0.0.0" && server.Port == HttpPort(), nil
-}
-
-func hash(str string) int {
-	h := blake2s.Sum256([]byte(str))
-	return int(binary.BigEndian.Uint32(h[:]))
 }
 
 func PickServer(key string) (*Server, error) {
@@ -338,7 +247,7 @@ func PickServer(key string) (*Server, error) {
 	return &servers[index], nil
 }
 
-func IsDigits(str string) bool {
+func isDigits(str string) bool {
 	_, err := strconv.Atoi(str)
 	return err == nil
 }
@@ -346,14 +255,14 @@ func IsDigits(str string) bool {
 func KeyPrefix(key string) string {
 	key = Last(strings.Split(key, "/"))
 	prefix := strings.Split(key, "_")[0]
-	if !IsDigits(prefix) {
+	if !isDigits(prefix) {
 		prefix = key
 	}
 	return prefix
 }
 
-func KeySuffix(key string) (string, bool) {
-	if !IsDigits(KeyPrefix(key)) {
+func keySuffix(key string) (string, bool) {
+	if !isDigits(KeyPrefix(key)) {
 		return "", false
 	}
 	part := Last(strings.Split(key, "/"))
@@ -370,7 +279,7 @@ func Suffix(keys []string) string {
 	var suffix string
 	var ok bool
 	for _, key := range keys {
-		suffix, ok = KeySuffix(key)
+		suffix, ok = keySuffix(key)
 		if !ok {
 			return ""
 		}
@@ -385,7 +294,7 @@ func Suffix(keys []string) string {
 	return fmt.Sprintf("_%s", suffix)
 }
 
-var cache = sync.Map{}
+var servers *[]Server
 
 type Server struct {
 	Address string
@@ -393,12 +302,9 @@ type Server struct {
 }
 
 func Servers() []Server {
-	val, ok := cache.Load("servers")
-	var servers []Server
-	if ok {
-		servers = val.([]Server)
-	} else {
-		bytes := Panic2(ioutil.ReadFile(ConfPath())).([]byte)
+	if servers == nil {
+		var vals []Server
+		bytes := panic2(ioutil.ReadFile(ConfPath())).([]byte)
 		lines := strings.Split(string(bytes), "\n")
 		local_addresses := localAddresses()
 		for _, line := range lines {
@@ -406,7 +312,7 @@ func Servers() []Server {
 				continue
 			}
 			parts := strings.Split(line, ":")
-			Assert(len(parts) == 2, fmt.Sprint(parts))
+			assert(len(parts) == 2, fmt.Sprint(parts))
 			server := Server{parts[0], parts[1]}
 			for _, address := range local_addresses {
 				if server.Address == address {
@@ -414,20 +320,21 @@ func Servers() []Server {
 					break
 				}
 			}
-			servers = append(servers, server)
+			vals = append(vals, server)
 		}
-		cache.Store("servers", servers)
+		servers = &vals
 	}
-	return servers
+	assert(len(*servers) > 0, "%d", len(*servers))
+	return *servers
 }
 
 func localAddresses() []string {
 	vals := []string{"0.0.0.0", "localhost", "127.0.0.1"}
 	ifaces, err := net.Interfaces()
-	Assert(err == nil, "%s", err)
+	assert(err == nil, "%s", err)
 	for _, i := range ifaces {
 		addrs, err := i.Addrs()
-		Assert(err == nil, "%s", err)
+		assert(err == nil, "%s", err)
 		for _, addr := range addrs {
 			vals = append(vals, strings.SplitN(addr.String(), "/", 2)[0])
 		}
@@ -457,7 +364,7 @@ type HttpResult struct {
 }
 
 func Post(url, contentType string, body io.Reader) *HttpResult {
-	resp, err := Client.Post(url, contentType, body)
+	resp, err := client.Post(url, contentType, body)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -470,7 +377,7 @@ func Post(url, contentType string, body io.Reader) *HttpResult {
 }
 
 func Get(url string) *HttpResult {
-	resp, err := Client.Get(url)
+	resp, err := client.Get(url)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -504,12 +411,12 @@ func Put(src string, dst string) error {
 		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
 	}
 	vals := strings.Split(string(result.Body), " ")
-	Assert(len(vals) == 2, fmt.Sprint(vals))
+	assert(len(vals) == 2, fmt.Sprint(vals))
 	uid := vals[0]
 	port := vals[1]
 	var client_checksum string
 	if src == "-" {
-		client_checksum, err = Send(os.Stdin, server.Address, port)
+		client_checksum, err = send(os.Stdin, server.Address, port)
 	} else {
 		client_checksum, err = SendFile(src, server.Address, port)
 	}
@@ -535,7 +442,7 @@ type Data struct {
 func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
 		uid := uuid.NewV4().String()
-		temp_path := Panic2(filepath.Abs(Join(dir, uid))).(string)
+		temp_path := panic2(filepath.Abs(Join(dir, uid))).(string)
 		_, err := os.Stat(temp_path)
 		if err != nil {
 			return temp_path
@@ -545,14 +452,14 @@ func NewTempPath(dir string) string {
 }
 
 func With(pool *semaphore.Weighted, fn func()) {
-	Panic1(pool.Acquire(context.Background(), 1))
+	panic1(pool.Acquire(context.Background(), 1))
 	fn()
 	pool.Release(1)
 }
 
 func QueryParam(r *http.Request, name string) string {
 	vals := r.URL.Query()[name]
-	Assert(len(vals) == 1, "missing query parameter: %s", name)
+	assert(len(vals) == 1, "missing query parameter: %s", name)
 	return vals[0]
 }
 
@@ -569,11 +476,11 @@ func QueryParamDefault(r *http.Request, name string, default_val string) string 
 }
 
 func ChecksumWrite(path string, checksum string) {
-	Panic1(ioutil.WriteFile(ChecksumPath(path), []byte(checksum), 0o444))
+	panic1(ioutil.WriteFile(ChecksumPath(path), []byte(checksum), 0o444))
 }
 
 func ChecksumRead(path string) string {
-	return string(Panic2(ioutil.ReadFile(ChecksumPath(path))).([]byte))
+	return string(panic2(ioutil.ReadFile(ChecksumPath(path))).([]byte))
 }
 
 func Checksum(path string) (string, error) {
@@ -581,8 +488,8 @@ func Checksum(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bf := bufio.NewReaderSize(f, BufSize)
-	val := XXH(bf)
+	bf := bufio.NewReaderSize(f, bufSize)
+	val := xxh(bf)
 	err = f.Close()
 	if err != nil {
 		return "", err
@@ -591,7 +498,7 @@ func Checksum(path string) (string, error) {
 }
 
 func ChecksumPath(prefix string) string {
-	Assert(!strings.HasSuffix(prefix, "/"), prefix)
+	assert(!strings.HasSuffix(prefix, "/"), prefix)
 	return fmt.Sprintf("%s.xxh", prefix)
 }
 
@@ -604,7 +511,7 @@ func RecvFile(path string, port string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bf := bufio.NewWriterSize(f, BufSize)
+	bf := bufio.NewWriterSize(f, bufSize)
 	checksum, err := Recv(bf, port)
 	if err != nil {
 		return "", err
@@ -642,9 +549,9 @@ func Recv(w io.Writer, port string) (string, error) {
 	go func() {
 		h := xxhash.New()
 		src := fmt.Sprintf(":%s", port)
-		li := Panic2(net.Listen("tcp", src)).(net.Listener)
-		conn := Panic2(li.Accept()).(net.Conn)
-		rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+		li := panic2(net.Listen("tcp", src)).(net.Listener)
+		conn := panic2(li.Accept()).(net.Conn)
+		rwc := rwcCallback{rwc: conn, cb: func() { start = time.Now() }}
 		t := io.TeeReader(rwc, h)
 		_, err := io.Copy(w, t)
 		if err != nil {
@@ -677,8 +584,8 @@ func SendFile(path string, addr string, port string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bf := bufio.NewReaderSize(f, BufSize)
-	checksum, err := Send(bf, addr, port)
+	bf := bufio.NewReaderSize(f, bufSize)
+	checksum, err := send(bf, addr, port)
 	if err != nil {
 		return "", err
 	}
@@ -689,7 +596,7 @@ func SendFile(path string, addr string, port string) (string, error) {
 	return checksum, nil
 }
 
-func Send(r io.Reader, addr string, port string) (string, error) {
+func send(r io.Reader, addr string, port string) (string, error) {
 	stop := make(chan error)
 	fail := make(chan error)
 	checksum := make(chan string)
@@ -720,7 +627,7 @@ func Send(r io.Reader, addr string, port string) (string, error) {
 			}
 			time.Sleep(time.Microsecond * 10000)
 		}
-		rwc := RWCallback{Rw: conn, Cb: func() { start = time.Now() }}
+		rwc := rwcCallback{rwc: conn, cb: func() { start = time.Now() }}
 		t := io.TeeReader(r, h)
 		_, err = io.Copy(rwc, t)
 		if err != nil {
@@ -741,12 +648,87 @@ func Send(r io.Reader, addr string, port string) (string, error) {
 	case err := <-fail:
 		return "", err
 	}
-
 }
 
-func XXH(r io.Reader) string {
+func xxh(r io.Reader) string {
 	h := xxhash.New()
-	Panic2(io.Copy(h, r))
+	panic2(io.Copy(h, r))
 	sum := h.Sum64()
 	return fmt.Sprintf("%x", sum)
+}
+
+type responseObserver struct {
+	http.ResponseWriter
+	Status int
+}
+
+func (o *responseObserver) Write(p []byte) (int, error) {
+	return o.ResponseWriter.Write(p)
+}
+
+func (o *responseObserver) WriteHeader(code int) {
+	o.ResponseWriter.WriteHeader(code)
+	o.Status = code
+}
+
+type LoggingHandler struct {
+	Handler http.Handler
+}
+
+func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	wo := &responseObserver{w, 200}
+	l.Handler.ServeHTTP(wo, r)
+	seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
+	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
+}
+
+func ParseGlob(indir string) (string, string) {
+	glob := ""
+	if strings.Contains(indir, "*") {
+		var base []string
+		var pattern []string
+		switched := false
+		for _, part := range strings.Split(indir, "/") {
+			if strings.Contains(part, "*") {
+				switched = true
+			}
+			if switched {
+				pattern = append(pattern, part)
+			} else {
+				base = append(base, part)
+			}
+		}
+		indir = strings.Join(base, "/") + "/"
+		glob = strings.Join(pattern, "/")
+	}
+	return indir, glob
+}
+
+func Contains(parts []string, part string) bool {
+	for _, p := range parts {
+		if p == part {
+			return true
+		}
+	}
+	return false
+}
+
+func assert(cond bool, format string, a ...interface{}) {
+	if !cond {
+		panic(fmt.Sprintf(format, a...))
+	}
+}
+
+func panic1(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func panic2(x interface{}, e error) interface{} {
+	if e != nil {
+		panic(e)
+	}
+	return x
 }
