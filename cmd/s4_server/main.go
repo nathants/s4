@@ -543,7 +543,7 @@ func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
 		panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
 			panic1(err)
 			matched := strings.HasPrefix(fullpath, prefix)
-			is_checksum := strings.HasSuffix(fullpath, ".xxh")
+			is_checksum := lib.IsChecksum(fullpath)
 			if matched && !is_checksum {
 				path := fullpath
 				if strip_bucket {
@@ -572,7 +572,7 @@ func list(prefix string) *[]*File {
 		for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
 			name := info.Name()
 			matched := strings.HasPrefix(lib.Join(root, name), prefix)
-			is_checksum := strings.HasSuffix(name, ".xxh")
+			is_checksum := lib.IsChecksum(name)
 			if matched && !is_checksum {
 				if info.IsDir() {
 					res = append(res, &File{info.ModTime(), "PRE", name + "/"})
@@ -598,7 +598,6 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			res = list(prefix)
 		}
 	})
-	w.Header().Set("Content-Type", "application/json")
 	var vals [][]string
 	for _, file := range *res {
 		parts := []string{"", ""}
@@ -607,6 +606,7 @@ func List(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		}
 		vals = append(vals, []string{parts[0], parts[1], file.Size, file.Path})
 	}
+	w.Header().Set("Content-Type", "application/json")
 	bytes := panic2(json.Marshal(vals))
 	panic2(w.Write(bytes.([]byte)))
 }
@@ -634,48 +634,60 @@ func PanicHandler(w http.ResponseWriter, r *http.Request, err interface{}) {
 	panic2(fmt.Fprintf(w, "%s\n", err))
 }
 
+func expireJobs() {
+	io_jobs.Range(func(k, v interface{}) bool {
+		var start time.Time
+		var path string
+		var temp_path string
+		switch v := v.(type) {
+		case *PutJob:
+			start = v.start
+			path = v.path
+			temp_path = v.temp_path
+		case *GetJob:
+			start = v.start
+		}
+		if time.Since(start) > lib.MaxTimeout {
+			lib.Logger.Printf("gc expired job: %s\n", k)
+			go func() {
+				lib.With(misc_pool, func() {
+					if path != "" {
+						_ = os.Remove(path)
+					}
+					if temp_path != "" {
+						_ = os.Remove(temp_path)
+					}
+				})
+			}()
+			io_jobs.Delete(k)
+		}
+		return true
+	})
+}
+
+func expireFiles() {
+	for _, info := range panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
+		if time.Since(info.ModTime()) > lib.MaxTimeout {
+			lib.Logger.Printf("gc expired tempfile: %s\n", info.Name())
+			panic1(os.Remove(info.Name()))
+		}
+	}
+}
+
+func expireDirs() {
+	for _, info := range panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
+		if time.Since(info.ModTime()) > lib.MaxTimeout {
+			lib.Logger.Printf("gc expired tempdir: %s\n", info.Name())
+			panic1(os.RemoveAll(info.Name()))
+		}
+	}
+}
+
 func expiredDataDeleter() {
 	for {
-		io_jobs.Range(func(k, v interface{}) bool {
-			var start time.Time
-			var path string
-			var temp_path string
-			switch v := v.(type) {
-			case *PutJob:
-				start = v.start
-				path = v.path
-				temp_path = v.temp_path
-			case *GetJob:
-				start = v.start
-			}
-			if time.Since(start) > lib.MaxTimeout {
-				lib.Logger.Printf("gc expired job: %s\n", k)
-				go func() {
-					lib.With(misc_pool, func() {
-						if path != "" {
-							_ = os.Remove(path)
-						}
-						if temp_path != "" {
-							_ = os.Remove(temp_path)
-						}
-					})
-				}()
-				io_jobs.Delete(k)
-			}
-			return true
-		})
-		for _, info := range panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
-			if time.Since(info.ModTime()) > lib.MaxTimeout {
-				lib.Logger.Printf("gc expired tempfile: %s\n", info.Name())
-				panic1(os.Remove(info.Name()))
-			}
-		}
-		for _, info := range panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
-			if time.Since(info.ModTime()) > lib.MaxTimeout {
-				lib.Logger.Printf("gc expired tempdir: %s\n", info.Name())
-				panic1(os.RemoveAll(info.Name()))
-			}
-		}
+		expireJobs()
+		expireFiles()
+		expireDirs()
 		time.Sleep(time.Second * 5)
 	}
 }

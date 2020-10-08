@@ -501,6 +501,10 @@ func ChecksumPath(prefix string) string {
 	return fmt.Sprintf("%s.xxh", prefix)
 }
 
+func IsChecksum(path string) bool {
+	return strings.HasSuffix(path, ".xxh")
+}
+
 func Last(parts []string) string {
 	return parts[len(parts)-1]
 }
