@@ -29,5 +29,5 @@ trap "rm -rf $tempdir" EXIT
 # run the load test
 aws-ec2-ssh s4-load-testers -qyc "
     _gen_bsv ${columns:-8} ${rows:-100000} > data.bsv
-    seq ${size:-1000} | xargs -t -n1 -P${workers:-32} -I{} s4 cp data.bsv s4://bucket/\$(hostnamectl --static)/\$(date +%s.%N)/{}/data.bsv
+    time seq ${size:-1000} | xargs -t -n1 -P${workers:-32} -I{} s4 cp data.bsv s4://bucket/\$(hostnamectl --static)/\$(date +%s.%N)/{}
 "
