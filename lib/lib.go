@@ -303,7 +303,7 @@ type Server struct {
 
 func Servers() []Server {
 	if servers == nil {
-		var vals []Server
+		servers = &[]Server{}
 		bytes := panic2(ioutil.ReadFile(ConfPath())).([]byte)
 		lines := strings.Split(string(bytes), "\n")
 		local_addresses := localAddresses()
@@ -320,9 +320,8 @@ func Servers() []Server {
 					break
 				}
 			}
-			vals = append(vals, server)
+			*servers = append(*servers, server)
 		}
-		servers = &vals
 	}
 	assert(len(*servers) > 0, "%d", len(*servers))
 	return *servers
