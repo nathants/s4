@@ -279,6 +279,9 @@ def test_ls():
         """)
         with pytest.raises(Exception):
             run('s4 ls s4://bucket/fake/')
+        assert rm_whitespace(run("s4 ls | awk '{print $NF}'")) == rm_whitespace("""
+            bucket
+        """)
 
 def test_rm():
     with servers():
