@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cespare/xxhash"
@@ -553,14 +554,15 @@ func Recv(w io.Writer, port string) (string, error) {
 	stop := make(chan error)
 	fail := make(chan error)
 	checksum := make(chan string)
-	start := time.Now()
+	var start atomic.Value
+	start.Store(time.Now())
 	go func() {
 		for {
 			select {
 			case <-stop:
 				return
 			default:
-				if time.Since(start) > 5*time.Second {
+				if time.Since(start.Load().(time.Time)) > 5*time.Second {
 					fail <- fmt.Errorf("recv timeout")
 					return
 				}
@@ -573,7 +575,7 @@ func Recv(w io.Writer, port string) (string, error) {
 		src := fmt.Sprintf(":%s", port)
 		li := panic2(net.Listen("tcp", src)).(net.Listener)
 		conn := panic2(li.Accept()).(net.Conn)
-		rwc := rwcCallback{rwc: conn, cb: func() { start = time.Now() }}
+		rwc := rwcCallback{rwc: conn, cb: func() { start.Store(time.Now()) }}
 		t := io.TeeReader(rwc, h)
 		_, err := io.Copy(w, t)
 		if err != nil {
@@ -622,14 +624,15 @@ func send(r io.Reader, addr string, port string) (string, error) {
 	stop := make(chan error)
 	fail := make(chan error)
 	checksum := make(chan string)
-	start := time.Now()
+	var start atomic.Value
+	start.Store(time.Now())
 	go func() {
 		for {
 			select {
 			case <-stop:
 				return
 			default:
-				if time.Since(start) > 5*time.Second {
+				if time.Since(start.Load().(time.Time)) > 5*time.Second {
 					fail <- fmt.Errorf("send timeout")
 					return
 				}
@@ -649,7 +652,7 @@ func send(r io.Reader, addr string, port string) (string, error) {
 			}
 			time.Sleep(time.Microsecond * 10000)
 		}
-		rwc := rwcCallback{rwc: conn, cb: func() { start = time.Now() }}
+		rwc := rwcCallback{rwc: conn, cb: func() { start.Store(time.Now()) }}
 		t := io.TeeReader(r, h)
 		_, err = io.Copy(rwc, t)
 		if err != nil {
