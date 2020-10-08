@@ -232,15 +232,6 @@ func Eval() {
 	case 404:
 		panic2(fmt.Fprintln(os.Stderr, "fatal: no such key"))
 		os.Exit(1)
-	case 400:
-		if len(result.Body) == 0 {
-			return
-		}
-		var val lib.WarnResult
-		panic1(json.Unmarshal(result.Body, &val))
-		panic2(fmt.Fprintln(os.Stderr, val.Stdout))
-		panic2(fmt.Fprintln(os.Stderr, val.Stderr))
-		panic2(fmt.Fprintf(os.Stderr, "%s\n", val.Err))
 	case 200:
 		panic2(os.Stdout.Write(result.Body))
 	default:
@@ -543,7 +534,8 @@ func main() {
 
 func assert(cond bool, format string, a ...interface{}) {
 	if !cond {
-		panic(fmt.Sprintf(format, a...))
+		fmt.Fprintf(os.Stderr, format, a...)
+		os.Exit(1)
 	}
 }
 
