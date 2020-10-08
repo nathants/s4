@@ -227,12 +227,12 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			panic1(os.RemoveAll(tempdir))
 		}
 	}()
-	max_timeout := time.After(lib.MaxTimeout)
+	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
 	for range data.Args {
 		select {
-		case <-max_timeout:
+		case <-timeout:
 			w.WriteHeader(429)
 			return
 		case result := <-results:
@@ -260,7 +260,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			w.WriteHeader(500)
 			panic2(fmt.Fprintf(w, "%s", err))
 			return
-		case <-max_timeout:
+		case <-timeout:
 			w.WriteHeader(429)
 			return
 		}
@@ -328,7 +328,6 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	results := make(chan MapToNResult, len(data.Args))
 	fail := make(chan error)
-	stop := false
 	for _, arg := range data.Args {
 		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
@@ -348,12 +347,12 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			panic1(os.RemoveAll(tempdir))
 		}
 	}()
-	max_timeout := time.After(lib.MaxTimeout)
+	timeout := time.After(lib.MaxTimeout)
 	var outer sync.WaitGroup
 	var inner sync.WaitGroup
 	for range data.Args {
 		select {
-		case <-max_timeout:
+		case <-timeout:
 			w.WriteHeader(429)
 			return
 		case result := <-results:
@@ -366,9 +365,6 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				outer.Add(1)
 				go func(result MapToNResult) {
 					for _, temp_path := range strings.Split(result.WarnResult.Stdout, "\n") {
-						if stop {
-							return
-						}
 						if temp_path == "" {
 							continue
 						}
@@ -385,9 +381,6 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 								panic1(retry.Do(func() error {
 									var err error
 									lib.With(io_send_pool, func() {
-										if stop {
-											return
-										}
 										err = lib.Put(temp_path, outkey)
 									})
 									if errors.Is(err, lib.Err409) {
@@ -417,11 +410,9 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		panic2(fmt.Fprintf(w, "%s", err))
 	case <-done:
 		w.WriteHeader(200)
-	case <-max_timeout:
-		stop = true
+	case <-timeout:
 		w.WriteHeader(429)
 	}
-	stop = true
 }
 
 func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -459,12 +450,12 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			panic1(os.RemoveAll(tempdir))
 		}
 	}()
-	max_timeout := time.After(lib.MaxTimeout)
+	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
 	for range data.Args {
 		select {
-		case <-max_timeout:
+		case <-timeout:
 			w.WriteHeader(429)
 			return
 		case result := <-results:
@@ -492,7 +483,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			w.WriteHeader(500)
 			panic2(fmt.Fprintf(w, "%s", err))
 			return
-		case <-max_timeout:
+		case <-timeout:
 			w.WriteHeader(429)
 			return
 		}
