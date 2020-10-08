@@ -349,11 +349,7 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
                 for temp_path in result['stdout'].splitlines():
                     temp_path = os.path.join(tempdir, temp_path)
                     outkey = os.path.join(outdir, os.path.basename(inpath), os.path.basename(temp_path))
-                    if s4.on_this_server(outkey):
-                        task = create_task(local_put(temp_path, outkey))
-                    else:
-                        task = submit_io_send(retry_put(s4.cli._put), temp_path, outkey)
-                    put_fs.append(task)
+                    put_fs.append(map_to_n_put(temp_path, outkey))
         await asyncio.gather(*put_fs)
     except AssertionError:
         return {'code': 409, 'body': traceback.format_exc()}
@@ -363,6 +359,12 @@ async def map_to_n_handler(request: web.Request) -> web.Response:
         return {'code': 200}
     finally:
         await submit_misc(s4.delete_dirs, tempdirs)
+
+def map_to_n_put(temp_path, outkey):
+    if s4.on_this_server(outkey):
+        return create_task(local_put(temp_path, outkey))
+    else:
+        return submit_io_send(retry_put(s4.cli._put), temp_path, outkey)
 
 @s4.return_stacktrace
 async def map_from_n_handler(request: web.Request) -> web.Response:
