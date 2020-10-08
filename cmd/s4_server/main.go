@@ -227,17 +227,13 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
-	for range data.Args {
-		select {
-		case <-timeout:
-			w.WriteHeader(429)
-			return
-		case result := <-results:
+	go func() {
+		for range data.Args {
+			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
-				w.WriteHeader(400)
-				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
-				return
+				fail <- fmt.Errorf(result.WarnResult.Stdout + "\n" + result.WarnResult.Stderr)
+				break
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
@@ -249,7 +245,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				}(result)
 			}
 		}
-	}
+	}()
 	for range data.Args {
 		select {
 		case <-jobs:
@@ -496,13 +492,12 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	} else {
 		lib.With(cpu_pool, func() {
 			res := lib.Warn("< %s %s", path, cmd)
-			if res.Err == nil {
-				panic2(fmt.Fprintf(w, res.Stdout))
+			if res.Err != nil {
+				w.WriteHeader(500)
+				panic2(fmt.Fprintf(w, res.Stdout+"\n"+res.Stderr))
 			} else {
-				w.WriteHeader(400)
-				w.Header().Set("Content-Type", "application/json")
-				bytes := panic2(json.Marshal(res))
-				panic2(w.Write(bytes.([]byte)))
+				w.WriteHeader(200)
+				panic2(fmt.Fprintf(w, res.Stdout))
 			}
 		})
 	}
