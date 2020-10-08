@@ -53,7 +53,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
 	lib.With(solo_pool, func() {
-		exists = lib.Exists(path)
+		exists = panic2(lib.Exists(path)).(bool)
 	})
 	if !exists {
 		w.WriteHeader(404)
@@ -71,7 +71,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	})
 	var disk_checksum string
 	lib.With(solo_pool, func() {
-		disk_checksum = lib.ChecksumRead(path)
+		disk_checksum = panic2(lib.ChecksumRead(path)).(string)
 	})
 	job := &GetJob{
 		time.Now(),
@@ -123,7 +123,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var temp_path string
 	lib.With(solo_pool, func() {
 		port = panic2(freeport.GetFreePort()).(int)
-		exists = lib.Exists(path)
+		exists = panic2(lib.Exists(path)).(bool)
 		temp_path = lib.NewTempPath("_tempfiles")
 	})
 	if exists {
@@ -146,7 +146,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	case <-time.After(lib.Timeout):
 		io_jobs.Delete(uid)
 		_ = os.Remove(path)
-		_ = os.Remove(lib.ChecksumPath(path))
+		_ = os.Remove(panic2(lib.ChecksumPath(path)).(string))
 		w.WriteHeader(429)
 	case <-started:
 		w.Header().Set("Content-Type", "application/text")
@@ -165,8 +165,8 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
 	lib.With(solo_pool, func() {
 		panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
-		assert(!lib.Exists(job.path), job.path)
-		panic1(ioutil.WriteFile(lib.ChecksumPath(job.path), []byte(server_checksum), 0o444))
+		assert(!panic2(lib.Exists(job.path)).(bool), job.path)
+		panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(server_checksum), 0o444))
 		panic1(os.Chmod(job.temp_path, 0o444))
 		panic1(os.Rename(job.temp_path, job.path))
 	})
@@ -183,14 +183,14 @@ func Delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			files, dirs := list_recursive(prefix, false)
 			for _, info := range *files {
 				panic1(os.Remove(info.Path))
-				panic1(os.Remove(lib.ChecksumPath(info.Path)))
+				panic1(os.Remove(panic2(lib.ChecksumPath(info.Path)).(string)))
 			}
 			for _, info := range *dirs {
 				panic1(os.RemoveAll(info.Path))
 			}
 		} else {
 			panic1(os.Remove(prefix))
-			panic1(os.Remove(lib.ChecksumPath(prefix)))
+			panic1(os.Remove(panic2(lib.ChecksumPath(prefix)).(string)))
 		}
 	})
 }
@@ -269,7 +269,11 @@ func localPut(temp_path string, key string) error {
 	if strings.Contains(key, " ") {
 		return fmt.Errorf("key contains space: %s", key)
 	}
-	if !panic2(lib.OnThisServer(key)).(bool) {
+	on_this_server, err := lib.OnThisServer(key)
+	if err != nil {
+		return err
+	}
+	if !on_this_server {
 		return fmt.Errorf("wrong server for key: %s", key)
 	}
 	path := strings.SplitN(key, "s4://", 2)[1]
@@ -277,7 +281,6 @@ func localPut(temp_path string, key string) error {
 		return fmt.Errorf("path cannot start with underscore: %s", path)
 	}
 	var checksum string
-	var err error
 	lib.With(misc_pool, func() {
 		checksum, err = lib.Checksum(temp_path)
 	})
@@ -295,7 +298,11 @@ func confirmLocalPut(temp_path string, path string, checksum string) error {
 	if err != nil {
 		return err
 	}
-	if lib.Exists(path) {
+	exists, err := lib.Exists(path)
+	if err != nil {
+		return err
+	}
+	if exists {
 		return fmt.Errorf("fatal: key already exists s4://%s", path)
 	}
 	err = os.Chmod(temp_path, 0o444)
@@ -306,8 +313,7 @@ func confirmLocalPut(temp_path string, path string, checksum string) error {
 	if err != nil {
 		return err
 	}
-	lib.ChecksumWrite(path, checksum)
-	return nil
+	return lib.ChecksumWrite(path, checksum)
 }
 
 type MapToNResult struct {
@@ -330,7 +336,6 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
 	results := make(chan MapToNResult, len(data.Args))
-	fail := make(chan error)
 	for _, arg := range data.Args {
 		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
@@ -348,70 +353,67 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var tempdirs []string
 	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
-	var outer sync.WaitGroup
-	var inner sync.WaitGroup
-	for range data.Args {
-		select {
-		case <-timeout:
-			w.WriteHeader(429)
-			return
-		case result := <-results:
+	fail := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		for range data.Args {
+			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
-				w.WriteHeader(400)
-				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
-				return
+				fail <- fmt.Errorf(result.WarnResult.Stdout + "\n" + result.WarnResult.Stderr)
+				break
 			} else {
-				outer.Add(1)
-				go func(result MapToNResult) {
-					for _, temp_path := range strings.Split(result.WarnResult.Stdout, "\n") {
-						if temp_path == "" {
-							continue
-						}
-						inner.Add(1)
+				for _, temp_path := range strings.Split(result.WarnResult.Stdout, "\n") {
+					if temp_path != "" {
+						wg.Add(1)
 						temp_path = lib.Join(result.WarnResult.Tempdir, temp_path)
 						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(temp_path))
-						go func(temp_path string, outkey string) {
-							if panic2(lib.OnThisServer(outkey)).(bool) {
-								err := localPut(temp_path, outkey)
-								if err != nil {
-									fail <- err
-								}
-							} else {
-								panic1(retry.Do(func() error {
-									var err error
-									lib.With(io_send_pool, func() {
-										err = lib.Put(temp_path, outkey)
-									})
-									if errors.Is(err, lib.Err409) {
-										fail <- err
-										return nil
-									}
-									return err
-								}))
-							}
-							inner.Done()
-						}(temp_path, outkey)
+						go mapToNPut(&wg, fail, temp_path, outkey)
 					}
-					outer.Done()
-				}(result)
+				}
 			}
 		}
-	}
-	done := make(chan error)
-	go func() {
-		outer.Wait()
-		inner.Wait()
-		done <- nil
+		wg.Done()
 	}()
 	select {
 	case err := <-fail:
 		w.WriteHeader(500)
 		panic2(fmt.Fprintf(w, "%s", err))
-	case <-done:
+	case <-lib.Await(&wg):
 		w.WriteHeader(200)
 	case <-timeout:
 		w.WriteHeader(429)
+	}
+}
+
+func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey string) {
+	defer wg.Done()
+	on_this_server, err := lib.OnThisServer(outkey)
+	if err != nil {
+		fail <- err
+		return
+	}
+	if on_this_server {
+		err := localPut(temp_path, outkey)
+		if err != nil {
+			fail <- err
+		}
+	} else {
+		err := retry.Do(func() error {
+			var err error
+			lib.With(io_send_pool, func() {
+				err = lib.Put(temp_path, outkey)
+			})
+			if errors.Is(err, lib.Err409) {
+				fail <- err
+				return nil
+			}
+			return err
+		})
+		if err != nil {
+			fail <- err
+		}
 	}
 }
 
@@ -447,17 +449,13 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
-	for range data.Args {
-		select {
-		case <-timeout:
-			w.WriteHeader(429)
-			return
-		case result := <-results:
+	go func() {
+		for range data.Args {
+			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
-				w.WriteHeader(400)
-				panic2(fmt.Fprint(w, result.WarnResult.Stdout+"\n"+result.WarnResult.Stderr))
-				return
+				fail <- fmt.Errorf(result.WarnResult.Stdout + "\n" + result.WarnResult.Stderr)
+				break
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
@@ -469,7 +467,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				}(result)
 			}
 		}
-	}
+	}()
 	for range data.Args {
 		select {
 		case <-jobs:
@@ -491,7 +489,7 @@ func Eval(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
 	lib.With(solo_pool, func() {
-		exists = lib.Exists(path)
+		exists = panic2(lib.Exists(path)).(bool)
 	})
 	if !exists {
 		w.WriteHeader(404)

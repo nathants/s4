@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cespare/xxhash"
@@ -59,13 +60,17 @@ func Join(parts ...string) string {
 	return res
 }
 
-func Exists(path string) bool {
+func Exists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err != nil {
-		return false
+		return false, nil
 	} else {
-		_, err = os.Stat(ChecksumPath(path))
-		return err == nil
+		checksum_path, err := ChecksumPath(path)
+		if err != nil {
+			return false, err
+		}
+		_, err = os.Stat(checksum_path)
+		return err == nil, nil
 	}
 }
 
@@ -474,12 +479,24 @@ func QueryParamDefault(r *http.Request, name string, default_val string) string 
 	}
 }
 
-func ChecksumWrite(path string, checksum string) {
-	panic1(ioutil.WriteFile(ChecksumPath(path), []byte(checksum), 0o444))
+func ChecksumWrite(path string, checksum string) error {
+	checksum_path, err := ChecksumPath(path)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(checksum_path, []byte(checksum), 0o444)
 }
 
-func ChecksumRead(path string) string {
-	return string(panic2(ioutil.ReadFile(ChecksumPath(path))).([]byte))
+func ChecksumRead(path string) (string, error) {
+	checksum_path, err := ChecksumPath(path)
+	if err != nil {
+		return "", err
+	}
+	bytes, err := ioutil.ReadFile(checksum_path)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
 func Checksum(path string) (string, error) {
@@ -496,9 +513,11 @@ func Checksum(path string) (string, error) {
 	return val, nil
 }
 
-func ChecksumPath(prefix string) string {
-	assert(!strings.HasSuffix(prefix, "/"), prefix)
-	return fmt.Sprintf("%s.xxh", prefix)
+func ChecksumPath(prefix string) (string, error) {
+	if strings.HasSuffix(prefix, "/") {
+		return "", fmt.Errorf("checksum path is not file: %s", prefix)
+	}
+	return fmt.Sprintf("%s.xxh", prefix), nil
 }
 
 func IsChecksum(path string) bool {
@@ -715,6 +734,15 @@ func Contains(parts []string, part string) bool {
 		}
 	}
 	return false
+}
+
+func Await(wg *sync.WaitGroup) <-chan error {
+	done := make(chan error)
+	go func() {
+		wg.Wait()
+		done <- nil
+	}()
+	return done
 }
 
 func assert(cond bool, format string, a ...interface{}) {
