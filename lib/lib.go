@@ -529,7 +529,7 @@ func Last(parts []string) string {
 	return parts[len(parts)-1]
 }
 
-func RecvFile(path string, port string) (string, error) {
+func RecvFile(path string, port chan<- string) (string, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return "", err
@@ -550,7 +550,7 @@ func RecvFile(path string, port string) (string, error) {
 	return checksum, nil
 }
 
-func Recv(w io.Writer, port string) (string, error) {
+func Recv(w io.Writer, port chan<- string) (string, error) {
 	stop := make(chan error)
 	fail := make(chan error)
 	checksum := make(chan string)
@@ -572,8 +572,8 @@ func Recv(w io.Writer, port string) (string, error) {
 	}()
 	go func() {
 		h := xxhash.New()
-		src := fmt.Sprintf(":%s", port)
-		li := panic2(net.Listen("tcp", src)).(net.Listener)
+		li := panic2(net.Listen("tcp", ":0")).(net.Listener)
+		port <- Last(strings.Split(li.Addr().String(), ":"))
 		conn := panic2(li.Accept()).(net.Conn)
 		rwc := rwcCallback{rwc: conn, cb: func() { start.Store(time.Now()) }}
 		t := io.TeeReader(rwc, h)

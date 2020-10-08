@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+
 	"os"
 	"path"
 	"path/filepath"
@@ -13,9 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/phayes/freeport"
 )
+
 
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
@@ -423,22 +423,26 @@ func putRecursive(src string, dst string) {
 func get(src string, dst string) {
 	server, err := lib.PickServer(src)
 	panic1(err)
-	port := panic2(freeport.GetFreePort()).(int)
+	port := make(chan string, 1)
+	done := make(chan error)
 	temp_path := fmt.Sprintf("%s.temp", dst)
-	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%d", server.Address, server.Port, src, port)
+	var client_checksum string
+	go func() {
+		if dst == "-" {
+			client_checksum = panic2(lib.Recv(os.Stdout, port)).(string)
+		} else {
+			_, err = os.Stat(temp_path)
+			assert(err != nil, temp_path)
+			client_checksum = panic2(lib.RecvFile(temp_path, port)).(string)
+		}
+		done <- nil
+	}()
+	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
 	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	assert(result.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
 	assert(result.StatusCode == 200, "%s", result.Body)
 	uid := result.Body
-	var client_checksum string
-	if dst == "-" {
-		client_checksum, err = lib.Recv(os.Stdout, fmt.Sprint(port))
-	} else {
-		_, err = os.Stat(temp_path)
-		assert(err != nil, temp_path)
-		client_checksum, err = lib.RecvFile(temp_path, fmt.Sprint(port))
-	}
-	panic1(err)
+	<-done
 	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	assert(result.StatusCode == 200, "%s", result.Body)
@@ -499,8 +503,7 @@ func Usage() {
     map-to-n            shuffle data
     map-from-n          merge shuffled data
     config              list the server addresses
-    health              health check every server
-`))
+    health              health check every server`))
 	os.Exit(1)
 }
 

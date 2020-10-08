@@ -18,7 +18,6 @@ import (
 
 	"github.com/avast/retry-go"
 	"github.com/julienschmidt/httprouter"
-	"github.com/phayes/freeport"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
 )
@@ -118,11 +117,9 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := strings.SplitN(key, "s4://", 2)[1]
 	assert(!strings.HasPrefix(path, "_"), path)
 	fail := make(chan error)
-	var port int
 	var exists bool
 	var temp_path string
 	lib.With(solo_pool, func() {
-		port = panic2(freeport.GetFreePort()).(int)
 		exists = panic2(lib.Exists(path)).(bool)
 		temp_path = lib.NewTempPath("_tempfiles")
 	})
@@ -131,11 +128,10 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		return
 	}
 	uid := uuid.NewV4().String()
-	started := make(chan bool, 1)
+	port := make(chan string, 1)
 	server_checksum := make(chan string, 1)
 	go lib.With(io_recv_pool, func() {
-		started <- true
-		chk, err := lib.RecvFile(temp_path, fmt.Sprint(port))
+		chk, err := lib.RecvFile(temp_path, port)
 		fail <- err
 		server_checksum <- chk
 	})
@@ -148,9 +144,9 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		_ = os.Remove(path)
 		_ = os.Remove(panic2(lib.ChecksumPath(path)).(string))
 		w.WriteHeader(429)
-	case <-started:
+	case p := <-port:
 		w.Header().Set("Content-Type", "application/text")
-		panic2(fmt.Fprintf(w, "%s %d", uid, port))
+		panic2(fmt.Fprintf(w, "%s %s", uid, p))
 	}
 }
 
