@@ -217,16 +217,13 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
-				results <- MapResult{lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd)), outkey}
+				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd))
+				results <- MapResult{result, outkey}
 			})
 		}(inpath)
 	}
 	var tempdirs []string
-	defer func() {
-		for _, tempdir := range tempdirs {
-			panic1(os.RemoveAll(tempdir))
-		}
-	}()
+	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
@@ -319,6 +316,12 @@ type MapToNResult struct {
 	Outdir     string
 }
 
+func cleanup(tempdirs *[]string) {
+	for _, tempdir := range *tempdirs {
+		panic1(os.RemoveAll(tempdir))
+	}
+}
+
 func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var data lib.Data
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
@@ -337,16 +340,13 @@ func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
-				results <- MapToNResult{lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd)), inpath, outdir}
+				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd))
+				results <- MapToNResult{result, inpath, outdir}
 			})
 		}(inpath)
 	}
 	var tempdirs []string
-	defer func() {
-		for _, tempdir := range tempdirs {
-			panic1(os.RemoveAll(tempdir))
-		}
-	}()
+	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
 	var outer sync.WaitGroup
 	var inner sync.WaitGroup
@@ -437,19 +437,13 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		go func(inpaths []string) {
 			lib.With(cpu_pool, func() {
 				stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
-				results <- MapResult{
-					lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd)),
-					outkey,
-				}
+				result := lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd))
+				results <- MapResult{result, outkey}
 			})
 		}(inpaths)
 	}
 	var tempdirs []string
-	defer func() {
-		for _, tempdir := range tempdirs {
-			panic1(os.RemoveAll(tempdir))
-		}
-	}()
+	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
 	fail := make(chan error)
