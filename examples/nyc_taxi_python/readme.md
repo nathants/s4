@@ -31,7 +31,7 @@ tunnel cluster internal traffic through a cluster node via ssh
 >> bash scripts/connect_to_cluster.sh s4-cluster
 ```
 
-pull csv data from s3 and convert to bzv
+pull csv data from s3 and convert to bsv
 ```bash
 >> time bash schema.sh
 79.358 seconds
