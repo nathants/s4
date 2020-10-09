@@ -95,16 +95,16 @@ tunnel cluster internal traffic through a cluster node via ssh
 >> bash scripts/connect_to_cluster.sh s4-cluster
 ```
 
-pull csv data from s3 and convert to bzv
+pull csv data from s3 and convert to bsv
 ```bash
 >> time bash schema.sh
-134.444 seconds
+124.032 seconds
 ```
 
 run queries
 ```bash
 >> bash count_rides_by_passengers.sh
-3.136 seconds
+3.074 seconds
 
 >> bash count_rides_by_date.sh
 4.743 seconds
