@@ -622,7 +622,7 @@ func expireJobs() {
 			start = v.start
 		}
 		if time.Since(start) > lib.MaxTimeout {
-			lib.Logger.Printf("gc expired job: %s\n", k)
+			lib.Logger.Printf("gc expired job: %s %s %s\n", k, path, temp_path)
 			go func() {
 				lib.With(misc_pool, func() {
 					if path != "" {
@@ -640,19 +640,23 @@ func expireJobs() {
 }
 
 func expireFiles() {
-	for _, info := range panic2(ioutil.ReadDir("_tempfiles")).([]os.FileInfo) {
+	root := "_tempfiles"
+	for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
 		if time.Since(info.ModTime()) > lib.MaxTimeout {
-			lib.Logger.Printf("gc expired tempfile: %s\n", info.Name())
-			panic1(os.Remove(info.Name()))
+			path := lib.Join(root, info.Name())
+			lib.Logger.Printf("gc expired tempfile: %s\n", path)
+			_ = os.Remove(path)
 		}
 	}
 }
 
 func expireDirs() {
-	for _, info := range panic2(ioutil.ReadDir("_tempdirs")).([]os.FileInfo) {
+	root := "_tempdirs"
+	for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
 		if time.Since(info.ModTime()) > lib.MaxTimeout {
-			lib.Logger.Printf("gc expired tempdir: %s\n", info.Name())
-			panic1(os.RemoveAll(info.Name()))
+			path := lib.Join(root, info.Name())
+			lib.Logger.Printf("gc expired tempdir: %s\n", path)
+			_ = os.RemoveAll(path)
 		}
 	}
 }
