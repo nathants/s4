@@ -16,7 +16,6 @@ import (
 	"time"
 )
 
-
 func Rm() {
 	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	recursive := cmd.Bool("r", false, "recursive")
@@ -426,13 +425,12 @@ func get(src string, dst string) {
 	port := make(chan string, 1)
 	done := make(chan error)
 	temp_path := fmt.Sprintf("%s.temp", dst)
+	defer func() { _ = os.Remove(temp_path) }()
 	var client_checksum string
 	go func() {
 		if dst == "-" {
 			client_checksum = panic2(lib.Recv(os.Stdout, port)).(string)
 		} else {
-			_, err = os.Stat(temp_path)
-			assert(err != nil, temp_path)
 			client_checksum = panic2(lib.RecvFile(temp_path, port)).(string)
 		}
 		done <- nil
@@ -455,7 +453,6 @@ func get(src string, dst string) {
 	if dst != "-" {
 		panic1(os.Rename(temp_path, dst))
 	}
-	_ = os.Remove(temp_path)
 }
 
 func Config() {
