@@ -64,6 +64,9 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	go lib.With(io_send_pool, func() {
 		started <- true
 		chk, err := lib.SendFile(path, remote, port)
+		if err != nil {
+		    lib.Logger.Println("send error:", err)
+		}
 		fail <- err
 		server_checksum <- chk
 	})
@@ -131,6 +134,9 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	server_checksum := make(chan string, 1)
 	go lib.With(io_recv_pool, func() {
 		chk, err := lib.RecvFile(temp_path, port)
+		if err != nil {
+		    lib.Logger.Println("recv error:", err)
+		}
 		fail <- err
 		server_checksum <- chk
 	})
