@@ -183,7 +183,7 @@ func MapFromN() {
 }
 
 type Url struct {
-	Url        string
+	Url     string
 	MapArgs []byte
 }
 
@@ -229,7 +229,7 @@ func Eval() {
 	assert(result.Err == nil, "%s", result.Err)
 	switch result.StatusCode {
 	case 404:
-		panic2(fmt.Fprintln(os.Stderr, "fatal: no such key"))
+		panic2(fmt.Fprintln(os.Stderr, "no such key"))
 		os.Exit(1)
 	case 200:
 		panic2(os.Stdout.Write(result.Body))
@@ -341,10 +341,10 @@ func list(prefix string, recursive bool) [][]string {
 }
 
 func cp(src string, dst string, recursive bool) {
-	assert(!(strings.HasPrefix(src, "s4://") && strings.HasPrefix(dst, "s4://")), "fatal: there is no move, there is only cp and rm.")
-	assert(!strings.Contains(src, " ") && !strings.Contains(dst, " "), "fatal: spaces in keys are not allowed")
-	assert(!strings.HasPrefix(src, "s4://") || !strings.HasPrefix(strings.SplitN(src, "s4://", 2)[1], "_"), "fatal: buckets cannot start with underscore")
-	assert(!strings.HasPrefix(dst, "s4://") || !strings.HasPrefix(strings.SplitN(dst, "s4://", 2)[1], "_"), "fatal: buckets cannot start with underscore")
+	assert(!(strings.HasPrefix(src, "s4://") && strings.HasPrefix(dst, "s4://")), "there is no move, there is only cp and rm.")
+	assert(!strings.Contains(src, " ") && !strings.Contains(dst, " "), "spaces in keys are not allowed")
+	assert(!strings.HasPrefix(src, "s4://") || !strings.HasPrefix(strings.SplitN(src, "s4://", 2)[1], "_"), "buckets cannot start with underscore")
+	assert(!strings.HasPrefix(dst, "s4://") || !strings.HasPrefix(strings.SplitN(dst, "s4://", 2)[1], "_"), "buckets cannot start with underscore")
 	if recursive {
 		if strings.HasPrefix(src, "s4://") {
 			getRecursive(src, dst)
@@ -437,7 +437,7 @@ func get(src string, dst string) {
 	}()
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
 	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
-	assert(result.StatusCode != 404, fmt.Sprintf("fatal: no such key: %s", src))
+	assert(result.StatusCode != 404, fmt.Sprintf("no such key: %s", src))
 	assert(result.StatusCode == 200, "%s", result.Body)
 	uid := result.Body
 	<-done
@@ -534,20 +534,22 @@ func main() {
 
 func assert(cond bool, format string, a ...interface{}) {
 	if !cond {
-		fmt.Fprintf(os.Stderr, format, a...)
+		fmt.Fprintf(os.Stderr, fmt.Sprintf("fatal: %s\n", format), a...)
 		os.Exit(1)
 	}
 }
 
 func panic1(e error) {
 	if e != nil {
-		panic(e)
+		fmt.Fprintf(os.Stderr, "fatal: %s\n", e)
+		os.Exit(1)
 	}
 }
 
 func panic2(x interface{}, e error) interface{} {
 	if e != nil {
-		panic(e)
+		fmt.Fprintf(os.Stderr, "fatal: %s\n", e)
+		os.Exit(1)
 	}
 	return x
 }
