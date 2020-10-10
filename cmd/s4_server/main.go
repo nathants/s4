@@ -196,7 +196,7 @@ type MapResult struct {
 }
 
 func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	var data lib.Data
+	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -320,7 +320,7 @@ func cleanup(tempdirs *[]string) {
 }
 
 func MapToN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	var data lib.Data
+	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -411,7 +411,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey s
 func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	outdir := lib.QueryParam(r, "outdir")
 	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
-	var data lib.Data
+	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	if strings.HasPrefix(data.Cmd, "while read") {
@@ -603,7 +603,7 @@ func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func PanicHandler(w http.ResponseWriter, r *http.Request, err interface{}) {
-	lib.Logger.Println("panic handled: %s", err)
+	lib.Logger.Printf("panic handled: %s\n", err)
 	w.WriteHeader(500)
 	panic2(fmt.Fprintf(w, "%s\n", err))
 }

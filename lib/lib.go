@@ -442,7 +442,7 @@ func Put(src string, dst string) error {
 	return nil
 }
 
-type Data struct {
+type MapArgs struct {
 	Cmd  string     `json:"cmd"`
 	Args [][]string `json:"args"`
 }

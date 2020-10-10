@@ -83,7 +83,7 @@ func Map() {
 	}
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{Cmd: cmd, Args: data}
+		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes := panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -123,7 +123,7 @@ func MapToN() {
 	}
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{Cmd: cmd, Args: data}
+		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes := panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -175,7 +175,7 @@ func MapFromN() {
 	}
 	var urls []Url
 	for url, data := range datas {
-		d := lib.Data{Cmd: cmd, Args: data}
+		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes := panic2(json.Marshal(d)).([]byte)
 		urls = append(urls, Url{url, bytes})
 	}
@@ -183,8 +183,8 @@ func MapFromN() {
 }
 
 type Url struct {
-	Url  string
-	Data []byte
+	Url        string
+	MapArgs []byte
 }
 
 type HttpResultUrl struct {
@@ -198,7 +198,7 @@ func postAll(urls []Url) {
 	results := make(chan *HttpResultUrl, len(urls))
 	for _, url := range urls {
 		go func(url Url) {
-			result := lib.Post(url.Url, "application/json", bytes.NewBuffer(url.Data))
+			result := lib.Post(url.Url, "application/json", bytes.NewBuffer(url.MapArgs))
 			results <- &HttpResultUrl{result.StatusCode, result.Body, result.Err, url}
 		}(url)
 	}
