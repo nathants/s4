@@ -450,6 +450,8 @@ func NewTempPath(dir string) string {
 		temp_path := panic2(filepath.Abs(Join(dir, uid))).(string)
 		_, err := os.Stat(temp_path)
 		if err != nil {
+			f := panic2(os.Create(temp_path)).(*os.File)
+			panic1(f.Close())
 			return temp_path
 		}
 	}
