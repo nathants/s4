@@ -413,7 +413,7 @@ func Put(src string, dst string) error {
 		return result.Err
 	}
 	if result.StatusCode == 409 {
-		return fmt.Errorf("fatal: key already exists: %s %w", dst, Err409)
+		return fmt.Errorf("key already exists: %s %w", dst, Err409)
 	}
 	if result.StatusCode != 200 {
 		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
@@ -463,8 +463,8 @@ func NewTempPath(dir string) string {
 
 func With(pool *semaphore.Weighted, fn func()) {
 	panic1(pool.Acquire(context.Background(), 1))
+	defer func() { pool.Release(1) }()
 	fn()
-	pool.Release(1)
 }
 
 func QueryParam(r *http.Request, name string) string {

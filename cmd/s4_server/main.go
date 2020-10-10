@@ -59,7 +59,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
-	fail := make(chan error)
+	fail := make(chan error, 1)
 	server_checksum := make(chan string, 1)
 	go lib.With(io_send_pool, func() {
 		started <- true
@@ -115,7 +115,6 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	assert(panic2(lib.OnThisServer(key)).(bool), "wronger server for request")
 	path := strings.SplitN(key, "s4://", 2)[1]
 	assert(!strings.HasPrefix(path, "_"), path)
-	fail := make(chan error)
 	var exists bool
 	var temp_path string
 	lib.With(solo_pool, func() {
@@ -128,6 +127,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 	uid := uuid.NewV4().String()
 	port := make(chan string, 1)
+	fail := make(chan error, 1)
 	server_checksum := make(chan string, 1)
 	go lib.With(io_recv_pool, func() {
 		chk, err := lib.RecvFile(temp_path, port)
@@ -221,7 +221,7 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
-	fail := make(chan error)
+	fail := make(chan error, 1)
 	go func() {
 		for range data.Args {
 			result := <-results
@@ -235,8 +235,9 @@ func Map(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 					err := localPut(temp_path, result.Outkey)
 					if err != nil {
 						fail <- err
+					} else {
+						jobs <- nil
 					}
-					jobs <- nil
 				}(result)
 			}
 		}
@@ -439,7 +440,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
 	jobs := make(chan error, len(data.Args))
-	fail := make(chan error)
+	fail := make(chan error, 1)
 	go func() {
 		for range data.Args {
 			result := <-results
@@ -453,8 +454,9 @@ func MapFromN(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 					err := localPut(temp_path, result.Outkey)
 					if err != nil {
 						fail <- err
+					} else {
+						jobs <- nil
 					}
-					jobs <- nil
 				}(result)
 			}
 		}
