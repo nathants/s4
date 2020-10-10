@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avast/retry-go"
 	"github.com/julienschmidt/httprouter"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
@@ -392,7 +391,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey s
 			fail <- err
 		}
 	} else {
-		err := retry.Do(func() error {
+		err := lib.Retry(func() error {
 			var err error
 			lib.With(io_send_pool, func() {
 				err = lib.Put(temp_path, outkey)
@@ -604,6 +603,7 @@ func Health(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 }
 
 func PanicHandler(w http.ResponseWriter, r *http.Request, err interface{}) {
+	lib.Logger.Println("panic handled: %s", err)
 	w.WriteHeader(500)
 	panic2(fmt.Fprintf(w, "%s\n", err))
 }

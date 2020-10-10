@@ -20,9 +20,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/cespare/xxhash"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
@@ -205,19 +205,22 @@ type rwcCallback struct {
 	cb  func()
 }
 
-func (rwc rwcCallback) Read(p []byte) (n int, err error) {
-	defer rwc.cb()
-	return rwc.rwc.Read(p)
+func (rwc rwcCallback) Read(p []byte) (int, error) {
+	n, err := rwc.rwc.Read(p)
+	go rwc.cb()
+	return n, err
 }
 
-func (rwc rwcCallback) Write(p []byte) (n int, err error) {
-	defer rwc.cb()
-	return rwc.rwc.Write(p)
+func (rwc rwcCallback) Write(p []byte) (int, error) {
+	n, err := rwc.rwc.Write(p)
+	go rwc.cb()
+	return n, err
 }
 
 func (rwc rwcCallback) Close() error {
-	defer rwc.cb()
-	return rwc.rwc.Close()
+	err := rwc.rwc.Close()
+	go rwc.cb()
+	return err
 }
 
 func hash(str string) int {
@@ -552,34 +555,52 @@ func RecvFile(path string, port chan<- string) (string, error) {
 	return checksum, nil
 }
 
-func Recv(w io.Writer, port chan<- string) (string, error) {
-	stop := make(chan error)
-	fail := make(chan error)
-	checksum := make(chan string)
-	var start atomic.Value
-	start.Store(time.Now())
+func ResetableTimeout(duration time.Duration) (func(), <-chan error) {
+	reset := make(chan error, 1)
+	timeout := make(chan error, 1)
+	start := time.Now()
 	go func() {
 		for {
 			select {
-			case <-stop:
+			case <-reset:
+				start = time.Now()
+			case <-time.After(duration - time.Since(start)):
+				timeout <- nil
 				return
-			default:
-				if time.Since(start.Load().(time.Time)) > 5*time.Second {
-					fail <- fmt.Errorf("recv timeout")
-					return
-				}
-				time.Sleep(time.Microsecond * 10000)
 			}
 		}
 	}()
+	reset_fn := func() {
+		reset <- nil
+	}
+	return reset_fn, timeout
+}
+
+func Recv(w io.Writer, port chan<- string) (string, error) {
+	fail := make(chan error)
+	checksum := make(chan string)
+	reset, timeout := ResetableTimeout(5 * time.Second)
 	go func() {
 		h := xxhash.New()
-		li := panic2(net.Listen("tcp", ":0")).(net.Listener)
+		var li net.Listener
+		var err error
+		err = Retry(func() error {
+			li, err = net.Listen("tcp", ":0")
+			return err
+		})
+		if err != nil {
+			fail <- err
+			return
+		}
 		port <- Last(strings.Split(li.Addr().String(), ":"))
-		conn := panic2(li.Accept()).(net.Conn)
-		rwc := rwcCallback{rwc: conn, cb: func() { start.Store(time.Now()) }}
+		conn, err := li.Accept()
+		if err != nil {
+			fail <- err
+			return
+		}
+		rwc := rwcCallback{rwc: conn, cb: reset}
 		t := io.TeeReader(rwc, h)
-		_, err := io.Copy(w, t)
+		_, err = io.Copy(w, t)
 		if err != nil {
 			fail <- err
 			return
@@ -597,9 +618,10 @@ func Recv(w io.Writer, port chan<- string) (string, error) {
 		checksum <- fmt.Sprintf("%x", h.Sum64())
 	}()
 	select {
-	case c := <-checksum:
-		stop <- nil
-		return c, nil
+	case chk := <-checksum:
+		return chk, nil
+	case <-timeout:
+		return "", fmt.Errorf("recv timeout")
 	case err := <-fail:
 		return "", err
 	}
@@ -623,38 +645,23 @@ func SendFile(path string, addr string, port string) (string, error) {
 }
 
 func send(r io.Reader, addr string, port string) (string, error) {
-	stop := make(chan error)
+	reset, timeout := ResetableTimeout(5 * time.Second)
 	fail := make(chan error)
 	checksum := make(chan string)
-	var start atomic.Value
-	start.Store(time.Now())
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				if time.Since(start.Load().(time.Time)) > 5*time.Second {
-					fail <- fmt.Errorf("send timeout")
-					return
-				}
-				time.Sleep(time.Microsecond * 10000)
-			}
-		}
-	}()
 	go func() {
 		h := xxhash.New()
 		dst := fmt.Sprintf("%s:%s", addr, port)
 		var conn net.Conn
-		var err error
-		for {
+		err := Retry(func() error {
+			var err error
 			conn, err = net.Dial("tcp", dst)
-			if err == nil {
-				break
-			}
-			time.Sleep(time.Microsecond * 10000)
+			return err
+		})
+		if err != nil {
+			fail <- err
+			return
 		}
-		rwc := rwcCallback{rwc: conn, cb: func() { start.Store(time.Now()) }}
+		rwc := rwcCallback{rwc: conn, cb: reset}
 		t := io.TeeReader(r, h)
 		_, err = io.Copy(rwc, t)
 		if err != nil {
@@ -670,8 +677,9 @@ func send(r io.Reader, addr string, port string) (string, error) {
 	}()
 	select {
 	case chk := <-checksum:
-		stop <- nil
 		return chk, nil
+	case <-timeout:
+		return "", fmt.Errorf("send timeout")
 	case err := <-fail:
 		return "", err
 	}
@@ -748,6 +756,15 @@ func Await(wg *sync.WaitGroup) <-chan error {
 		done <- nil
 	}()
 	return done
+}
+
+func Retry(fn func() error) error {
+	return retry.Do(
+		fn,
+		retry.LastErrorOnly(true),
+		retry.Attempts(10),
+		retry.Delay(10*time.Millisecond),
+	)
 }
 
 func assert(cond bool, format string, a ...interface{}) {
