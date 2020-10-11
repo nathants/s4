@@ -26,17 +26,12 @@ import util.retry
 
 io_jobs = {}
 
-# setup pool sizes
-num_cpus = os.cpu_count() or 1
-max_io_jobs  = int(os.environ.get('S4_IO_JOBS', num_cpus * 4))
-max_cpu_jobs = int(os.environ.get('S4_CPU_JOBS', num_cpus + 2))
-
 # setup pools
-io_send_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
-io_recv_pool = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
-cpu_pool     = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-misc_pool    = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
-solo_pool    = concurrent.futures.ThreadPoolExecutor(1)
+io_send_pool = None # concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+io_recv_pool = None # concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+cpu_pool     = None # concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+misc_pool    = None # concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+solo_pool    = None # concurrent.futures.ThreadPoolExecutor(1)
 
 # pool submit fns
 submit_io_send = lambda f, *a, **kw: tornado.ioloop.IOLoop.current().run_in_executor(io_send_pool, lambda: f(*a, **kw)) # type: ignore # noqa
@@ -431,8 +426,22 @@ async def gc_expired_data():
     await tornado.gen.sleep(5)
     tornado.ioloop.IOLoop.current().add_callback(gc_expired_data)
 
-def main(debug=False):
+def init_pools(max_io_jobs, max_cpu_jobs):
+    globals()['io_send_pool'] = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+    globals()['io_recv_pool'] = concurrent.futures.ThreadPoolExecutor(max_io_jobs)
+    globals()['cpu_pool']     = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+    globals()['misc_pool']    = concurrent.futures.ThreadPoolExecutor(max_cpu_jobs)
+    globals()['solo_pool']    = concurrent.futures.ThreadPoolExecutor(1)
+
+num_cpus     = os.cpu_count() or 1
+max_io_jobs  = num_cpus * 4
+max_cpu_jobs = num_cpus + 2
+
+def main(debug=False, port=None, max_io_jobs=max_io_jobs, max_cpu_jobs=max_cpu_jobs):
     util.log.setup(format='%(message)s')
+    if port:
+        s4.http_port = lambda: port
+    init_pools(max_io_jobs, max_cpu_jobs)
     if not os.path.basename(os.getcwd()) == 's4_data':
         os.makedirs('s4_data/_tempfiles', exist_ok=True)
         os.makedirs('s4_data/_tempdirs',  exist_ok=True)
