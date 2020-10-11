@@ -707,14 +707,23 @@ func (o *responseObserver) WriteHeader(code int) {
 	o.Status = code
 }
 
-type LoggingHandler struct {
-	Handler http.Handler
+type RootHandler struct {
+	Handler func(w http.ResponseWriter, r *http.Request)
 }
 
-func (l *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (l *RootHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	defer func() {
+		if err := recover(); err != nil {
+			Logger.Printf("panic handled: %s\n", err)
+			w.WriteHeader(500)
+			panic2(fmt.Fprintf(w, "%s\n", err))
+			seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
+			Logger.Println(500, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
+		}
+	}()
 	wo := &responseObserver{w, 200}
-	l.Handler.ServeHTTP(wo, r)
+	l.Handler(wo, r)
 	seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
 	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
 }
