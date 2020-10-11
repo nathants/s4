@@ -33,6 +33,7 @@ const (
 	Timeout    = 5 * time.Minute
 	MaxTimeout = Timeout*2 + 15*time.Second
 	bufSize    = 4096
+	ioTimeout  = 5 * time.Second
 )
 
 var (
@@ -579,7 +580,7 @@ func ResetableTimeout(duration time.Duration) (func(), <-chan error) {
 func Recv(w io.Writer, port chan<- string) (string, error) {
 	fail := make(chan error)
 	checksum := make(chan string)
-	reset, timeout := ResetableTimeout(5 * time.Second)
+	reset, timeout := ResetableTimeout(ioTimeout)
 	go func() {
 		h := xxhash.New()
 		var li net.Listener
@@ -645,7 +646,7 @@ func SendFile(path string, addr string, port string) (string, error) {
 }
 
 func send(r io.Reader, addr string, port string) (string, error) {
-	reset, timeout := ResetableTimeout(5 * time.Second)
+	reset, timeout := ResetableTimeout(ioTimeout)
 	fail := make(chan error)
 	checksum := make(chan string)
 	go func() {

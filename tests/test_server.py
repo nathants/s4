@@ -26,23 +26,23 @@ def rm_whitespace(x):
                       for y in x.splitlines()
                       if y.strip()])
 
-def start(port, conf):
+def start(port, conf, extra=''):
     with shell.cd(f'_{port}'):
         for i in range(5):
             try:
-                shell.run(f'timeout 60 s4-server -port {port} -conf {conf}', stream=True)
+                shell.run(f'timeout 60 s4-server -port {port} -conf {conf} {extra}', stream=True)
             except:
                 logging.exception('')
                 continue
         assert False, f'failed to start server on ports from: {port}'
 
 @retry
-def start_all():
-    ports = [util.net.free_port() for _ in range(3)]
+def start_all(extra='', num=3):
+    ports = [util.net.free_port() for _ in range(num)]
     conf = os.environ['S4_CONF_PATH'] = os.path.abspath(run('mktemp -p .'))
     with open(conf, 'w') as f:
         f.write('\n'.join(f'0.0.0.0:{port}' for port in ports) + '\n')
-    procs = [pool.proc.new(start, port, conf) for port in ports]
+    procs = [pool.proc.new(start, port, conf, extra) for port in ports]
     try:
         for _ in range(50):
             try:
@@ -71,13 +71,13 @@ def watcher(watch, procs):
                 os._exit(1)
 
 @contextlib.contextmanager
-def servers(timeout=30):
+def servers(timeout=30, extra_conf='', num_servers=3):
     util.log.setup(format='%(message)s')
     shell.set['stream'] = True
     with util.time.timeout(timeout):
         with shell.stream():
             with shell.tempdir():
-                procs = start_all()
+                procs = start_all(extra_conf, num_servers)
                 watch = [True]
                 pool.thread.new(watcher, watch, procs)
                 try:
@@ -105,6 +105,34 @@ def test_eval():
     with servers():
         run('echo 123 | s4 cp - s4://bucket/file.txt')
         assert '123' == run('s4 eval s4://bucket/file.txt "cat"')
+
+def test_recv_timeout():
+    with servers(extra_conf='-max-io-jobs 1', num_servers=1):
+        with open(os.environ['S4_CONF_PATH']) as f:
+            _servers = f.read().splitlines()
+        assert len(_servers) == 1, _servers
+        _server = _servers[0]
+        # prepare put acquires an io job, and won't release it unless timeout works, or confirm put is called
+        resp = requests.post(f'http://{_server}/prepare_put?key=s4://bucket/basic/dir/file_1.txt', timeout=1)
+        assert resp.status_code == 200, resp
+        # send/recv timeout is 5 seconds
+        resp = requests.post(f'http://{_server}/prepare_put?key=s4://bucket/basic/dir/file_2.txt', timeout=6)
+        assert resp.status_code == 200, resp
+
+def test_send_timeout():
+    with servers(extra_conf='-max-io-jobs 1', num_servers=1):
+        with open(os.environ['S4_CONF_PATH']) as f:
+            _servers = f.read().splitlines()
+        assert len(_servers) == 1, _servers
+        _server = _servers[0]
+        # need a file or prepare get will 404
+        run('echo | s4 cp - s4://bucket/basic/dir/file_1.txt')
+        # prepare put acquires an io job, and won't release it unless timeout works, or confirm put is called
+        resp = requests.post(f'http://{_server}/prepare_get?key=s4://bucket/basic/dir/file_1.txt&port=5555', timeout=1)
+        assert resp.status_code == 200, resp
+        # send/recv timeout is 5 seconds
+        resp = requests.post(f'http://{_server}/prepare_get?key=s4://bucket/basic/dir/file_1.txt&port=5556', timeout=6)
+        assert resp.status_code == 200, resp
 
 def test_basic():
     with servers():

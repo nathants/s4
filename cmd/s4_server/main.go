@@ -22,15 +22,12 @@ import (
 )
 
 var (
-	num_cpus     = runtime.GOMAXPROCS(0)
-	max_io_jobs  = num_cpus * 4
-	max_cpu_jobs = num_cpus + 2
-	io_send_pool = semaphore.NewWeighted(int64(max_io_jobs))
-	io_recv_pool = semaphore.NewWeighted(int64(max_io_jobs))
-	cpu_pool     = semaphore.NewWeighted(int64(max_cpu_jobs))
-	misc_pool    = semaphore.NewWeighted(int64(max_cpu_jobs))
-	solo_pool    = semaphore.NewWeighted(int64(1))
-	io_jobs      = &sync.Map{}
+	io_jobs = &sync.Map{}
+	io_send_pool *semaphore.Weighted
+	io_recv_pool *semaphore.Weighted
+	cpu_pool     *semaphore.Weighted
+	misc_pool    *semaphore.Weighted
+	solo_pool    *semaphore.Weighted
 )
 
 type GetJob struct {
@@ -65,7 +62,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		started <- true
 		chk, err := lib.SendFile(path, remote, port)
 		if err != nil {
-		    lib.Logger.Println("send error:", err)
+			lib.Logger.Println("send error:", err)
 		}
 		fail <- err
 		server_checksum <- chk
@@ -135,7 +132,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	go lib.With(io_recv_pool, func() {
 		chk, err := lib.RecvFile(temp_path, port)
 		if err != nil {
-		    lib.Logger.Println("recv error:", err)
+			lib.Logger.Println("recv error:", err)
 		}
 		fail <- err
 		server_checksum <- chk
@@ -678,10 +675,22 @@ func expiredDataDeleter() {
 	}
 }
 
+func initPools(max_io_jobs int, max_cpu_jobs int) {
+	io_send_pool = semaphore.NewWeighted(int64(max_io_jobs))
+	io_recv_pool = semaphore.NewWeighted(int64(max_io_jobs))
+	cpu_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
+	misc_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
+	solo_pool = semaphore.NewWeighted(int64(1))
+}
+
 func main() {
+	num_cpus := runtime.GOMAXPROCS(0)
 	lib.Port = flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
+	max_io_jobs := flag.Int("max-io-jobs", num_cpus*4, "specify max-io-jobs to use instead of cpus*4")
+	max_cpu_jobs := flag.Int("max-cpu-jobs", num_cpus+2, "specify max-cpu-jobs to use instead of cpus+2")
 	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
 	flag.Parse()
+	initPools(*max_io_jobs, *max_cpu_jobs)
 	panic1(os.Setenv("LC_ALL", "C"))
 	_ = lib.Servers()
 	panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
