@@ -1,4 +1,4 @@
-module s4
+module github.com/nathants/s4
 
 go 1.15
 
