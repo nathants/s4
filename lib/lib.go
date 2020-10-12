@@ -443,7 +443,7 @@ func RecvFile(path string, port chan<- string) (string, error) {
 	return checksum, nil
 }
 
-func ResetableTimeout(duration time.Duration) (func(), <-chan error) {
+func resetableTimeout(duration time.Duration) (func(), <-chan error) {
 	reset := make(chan error, 1)
 	timeout := make(chan error, 1)
 	start := time.Now()
@@ -467,7 +467,7 @@ func ResetableTimeout(duration time.Duration) (func(), <-chan error) {
 func Recv(w io.Writer, port chan<- string) (string, error) {
 	fail := make(chan error)
 	checksum := make(chan string)
-	reset, timeout := ResetableTimeout(ioTimeout)
+	reset, timeout := resetableTimeout(ioTimeout)
 	go func() {
 		h := xxhash.New()
 		var li net.Listener
@@ -533,7 +533,7 @@ func SendFile(path string, addr string, port string) (string, error) {
 }
 
 func Send(r io.Reader, addr string, port string) (string, error) {
-	reset, timeout := ResetableTimeout(ioTimeout)
+	reset, timeout := resetableTimeout(ioTimeout)
 	fail := make(chan error)
 	checksum := make(chan string)
 	go func() {
