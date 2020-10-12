@@ -15,16 +15,12 @@ import (
 	"github.com/nathants/s4/lib"
 )
 
-func List(prefix string, recursive bool) ([][]string, error) {
+func List(prefix string, recursive bool, servers []lib.Server) ([][]string, error) {
 	recursive_param := ""
 	if recursive {
 		recursive_param = "&recursive=true"
 	}
 	results := make(chan *lib.HttpResult)
-	servers, err := lib.Servers()
-	if err != nil {
-		return [][]string{}, err
-	}
 	for _, server := range servers {
 		go func(server lib.Server) {
 			results <- lib.Get(fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param))
@@ -89,7 +85,7 @@ func postAll(urls []urlData, progress func()) error {
 	return nil
 }
 
-func Map(indir string, outdir string, cmd string, progress func()) error {
+func Map(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
 	indir, glob := lib.ParseGlob(indir)
 	if !strings.HasSuffix(indir, "/") {
 		return fmt.Errorf("indir not a directory: %s", indir)
@@ -97,7 +93,7 @@ func Map(indir string, outdir string, cmd string, progress func()) error {
 	if !strings.HasSuffix(outdir, "/") {
 		return fmt.Errorf("outdir not a directory: %s", outdir)
 	}
-	lines, err := List(indir, true)
+	lines, err := List(indir, true, servers)
 	if err != nil {
 		return err
 	}
@@ -124,7 +120,7 @@ func Map(indir string, outdir string, cmd string, progress func()) error {
 		}
 		inkey := lib.Join(indir, key)
 		outkey := lib.Join(outdir, key)
-		server, err := lib.PickServer(inkey)
+		server, err := lib.PickServer(inkey, servers)
 		if err != nil {
 			return err
 		}
@@ -143,7 +139,7 @@ func Map(indir string, outdir string, cmd string, progress func()) error {
 	return postAll(urls, progress)
 }
 
-func MapToN(indir string, outdir string, cmd string, progress func()) error {
+func MapToN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
 	indir, glob := lib.ParseGlob(indir)
 	if !strings.HasSuffix(indir, "/") {
 		return fmt.Errorf("indir not a directory: %s", indir)
@@ -151,7 +147,7 @@ func MapToN(indir string, outdir string, cmd string, progress func()) error {
 	if !strings.HasSuffix(outdir, "/") {
 		return fmt.Errorf("outdir not a directory: %s", outdir)
 	}
-	lines, err := List(indir, true)
+	lines, err := List(indir, true, servers)
 	if err != nil {
 		return err
 	}
@@ -177,7 +173,7 @@ func MapToN(indir string, outdir string, cmd string, progress func()) error {
 			}
 		}
 		inkey := lib.Join(indir, key)
-		server, err := lib.PickServer(inkey)
+		server, err := lib.PickServer(inkey, servers)
 		if err != nil {
 			return err
 		}
@@ -196,7 +192,7 @@ func MapToN(indir string, outdir string, cmd string, progress func()) error {
 	return postAll(urls, progress)
 }
 
-func MapFromN(indir string, outdir string, cmd string, progress func()) error {
+func MapFromN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
 	indir, glob := lib.ParseGlob(indir)
 	if !strings.HasSuffix(indir, "/") {
 		return fmt.Errorf("indir not a directory: %s", indir)
@@ -204,7 +200,7 @@ func MapFromN(indir string, outdir string, cmd string, progress func()) error {
 	if !strings.HasSuffix(outdir, "/") {
 		return fmt.Errorf("outdir not a directory: %s", outdir)
 	}
-	lines, err := List(indir, true)
+	lines, err := List(indir, true, servers)
 	if err != nil {
 		return err
 	}
@@ -232,23 +228,18 @@ func MapFromN(indir string, outdir string, cmd string, progress func()) error {
 	}
 	datas := make(map[string][][]string)
 	for _, inkeys := range buckets {
-		var servers []*lib.Server
-		for i, inkey := range inkeys {
-			server, err := lib.PickServer(inkey)
-			if err != nil {
-				return err
-			}
-			servers = append(servers, server)
-			if i != 0 {
-				if servers[0].Address != server.Address {
-					return fmt.Errorf("map-from-n server address mismatch: %s %s", servers[0].Address, server.Address)
-				}
-				if servers[0].Port != server.Port {
-					return fmt.Errorf("map-from-n server port mismatch: %s %s", servers[0].Port, server.Port)
-				}
-			}
+		servers_map, err := lib.ServersMap(inkeys, servers)
+		if err != nil {
+			return err
 		}
-		url := fmt.Sprintf("http://%s:%s/map_from_n?outdir=%s", servers[0].Address, servers[0].Port, outdir)
+		if len(servers_map) != 1 {
+			return fmt.Errorf("need exactly 1 server for all inkeys: %q", servers_map)
+		}
+		server, err := lib.PickServer(inkeys[0], servers)
+		if err != nil {
+			return err
+		}
+		url := fmt.Sprintf("http://%s:%s/map_from_n?outdir=%s", server.Address, server.Port, outdir)
 		datas[url] = append(datas[url], inkeys)
 	}
 	var urls []urlData
@@ -263,16 +254,12 @@ func MapFromN(indir string, outdir string, cmd string, progress func()) error {
 	return postAll(urls, progress)
 }
 
-func Rm(prefix string, recursive bool) error {
+func Rm(prefix string, recursive bool, servers []lib.Server) error {
 	if !strings.HasPrefix(prefix, "s4://") {
 		return fmt.Errorf("missing s4:// prefix: %s", prefix)
 	}
 	if recursive {
 		results := make(chan *lib.HttpResult)
-		servers, err := lib.Servers()
-		if err != nil {
-			return err
-		}
 		for _, server := range servers {
 			go func(server lib.Server) {
 				results <- lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
@@ -288,7 +275,7 @@ func Rm(prefix string, recursive bool) error {
 			}
 		}
 	} else {
-		server, err := lib.PickServer(prefix)
+		server, err := lib.PickServer(prefix, servers)
 		if err != nil {
 			return err
 		}
@@ -303,8 +290,8 @@ func Rm(prefix string, recursive bool) error {
 	return nil
 }
 
-func Eval(key string, cmd string) (string, error) {
-	server, err := lib.PickServer(key)
+func Eval(key string, cmd string, servers []lib.Server) (string, error) {
+	server, err := lib.PickServer(key, servers)
 	if err != nil {
 		return "", err
 	}
@@ -323,12 +310,8 @@ func Eval(key string, cmd string) (string, error) {
 	}
 }
 
-func ListBuckets() ([][]string, error) {
+func ListBuckets(servers []lib.Server) ([][]string, error) {
 	results := make(chan *lib.HttpResult)
-	servers, err := lib.Servers()
-	if err != nil {
-		return [][]string{}, err
-	}
 	for _, server := range servers {
 		go func(server lib.Server) {
 			results <- lib.Get(fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port))
@@ -367,7 +350,7 @@ func ListBuckets() ([][]string, error) {
 	return lines, nil
 }
 
-func getRecursive(src string, dst string) error {
+func getRecursive(src string, dst string, servers []lib.Server) error {
 	part := strings.SplitN(src, "s4://", 2)[1]
 	part = strings.TrimRight(part, "/")
 	parts := strings.Split(part, "/")
@@ -377,7 +360,7 @@ func getRecursive(src string, dst string) error {
 	if len(parts) != 0 {
 		prefix = strings.Join(parts, "/")
 	}
-	lines, err := List(src, true)
+	lines, err := List(src, true, servers)
 	if err != nil {
 		return err
 	}
@@ -399,7 +382,7 @@ func getRecursive(src string, dst string) error {
 				return err
 			}
 		}
-		err := Cp(fmt.Sprintf("s4://%s", lib.Join(bucket, key)), pth, false)
+		err := Cp(fmt.Sprintf("s4://%s", lib.Join(bucket, key)), pth, false, servers)
 		if err != nil {
 			return err
 		}
@@ -407,7 +390,7 @@ func getRecursive(src string, dst string) error {
 	return nil
 }
 
-func putRecursive(src string, dst string) error {
+func putRecursive(src string, dst string, servers []lib.Server) error {
 	return filepath.Walk(src, func(fullpath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -417,7 +400,7 @@ func putRecursive(src string, dst string) error {
 			file := path.Base(fullpath)
 			dirpath := lib.Dir(fullpath)
 			pth := strings.TrimLeft(lib.Last(strings.SplitN(dirpath, src, 2)), "/")
-			err := Cp(lib.Join(dirpath, file), lib.Join(dst, pth, file), false)
+			err := Cp(lib.Join(dirpath, file), lib.Join(dst, pth, file), false, servers)
 			if err != nil {
 				return err
 			}
@@ -426,8 +409,8 @@ func putRecursive(src string, dst string) error {
 	})
 }
 
-func GetFile(src string, dst string) error {
-	server, err := lib.PickServer(src)
+func GetFile(src string, dst string, servers []lib.Server) error {
+	server, err := lib.PickServer(src, servers)
 	if err != nil {
 		return err
 	}
@@ -475,8 +458,8 @@ func GetFile(src string, dst string) error {
 	return nil
 }
 
-func GetWriter(src string, dst io.Writer) error {
-	server, err := lib.PickServer(src)
+func GetWriter(src string, dst io.Writer, servers []lib.Server) error {
+	server, err := lib.PickServer(src, servers)
 	if err != nil {
 		return err
 	}
@@ -511,11 +494,11 @@ func GetWriter(src string, dst io.Writer) error {
 
 var Err409 = errors.New("409")
 
-func PutFile(src string, dst string) error {
+func PutFile(src string, dst string, servers []lib.Server) error {
 	if strings.HasSuffix(dst, "/") {
 		dst = lib.Join(dst, path.Base(src))
 	}
-	server, err := lib.PickServer(dst)
+	server, err := lib.PickServer(dst, servers)
 	if err != nil {
 		return err
 	}
@@ -551,8 +534,8 @@ func PutFile(src string, dst string) error {
 	return nil
 }
 
-func PutReader(src io.Reader, dst string) error {
-	server, err := lib.PickServer(dst)
+func PutReader(src io.Reader, dst string, servers []lib.Server) error {
+	server, err := lib.PickServer(dst, servers)
 	if err != nil {
 		return err
 	}
@@ -588,7 +571,7 @@ func PutReader(src io.Reader, dst string) error {
 	return nil
 }
 
-func Cp(src string, dst string, recursive bool) error {
+func Cp(src string, dst string, recursive bool, servers []lib.Server) error {
 	if strings.HasPrefix(src, "s4://") && strings.HasPrefix(dst, "s4://") {
 		return fmt.Errorf("there is no move, there is only cp and rm")
 	}
@@ -603,23 +586,23 @@ func Cp(src string, dst string, recursive bool) error {
 	}
 	if recursive {
 		if strings.HasPrefix(src, "s4://") {
-			return getRecursive(src, dst)
+			return getRecursive(src, dst, servers)
 		} else if strings.HasPrefix(dst, "s4://") {
-			return putRecursive(src, dst)
+			return putRecursive(src, dst, servers)
 		} else {
 			return fmt.Errorf("fatal: src or dst needs s4://")
 		}
 	} else if strings.HasPrefix(src, "s4://") {
 		if dst == "-" {
-			return GetWriter(src, os.Stdout)
+			return GetWriter(src, os.Stdout, servers)
 		} else {
-			return GetFile(src, dst)
+			return GetFile(src, dst, servers)
 		}
 	} else if strings.HasPrefix(dst, "s4://") {
 		if src == "-" {
-			return PutReader(os.Stdin, dst)
+			return PutReader(os.Stdin, dst, servers)
 		} else {
-			return PutFile(src, dst)
+			return PutFile(src, dst, servers)
 		}
 	} else {
 		return fmt.Errorf("fatal: src or dst needs s4://")

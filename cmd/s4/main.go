@@ -13,95 +13,151 @@ import (
 )
 
 func Rm() {
-	cmd := flag.NewFlagSet("rm", flag.ExitOnError)
-	recursive := cmd.Bool("r", false, "recursive")
-	if len(os.Args) < 2 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-r]"))
-		cmd.PrintDefaults()
+	flg := flag.NewFlagSet("rm", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 rm PREFIX [-r] [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	panic1(cmd.Parse(os.Args[2:]))
-	prefix := cmd.Arg(0)
-	panic1(s4.Rm(prefix, *recursive))
+	recursive := flg.Bool("r", false, "recursive")
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	if flg.NArg() != 1 {
+		usage()
+	}
+	prefix := flg.Arg(0)
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	panic1(s4.Rm(prefix, *recursive, servers))
 }
 
 func Map() {
-	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map INDIR OUTDIR CMD"))
+	flg := flag.NewFlagSet("map", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map INDIR OUTDIR CMD [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	indir := os.Args[2]
-	outdir := os.Args[3]
-	cmd := os.Args[4]
-	panic1(s4.Map(indir, outdir, cmd, func() { fmt.Printf("ok ") }))
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	if flg.NArg() != 3 {
+		usage()
+	}
+	indir := flg.Arg(0)
+	outdir := flg.Arg(1)
+	cmd := flg.Arg(2)
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	panic1(s4.Map(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
 func MapToN() {
-	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-to-n INDIR OUTDIR CMD"))
+	flg := flag.NewFlagSet("map-to-n", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-to-n INDIR OUTDIR CMD [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	indir := os.Args[2]
-	outdir := os.Args[3]
-	cmd := os.Args[4]
-	panic1(s4.MapToN(indir, outdir, cmd, func() { fmt.Printf("ok ") }))
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	if flg.NArg() != 3 {
+		usage()
+	}
+	indir := flg.Arg(0)
+	outdir := flg.Arg(1)
+	cmd := flg.Arg(2)
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	panic1(s4.MapToN(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
 func MapFromN() {
-	if len(os.Args) != 5 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-from-n INDIR OUTDIR CMD"))
+	flg := flag.NewFlagSet("map-from-n", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 map-from-n INDIR OUTDIR CMD [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	indir := os.Args[2]
-	outdir := os.Args[3]
-	cmd := os.Args[4]
-	panic1(s4.MapFromN(indir, outdir, cmd, func() { fmt.Printf("ok ") }))
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	indir := flg.Arg(0)
+	outdir := flg.Arg(1)
+	cmd := flg.Arg(2)
+	if flg.NArg() != 3 {
+		usage()
+	}
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	panic1(s4.MapFromN(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
 func Eval() {
-	if len(os.Args) != 4 || lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 eval KEY CMD"))
+	flg := flag.NewFlagSet("eval", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 eval KEY CMD [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	key := os.Args[2]
-	cmd := os.Args[3]
-	result, err := s4.Eval(key, cmd)
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	key := flg.Arg(0)
+	cmd := flg.Arg(1)
+	if flg.NArg() != 2 {
+		usage()
+	}
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	result, err := s4.Eval(key, cmd, servers)
 	panic1(err)
 	fmt.Println(result)
 }
 
 func Ls() {
-	cmd := flag.NewFlagSet("ls", flag.ExitOnError)
-	recursive := cmd.Bool("r", false, "recursive")
-	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
+	flg := flag.NewFlagSet("ls", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r] [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	panic1(cmd.Parse(os.Args[2:]))
+	recursive := flg.Bool("r", false, "recursive")
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
+	}
+	panic1(flg.Parse(os.Args[2:]))
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
 	var lines [][]string
 	var err error
-	switch cmd.NArg() {
+	switch flg.NArg() {
 	case 1:
-		prefix := cmd.Arg(0)
+		prefix := flg.Arg(0)
 		val := strings.SplitN(prefix, "://", 2)[1]
 		if !*recursive && strings.Count(val, "/") == 0 {
-			for _, line := range panic2(s4.ListBuckets()).([][]string) {
+			for _, line := range panic2(s4.ListBuckets(servers)).([][]string) {
 				if lib.Contains(line, val) {
 					lines = [][]string{line}
 					break
 				}
 			}
 		} else {
-			lines, err = s4.List(prefix, *recursive)
+			lines, err = s4.List(prefix, *recursive, servers)
 			panic1(err)
 		}
 	case 0:
-		lines, err = s4.ListBuckets()
+		lines, err = s4.ListBuckets(servers)
 		panic1(err)
 	default:
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 ls [PREFIX] [-r]"))
-		cmd.Usage()
-		os.Exit(1)
+		usage()
 	}
 	if len(lines) == 0 {
 		os.Exit(1)
@@ -112,27 +168,36 @@ func Ls() {
 }
 
 func Cp() {
-	cmd := flag.NewFlagSet("cp", flag.ExitOnError)
-	recursive := cmd.Bool("r", false, "recursive")
-	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
-		panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-r]"))
-		cmd.PrintDefaults()
+	flg := flag.NewFlagSet("cp", flag.ExitOnError)
+	usage := func() {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 cp SRC DST [-r] [-c]"))
+		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	panic1(cmd.Parse(os.Args[2:]))
-	src := cmd.Arg(0)
-	dst := cmd.Arg(1)
-	panic1(s4.Cp(src, dst, *recursive))
-}
-
-func Config() {
-	for _, server := range panic2(lib.Servers()).([]lib.Server) {
-		fmt.Printf("%s:%s\n", server.Address, server.Port)
+	recursive := flg.Bool("r", false, "recursive")
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		usage()
 	}
+	panic1(flg.Parse(os.Args[2:]))
+	if flg.NArg() != 2 {
+		usage()
+	}
+	src := flg.Arg(0)
+	dst := flg.Arg(1)
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	panic1(s4.Cp(src, dst, *recursive, servers))
 }
 
 func Health() {
-	servers := panic2(lib.Servers()).([]lib.Server)
+	flg := flag.NewFlagSet("health", flag.ExitOnError)
+	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
+		panic2(fmt.Fprintln(os.Stderr, "usage: s4 health [-r] [-c]"))
+		flg.PrintDefaults()
+		os.Exit(1)
+	}
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
 	results := make(chan string, len(servers))
 	client := http.Client{Timeout: 1 * time.Second}
 	for _, server := range servers {
@@ -193,8 +258,6 @@ func main() {
 		Ls()
 	case "cp":
 		Cp()
-	case "config":
-		Config()
 	case "health":
 		Health()
 	default:

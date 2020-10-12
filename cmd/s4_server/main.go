@@ -37,10 +37,10 @@ type GetJob struct {
 	disk_checksum   string
 }
 
-func PrepareGet(w http.ResponseWriter, r *http.Request) {
+func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	port := lib.QueryParam(r, "port")
 	key := lib.QueryParam(r, "key")
-	assert(panic2(lib.OnThisServer(key)).(bool), "wrong server for request\n")
+	assert(panic2(lib.OnThisServer(key, this, servers)).(bool), "wrong server for request\n")
 	remote := strings.SplitN(r.RemoteAddr, ":", 2)[0]
 	if remote == "127.0.0.1" {
 		remote = "0.0.0.0"
@@ -88,7 +88,7 @@ func PrepareGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func ConfirmGet(w http.ResponseWriter, r *http.Request) {
+func confirmGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	uid := lib.QueryParam(r, "uuid")
 	client_checksum := lib.QueryParam(r, "checksum")
 	v, ok := io_jobs.LoadAndDelete(uid)
@@ -109,10 +109,10 @@ type PutJob struct {
 	temp_path       string
 }
 
-func PreparePut(w http.ResponseWriter, r *http.Request) {
+func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	key := lib.QueryParam(r, "key")
 	assert(!strings.Contains(key, " "), "key contains spaces: %s\n", key)
-	assert(panic2(lib.OnThisServer(key)).(bool), "wronger server for request")
+	assert(panic2(lib.OnThisServer(key, this, servers)).(bool), "wrong server for request")
 	path := strings.SplitN(key, "s4://", 2)[1]
 	assert(!strings.HasPrefix(path, "_"), path)
 	var exists bool
@@ -152,7 +152,7 @@ func PreparePut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func ConfirmPut(w http.ResponseWriter, r *http.Request) {
+func confirmPutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	uid := lib.QueryParam(r, "uuid")
 	client_checksum := lib.QueryParam(r, "checksum")
 	v, ok := io_jobs.LoadAndDelete(uid)
@@ -171,7 +171,7 @@ func ConfirmPut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-func Delete(w http.ResponseWriter, r *http.Request) {
+func deleteHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	prefix := lib.QueryParam(r, "prefix")
 	prefix = strings.SplitN(prefix, "s4://", 2)[1]
 	assert(!strings.HasPrefix(prefix, "/"), prefix)
@@ -198,7 +198,7 @@ type MapResult struct {
 	Outkey     string
 }
 
-func Map(w http.ResponseWriter, r *http.Request) {
+func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
@@ -210,8 +210,8 @@ func Map(w http.ResponseWriter, r *http.Request) {
 		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outkey := arg[1]
-		assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
-		assert(panic2(lib.OnThisServer(outkey)).(bool), outkey)
+		assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
+		assert(panic2(lib.OnThisServer(outkey, this, servers)).(bool), outkey)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
@@ -235,7 +235,7 @@ func Map(w http.ResponseWriter, r *http.Request) {
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
-					err := localPut(temp_path, result.Outkey)
+					err := localPut(temp_path, result.Outkey, this, servers)
 					if err != nil {
 						fail <- err
 					} else {
@@ -260,11 +260,11 @@ func Map(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-func localPut(temp_path string, key string) error {
+func localPut(temp_path string, key string, this lib.Server, servers []lib.Server) error {
 	if strings.Contains(key, " ") {
 		return fmt.Errorf("key contains space: %s", key)
 	}
-	on_this_server, err := lib.OnThisServer(key)
+	on_this_server, err := lib.OnThisServer(key, this, servers)
 	if err != nil {
 		return err
 	}
@@ -323,7 +323,7 @@ func cleanup(tempdirs *[]string) {
 	}
 }
 
-func MapToN(w http.ResponseWriter, r *http.Request) {
+func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
@@ -335,7 +335,7 @@ func MapToN(w http.ResponseWriter, r *http.Request) {
 		assert(len(arg) == 2, fmt.Sprint(arg))
 		inkey := arg[0]
 		outdir := arg[1]
-		assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
+		assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
 		assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
@@ -364,7 +364,7 @@ func MapToN(w http.ResponseWriter, r *http.Request) {
 						wg.Add(1)
 						temp_path = lib.Join(result.WarnResult.Tempdir, temp_path)
 						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(temp_path))
-						go mapToNPut(&wg, fail, temp_path, outkey)
+						go mapToNPut(&wg, fail, temp_path, outkey, this, servers)
 					}
 				}
 			}
@@ -382,15 +382,15 @@ func MapToN(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey string) {
+func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey string, this lib.Server, servers []lib.Server) {
 	defer wg.Done()
-	on_this_server, err := lib.OnThisServer(outkey)
+	on_this_server, err := lib.OnThisServer(outkey, this, servers)
 	if err != nil {
 		fail <- err
 		return
 	}
 	if on_this_server {
-		err := localPut(temp_path, outkey)
+		err := localPut(temp_path, outkey, this, servers)
 		if err != nil {
 			fail <- err
 		}
@@ -398,7 +398,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey s
 		err := lib.Retry(func() error {
 			var err error
 			lib.With(io_send_pool, func() {
-				err = s4.PutFile(temp_path, outkey)
+				err = s4.PutFile(temp_path, outkey, servers)
 			})
 			if errors.Is(err, s4.Err409) {
 				fail <- err
@@ -412,7 +412,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey s
 	}
 }
 
-func MapFromN(w http.ResponseWriter, r *http.Request) {
+func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	outdir := lib.QueryParam(r, "outdir")
 	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 	var data lib.MapArgs
@@ -425,7 +425,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request) {
 	for _, inkeys := range data.Args {
 		var inpaths []string
 		for _, inkey := range inkeys {
-			assert(panic2(lib.OnThisServer(inkey)).(bool), inkey)
+			assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
 			inpath := strings.SplitN(inkey, "s4://", 2)[1]
 			inpath = panic2(filepath.Abs(inpath)).(string)
 			inpaths = append(inpaths, inpath)
@@ -454,7 +454,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request) {
 			} else {
 				go func(result MapResult) {
 					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
-					err := localPut(temp_path, result.Outkey)
+					err := localPut(temp_path, result.Outkey, this, servers)
 					if err != nil {
 						fail <- err
 					} else {
@@ -479,7 +479,7 @@ func MapFromN(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-func Eval(w http.ResponseWriter, r *http.Request) {
+func evalHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	key := lib.QueryParam(r, "key")
 	cmd := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
@@ -563,7 +563,7 @@ func list(prefix string) *[]*File {
 	return &res
 }
 
-func List(w http.ResponseWriter, r *http.Request) {
+func listHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	prefix := lib.QueryParam(r, "prefix")
 	assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	prefix = strings.Split(prefix, "s4://")[1]
@@ -589,7 +589,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 	panic2(w.Write(bytes.([]byte)))
 }
 
-func ListBuckets(w http.ResponseWriter, r *http.Request) {
+func listBucketsHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var res [][]string
 	for _, info := range panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
 		name := info.Name()
@@ -603,11 +603,11 @@ func ListBuckets(w http.ResponseWriter, r *http.Request) {
 	panic2(w.Write(bytes.([]byte)))
 }
 
-func Health(w http.ResponseWriter, r *http.Request) {
+func healthHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	panic2(fmt.Fprintf(w, "healthy\n"))
 }
 
-func NotFound(w http.ResponseWriter, r *http.Request) {
+func notFoundHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	w.WriteHeader(404)
 	panic2(fmt.Fprintf(w, "404\n"))
 }
@@ -682,69 +682,74 @@ func initPools(max_io_jobs int, max_cpu_jobs int) {
 	solo_pool = semaphore.NewWeighted(int64(1))
 }
 
-func router(w http.ResponseWriter, r *http.Request) {
+func rootHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	switch r.Method {
 	case "GET":
 		switch r.URL.Path {
 		case "/list":
-			List(w, r)
+			listHandler(w, r, this, servers)
 		case "/list_buckets":
-			ListBuckets(w, r)
+			listBucketsHandler(w, r, this, servers)
 		case "/health":
-			Health(w, r)
+			healthHandler(w, r, this, servers)
 		default:
-			NotFound(w, r)
+			notFoundHandler(w, r, this, servers)
 		}
 	case "POST":
 		switch r.URL.Path {
 		case "/prepare_put":
-			PreparePut(w, r)
+			preparePutHandler(w, r, this, servers)
 		case "/confirm_put":
-			ConfirmPut(w, r)
+			confirmPutHandler(w, r, this, servers)
 		case "/prepare_get":
-			PrepareGet(w, r)
+			prepareGetHandler(w, r, this, servers)
 		case "/confirm_get":
-			ConfirmGet(w, r)
+			confirmGetHandler(w, r, this, servers)
 		case "/delete":
-			Delete(w, r)
+			deleteHandler(w, r, this, servers)
 		case "/map":
-			Map(w, r)
+			mapHandler(w, r, this, servers)
 		case "/map_to_n":
-			MapToN(w, r)
+			mapToNHandler(w, r, this, servers)
 		case "/map_from_n":
-			MapFromN(w, r)
+			mapFromNHandler(w, r, this, servers)
 		case "/eval":
-			Eval(w, r)
+			evalHandler(w, r, this, servers)
 		default:
-			NotFound(w, r)
+			notFoundHandler(w, r, this, servers)
 		}
 	default:
-		NotFound(w, r)
+		notFoundHandler(w, r, this, servers)
 	}
 }
 
 func main() {
-	num_cpus := runtime.GOMAXPROCS(0)
-	lib.Port = flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
-	max_io_jobs := flag.Int("max-io-jobs", num_cpus*4, "specify max-io-jobs to use instead of cpus*4")
-	max_cpu_jobs := flag.Int("max-cpu-jobs", num_cpus+2, "specify max-cpu-jobs to use instead of cpus+2")
-	lib.Conf = flag.String("conf", "", "specify conf path to use instead of ~/.s4.conf")
-	flag.Parse()
-	initPools(*max_io_jobs, *max_cpu_jobs)
 	panic1(os.Setenv("LC_ALL", "C"))
-	panic2(lib.Servers())
 	panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
 	panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
 	panic1(os.Chdir("s4_data"))
-	port := fmt.Sprintf(":%s", lib.HttpPort())
-	lib.Logger.Println("s4-server", port)
+	num_cpus := runtime.GOMAXPROCS(0)
+	port := flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
+	max_io_jobs := flag.Int("max-io-jobs", num_cpus*4, "specify max-io-jobs to use instead of cpus*4")
+	max_cpu_jobs := flag.Int("max-cpu-jobs", num_cpus+2, "specify max-cpu-jobs to use instead of cpus+2")
+	conf_path := flag.String("conf", lib.DefaultConfPath(), "specify conf path to use instead of ~/.s4.conf")
+	flag.Parse()
+	initPools(*max_io_jobs, *max_cpu_jobs)
+	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	this := lib.ThisServer(*port, servers)
+	port_str := fmt.Sprintf(":%s", this.Port)
+	lib.Logger.Println("s4-server", port_str)
 	go expiredDataDeleter()
 	server := &http.Server{
 		ReadTimeout:  lib.MaxTimeout,
 		WriteTimeout: lib.MaxTimeout,
 		IdleTimeout:  lib.MaxTimeout,
-		Addr:         port,
-		Handler:      &lib.RootHandler{Handler: router},
+		Addr:         port_str,
+		Handler: &lib.RootHandler{
+			Handler: rootHandler,
+			This:    this,
+			Servers: servers,
+		},
 	}
 	panic1(server.ListenAndServe())
 }

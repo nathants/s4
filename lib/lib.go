@@ -46,13 +46,10 @@ type MapArgs struct {
 	Args [][]string `json:"args"`
 }
 
-var Conf *string
-
-func ConfPath() string {
-	if Conf != nil && *Conf != "" {
-		return *Conf
-	} else if os.Getenv("S4_CONF_PATH") != "" {
-		return os.Getenv("S4_CONF_PATH")
+func DefaultConfPath() string {
+	env := os.Getenv("S4_CONF_PATH")
+	if env != "" {
+		return env
 	} else {
 		usr := panic2(user.Current()).(*user.User)
 		return Join(usr.HomeDir, ".s4.conf")
@@ -171,47 +168,43 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *W
 	}
 }
 
-var servers *[]Server
-
 type Server struct {
 	Address string
 	Port    string
 }
 
-func Servers() ([]Server, error) {
-	if servers == nil {
-		servers = &[]Server{}
-		bytes, err := ioutil.ReadFile(ConfPath())
-		if err != nil {
-			return []Server{}, err
-		}
-		lines := strings.Split(string(bytes), "\n")
-		local_addresses, err := localAddresses()
-		if err != nil {
-			return []Server{}, err
-		}
-		for _, line := range lines {
-			if strings.Trim(line, " ") == "" {
-				continue
-			}
-			parts := strings.Split(line, ":")
-			if len(parts) != 2 {
-				return []Server{}, fmt.Errorf("bad config line: %s", line)
-			}
-			server := Server{parts[0], parts[1]}
-			for _, address := range local_addresses {
-				if server.Address == address {
-					server.Address = "0.0.0.0"
-					break
-				}
-			}
-			*servers = append(*servers, server)
-		}
+func GetServers(conf_path string) ([]Server, error) {
+	var servers []Server
+	bytes, err := ioutil.ReadFile(conf_path)
+	if err != nil {
+		return []Server{}, err
 	}
-	if len(*servers) == 0 {
+	lines := strings.Split(string(bytes), "\n")
+	local_addresses, err := localAddresses()
+	if err != nil {
+		return []Server{}, err
+	}
+	for _, line := range lines {
+		if strings.Trim(line, " ") == "" {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if len(parts) != 2 {
+			return []Server{}, fmt.Errorf("bad config line: %s", line)
+		}
+		server := Server{parts[0], parts[1]}
+		for _, address := range local_addresses {
+			if server.Address == address {
+				server.Address = "0.0.0.0"
+				break
+			}
+		}
+		servers = append(servers, server)
+	}
+	if len(servers) == 0 {
 		return []Server{}, fmt.Errorf("empty config file")
 	}
-	return *servers, nil
+	return servers, nil
 }
 
 func localAddresses() ([]string, error) {
@@ -230,21 +223,6 @@ func localAddresses() ([]string, error) {
 		}
 	}
 	return vals, nil
-}
-
-var Port *int
-
-func HttpPort() string {
-	if Port != nil && *Port != 0 {
-		return fmt.Sprint(*Port)
-	} else {
-		for _, server := range panic2(Servers()).([]Server) {
-			if server.Address == "0.0.0.0" {
-				return server.Port
-			}
-		}
-		panic("impossible")
-	}
 }
 
 type HttpResult struct {
@@ -307,35 +285,31 @@ func hash(str string) int {
 	return int(binary.BigEndian.Uint32(h[:]))
 }
 
-func OnThisServer(key string) (bool, error) {
+func OnThisServer(key string, this Server, servers []Server) (bool, error) {
 	if !strings.HasPrefix(key, "s4://") {
 		return false, fmt.Errorf("missing s4:// prefix: %s", key)
 	}
-	server, err := PickServer(key)
+	picked, err := PickServer(key, servers)
 	if err != nil {
 		return false, err
 	}
-	return server.Address == "0.0.0.0" && server.Port == HttpPort(), nil
+	return picked.Address == this.Address && picked.Port == this.Port, nil
 }
 
-func PickServer(key string) (*Server, error) {
+func PickServer(key string, servers []Server) (Server, error) {
 	if strings.HasSuffix(key, "/") {
-		return nil, fmt.Errorf("needed key, got directory: %s", key)
+		return Server{}, fmt.Errorf("needed key, got directory: %s", key)
 	}
 	if !strings.HasPrefix(key, "s4://") {
-		return nil, fmt.Errorf("missing s4:// prefix: %s", key)
+		return Server{}, fmt.Errorf("missing s4:// prefix: %s", key)
 	}
 	prefix := KeyPrefix(key)
 	val, err := strconv.Atoi(prefix)
 	if err != nil {
 		val = hash(prefix)
 	}
-	servers, err := Servers()
-	if err != nil {
-		return nil, err
-	}
 	index := val % len(servers)
-	return &servers[index], nil
+	return servers[index], nil
 }
 
 func isDigits(str string) bool {
@@ -621,7 +595,9 @@ func (o *responseObserver) WriteHeader(code int) {
 }
 
 type RootHandler struct {
-	Handler func(w http.ResponseWriter, r *http.Request)
+	Handler func(w http.ResponseWriter, r *http.Request, this Server, servers []Server)
+	This    Server
+	Servers []Server
 }
 
 func (h *RootHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -636,7 +612,7 @@ func (h *RootHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	wo := &responseObserver{w, 200}
-	h.Handler(wo, r)
+	h.Handler(wo, r, h.This, h.Servers)
 	seconds := fmt.Sprintf("%.5f", time.Since(start).Seconds())
 	Logger.Println(wo.Status, r.Method, r.URL.Path+"?"+r.URL.RawQuery, strings.Split(r.RemoteAddr, ":")[0], seconds)
 }
@@ -747,6 +723,42 @@ func QueryParamDefault(r *http.Request, name string, default_val string) string 
 	default:
 		panic(len(vals))
 	}
+}
+
+func ServersMap(inkeys []string, servers []Server) (map[string]error, error) {
+	servers_map := make(map[string]error)
+	for _, inkey := range inkeys {
+		server, err := PickServer(inkey, servers)
+		if err != nil {
+			return servers_map, err
+		}
+		servers_map[fmt.Sprintf("%s:%s", server.Address, server.Port)] = nil
+	}
+	return servers_map, nil
+}
+
+func ThisServer(port int, servers []Server) Server {
+	var this Server
+	if port == 0 {
+		count := 0
+		for _, server := range servers {
+			if server.Address == "0.0.0.0" {
+				this = server
+				count += 1
+			}
+		}
+		assert(count == 1, "unless -port is specified, conf should have exactly one entry per server address")
+	} else {
+		count := 0
+		for _, server := range servers {
+			if server.Address == "0.0.0.0" && server.Port == fmt.Sprint(port) {
+				this = server
+				count += 1
+			}
+		}
+		assert(count == 1, "when -port is specified, conf should have exactly one entry per server (address, port)")
+	}
+	return this
 }
 
 func assert(cond bool, format string, a ...interface{}) {
