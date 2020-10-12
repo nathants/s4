@@ -442,10 +442,9 @@ def main(debug=False, port=None, max_io_jobs=max_io_jobs, max_cpu_jobs=max_cpu_j
     if port:
         s4.http_port = lambda: port
     init_pools(max_io_jobs, max_cpu_jobs)
-    if not os.path.basename(os.getcwd()) == 's4_data':
-        os.makedirs('s4_data/_tempfiles', exist_ok=True)
-        os.makedirs('s4_data/_tempdirs',  exist_ok=True)
-        os.chdir('s4_data')
+    os.makedirs('s4_data/_tempfiles', exist_ok=True)
+    os.makedirs('s4_data/_tempdirs',  exist_ok=True)
+    os.chdir('s4_data')
     os.environ['LC_ALL'] = 'C'
     routes = [('/prepare_put',  {'post': prepare_put_handler}),
               ('/confirm_put',  {'post': confirm_put_handler}),
