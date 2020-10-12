@@ -1,4 +1,4 @@
-package s4
+package lib
 
 import "testing"
 
