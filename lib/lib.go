@@ -235,9 +235,11 @@ func Post(url, contentType string, body io.Reader) *HttpResult {
 	resp, err := client.Post(url, contentType, body)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			return &HttpResult{-1, []byte{}, err}
 		}
+
 		return &HttpResult{resp.StatusCode, body, nil}
 	} else {
 		return &HttpResult{-1, []byte{}, err}
@@ -248,6 +250,7 @@ func Get(url string) *HttpResult {
 	resp, err := client.Get(url)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			return &HttpResult{-1, []byte{}, err}
 		}
