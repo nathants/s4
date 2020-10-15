@@ -65,8 +65,11 @@ updates and bugfixes are applied to both.
 go get:
 
 ```bash
+export GO111MODULE=on
 go get github.com/nathants/s4/cmd/s4
 go get github.com/nathants/s4/cmd/s4_server
+sudo mv -f $(go env GOPATH)/bin/s4 /usr/local/bin/s4
+sudo mv -f $(go env GOPATH)/bin/s4_server /usr/local/bin/s4-server
 ```
 
 git clone:
