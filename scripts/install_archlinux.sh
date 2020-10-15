@@ -22,6 +22,7 @@ cd ~
 sudo rm -rf s4
 git clone https://github.com/nathants/s4
 cd s4
+git checkout python
 sudo python -m pip install --progress-bar off -r requirements.txt
 sudo pypy3  -m pip install --progress-bar off -r requirements.txt
 sudo python setup.py develop

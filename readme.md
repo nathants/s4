@@ -48,11 +48,24 @@ safety for all inputs. service access should be considered to be at the level of
 
 cluster resizing. clusters should be short lived and data ephemeral. instead of resizing create a new cluster.
 
+pagination of list results. data layout and partitioning must be considered.
+
+## implementations
+
+there are two implementations in [python](https://github.com/nathants/s4/tree/python) and [go](https://github.com/nathants/s4/tree/go). they share a test suite and both are production ready.
+
+if you need fine granularity performance, prefer the [go](https://github.com/nathants/s4/tree/go) implementation as it has less overhead per put/get operation.
+
+operations and interface are identical.
+
+updates and bugfixes are applied to both.
+
 ## install
 
 ```bash
 git clone https://github.com/nathants/s4
 cd s4
+git checkout python
 python3 -m pip install -r requirements.txt .
 ```
 
@@ -135,7 +148,7 @@ s4 --help
 
 ## usage
 
-### [s4 rm](https://github.com/nathants/s4/search?l=Python&q="def+rm")
+### s4 rm
 ```
 usage: s4 rm [-h] [-r] prefix
 
@@ -152,7 +165,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 eval](https://github.com/nathants/s4/search?l=Python&q="def+eval")
+### s4 eval
 ```
 usage: s4 eval [-h] key cmd
 
@@ -167,7 +180,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 ls](https://github.com/nathants/s4/search?l=Python&q="def+ls")
+### s4 ls
 ```
 usage: s4 ls [-h] [-r] [prefix]
 
@@ -182,7 +195,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 cp](https://github.com/nathants/s4/search?l=Python&q="def+cp")
+### s4 cp
 ```
 usage: s4 cp [-h] [-r] src dst
 
@@ -206,7 +219,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### [s4 map](https://github.com/nathants/s4/search?l=Python&q="def+map")
+### s4 map
 ```
 usage: s4 map [-h] indir outdir cmd
 
@@ -227,7 +240,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 map-to-n](https://github.com/nathants/s4/search?l=Python&q="def+map-to-n")
+### s4 map-to-n
 ```
 usage: s4 map-to-n [-h] indir outdir cmd
 
@@ -249,7 +262,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 map-from-n](https://github.com/nathants/s4/search?l=Python&q="def+map-from-n")
+### s4 map-from-n
 ```
 usage: s4 map-from-n [-h] indir outdir cmd
 
@@ -271,7 +284,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 config](https://github.com/nathants/s4/search?l=Python&q="def+config")
+### s4 config
 ```
 usage: s4 config [-h]
 
@@ -282,7 +295,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-### [s4 health](https://github.com/nathants/s4/search?l=Python&q="def+health")
+### s4 health
 ```
 usage: s4 health [-h]
 
