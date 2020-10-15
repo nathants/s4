@@ -120,9 +120,9 @@ s4 --help
 
 ## examples
 
-[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_bsv)
+[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_bsv)
 
-[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_python)
+[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_python)
 
 ## related projects
 
