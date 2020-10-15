@@ -176,17 +176,22 @@ func deleteHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	prefix = strings.SplitN(prefix, "s4://", 2)[1]
 	assert(!strings.HasPrefix(prefix, "/"), prefix)
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
+	cwd := path.Base(panic2(os.Getwd()).(string))
+	assert(cwd == "s4_data", cwd)
 	lib.With(solo_pool, func() {
 		if recursive {
 			files, dirs := list_recursive(prefix, false)
 			for _, info := range *files {
+				assert(!strings.HasPrefix(info.Path, "/"), info.Path)
 				panic1(os.Remove(info.Path))
 				panic1(os.Remove(panic2(lib.ChecksumPath(info.Path)).(string)))
 			}
 			for _, info := range *dirs {
+				assert(!strings.HasPrefix(info.Path, "/"), info.Path)
 				panic1(os.RemoveAll(info.Path))
 			}
 		} else {
+			assert(!strings.HasPrefix(prefix, "/"), prefix)
 			panic1(os.Remove(prefix))
 			panic1(os.Remove(panic2(lib.ChecksumPath(prefix)).(string)))
 		}
