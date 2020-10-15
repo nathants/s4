@@ -91,8 +91,8 @@ bash scripts/new_cluster.sh $name
 
 deploy
 ```bash
-ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
-ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
+ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/go/scripts/install_archlinux.sh | bash"
+ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/go/scripts/install_archlinux.sh | bash"
 ```
 
 configure
