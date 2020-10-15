@@ -257,6 +257,7 @@ async def delete_handler(request: web.Request) -> web.Response:
     assert prefix.startswith('s4://')
     prefix = prefix.split('s4://', 1)[-1]
     assert not prefix.startswith('/'), prefix
+    assert os.path.basename(os.getcwd()) == 's4_data', os.getcwd()
     recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         result = await submit_solo(s4.run, 'rm -rf', prefix + '*')
