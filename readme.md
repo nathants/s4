@@ -81,8 +81,8 @@ bash scripts/new_cluster.sh $name
 
 deploy
 ```bash
-ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
-ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/master/scripts/install_archlinux.sh | bash"
+ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/python/scripts/install_archlinux.sh | bash"
+ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/python/scripts/install_archlinux.sh | bash"
 ```
 
 configure
@@ -110,9 +110,9 @@ s4 --help
 
 ## examples
 
-[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_bsv)
+[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/python/examples/nyc_taxi_bsv)
 
-[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/master/examples/nyc_taxi_python)
+[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/python/examples/nyc_taxi_python)
 
 ## related projects
 
