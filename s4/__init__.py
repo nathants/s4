@@ -82,6 +82,9 @@ def suffix(keys):
     else:
         return ''
 
+def hash(val):
+    return int.from_bytes(hashlib.blake2s(val.encode()).digest()[:8], "little", signed=False)
+
 def pick_server(key):
     assert not key.endswith('/'), key
     assert key.startswith('s4://'), key
@@ -89,7 +92,7 @@ def pick_server(key):
     try:
         val = int(prefix)
     except ValueError:
-        val = int.from_bytes(hashlib.blake2s(prefix.encode()).digest(), "little")
+        val = hash(prefix)
     index = val % len(servers())
     address, port = servers()[index]
     return f'{address}:{port}'
