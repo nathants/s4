@@ -283,9 +283,9 @@ func (rwc rwcCallback) Close() error {
 	return err
 }
 
-func hash(str string) int {
+func hash(str string) uint64 {
 	h := blake2s.Sum256([]byte(str))
-	return int(binary.BigEndian.Uint32(h[:]))
+	return binary.LittleEndian.Uint64(h[:])
 }
 
 func OnThisServer(key string, this Server, servers []Server) (bool, error) {
@@ -307,11 +307,14 @@ func PickServer(key string, servers []Server) (Server, error) {
 		return Server{}, fmt.Errorf("missing s4:// prefix: %s", key)
 	}
 	prefix := KeyPrefix(key)
-	val, err := strconv.Atoi(prefix)
+	tmp, err := strconv.Atoi(prefix)
+	var val uint64
 	if err != nil {
 		val = hash(prefix)
+	} else {
+		val = uint64(tmp)
 	}
-	index := val % len(servers)
+	index := val % uint64(len(servers))
 	return servers[index], nil
 }
 
