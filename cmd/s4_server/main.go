@@ -161,14 +161,21 @@ func confirmPutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	panic1(<-job.fail)
 	server_checksum := <-job.server_checksum
 	assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
+	exists := false
 	lib.With(solo_pool, func() {
 		panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
-		assert(!panic2(lib.Exists(job.path)).(bool), job.path)
-		panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(server_checksum), 0o444))
-		panic1(os.Chmod(job.temp_path, 0o444))
-		panic1(os.Rename(job.temp_path, job.path))
+		exists = panic2(lib.Exists(job.path)).(bool)
+		if !exists {
+			panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(server_checksum), 0o444))
+			panic1(os.Chmod(job.temp_path, 0o444))
+			panic1(os.Rename(job.temp_path, job.path))
+		}
 	})
-	w.WriteHeader(200)
+	if exists {
+		w.WriteHeader(409)
+	} else {
+		w.WriteHeader(200)
+	}
 }
 
 func deleteHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
