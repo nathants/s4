@@ -158,8 +158,12 @@ async def confirm_put_handler(request: web.Request) -> web.Response:
     assert result['exitcode'] == 0, result
     server_checksum = result['stderr']
     assert client_checksum == server_checksum, [client_checksum, server_checksum, result]
-    await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
-    return {'code': 200}
+    try:
+        await submit_solo(confirm_put, job['path'], job['temp_path'], server_checksum)
+    except AssertionError:
+        return {'code': 409, 'body': traceback.format_exc()}
+    else:
+        return {'code': 200}
 
 @s4.return_stacktrace
 async def eval_handler(request: web.Request) -> web.Response:
