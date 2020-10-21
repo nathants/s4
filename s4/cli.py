@@ -264,23 +264,8 @@ def map_to_n(indir, outdir, cmd):
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
     """
-    indir, glob = s4.parse_glob(indir)
-    assert indir.endswith('/'), 'indir must be a directory'
-    assert outdir.endswith('/'), 'outdir must be a directory'
-    lines = _ls(indir, recursive=True)
-    proto, path = indir.split('://')
-    bucket, path = path.split('/', 1)
-    urls = []
-    datas = collections.defaultdict(list)
-    for line in lines:
-        date, time, size, key = line
-        key = key.split(path or None, 1)[-1]
-        assert size != 'PRE', key
-        if glob and not fnmatch.fnmatch(key, glob):
-            continue
-        inkey = os.path.join(indir, key)
-        datas[s4.pick_server(inkey)].append((inkey, outdir))
-    urls = [(f'http://{server}/map_to_n', json.dumps({'cmd': cmd, 'args': data})) for server, data in datas.items()]
+    arg = json.dumps({'cmd': cmd, 'indir': indir, 'outdir': outdir})
+    urls = [(f'http://{addr}:{port}/map_to_n', arg) for addr, port in s4.servers()]
     _post_all(urls)
 
 def map_from_n(indir, outdir, cmd):

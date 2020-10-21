@@ -289,13 +289,13 @@ async def map_handler(request: web.Request) -> web.Response:
     indir, glob = s4.parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
-    proto, path = indir.split('://')
-    bucket, path = path.split('/', 1)
+    _proto, path = indir.split('://')
+    _bucket, path = path.split('/', 1)
     cmd = data['cmd'].strip()
     if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
-    for _, _, size, key in await _list(indir, recursive=True):
+    for _, _, size, key in await _list(indir, True):
         key = key.split(path or None, 1)[-1]
         if size == 'PRE':
             continue
@@ -342,13 +342,24 @@ retry_put = lambda f: util.retry.retry(f, allowed_exception_fn=retry_except_404_
 @s4.return_stacktrace
 async def map_to_n_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
+    indir = data['indir']
+    outdir = data['outdir']
+    indir, glob = s4.parse_glob(indir)
+    _proto, path = indir.split('://')
+    _bucket, path = path.split('/', 1)
+    assert indir.endswith('/'), 'indir must be a directory'
+    assert outdir.endswith('/'), 'outdir must be a directory'
+    assert outdir.startswith('s4://'), 'outdir must start with s4://'
     cmd = data['cmd'].strip()
     if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
-    for inkey, outdir in data['args']:
-        assert s4.on_this_server(inkey)
-        assert outdir.startswith('s4://') and outdir.endswith('/')
+    for _, _, size, key in await _list(indir, True):
+        key = key.split(path or None, 1)[-1]
+        assert size != 'PRE', key
+        if glob and not fnmatch.fnmatch(key, glob):
+            continue
+        inkey = os.path.join(indir, key)
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
         run = lambda inpath, outdir, cmd: [inpath, outdir, run_in_tempdir(f'< {inpath} {cmd}', env={'filename': os.path.basename(inpath)})]
         fs.append(submit_cpu(run, inpath, outdir, cmd))
