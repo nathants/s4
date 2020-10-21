@@ -242,24 +242,6 @@ def _post_all(urls):
             print('ok', end=' ', file=sys.stderr, flush=True)
     print('', file=sys.stderr, flush=True)
 
-def _parse_glob(indir):
-    if '*' in indir:
-        base = []
-        pattern = []
-        switch = False
-        for part in indir.split('/'):
-            if '*' in part:
-                switch = True
-            if switch:
-                pattern.append(part)
-            else:
-                base.append(part)
-        indir = '/'.join(base) + '/'
-        glob = '/'.join(pattern)
-    else:
-        glob = None
-    return indir, glob
-
 def map(indir, outdir, cmd):
     """
     process data.
@@ -269,25 +251,8 @@ def map(indir, outdir, cmd):
     - every key in indir will create a key with the same name in outdir.
     - indir will be listed recursively to find keys to map.
     """
-    indir, glob = _parse_glob(indir)
-    assert indir.endswith('/'), 'indir must be a directory'
-    assert outdir.endswith('/'), 'outdir must be a directory'
-    lines = _ls(indir, recursive=True)
-    proto, path = indir.split('://')
-    bucket, path = path.split('/', 1)
-    datas = collections.defaultdict(list)
-    for line in lines:
-        date, time, size, key = line
-        key = key.split(path or None, 1)[-1]
-        if size == 'PRE':
-            continue
-        if glob and not fnmatch.fnmatch(key, glob):
-            continue
-        inkey = os.path.join(indir, key)
-        outkey = os.path.join(outdir, key)
-        datas[s4.pick_server(inkey)].append([inkey, outkey])
-    urls = [(f'http://{server}/map', json.dumps({'cmd': cmd, 'args': data})) for server, data in datas.items()]
-    _post_all(urls)
+    arg = json.dumps({'cmd': cmd, 'indir': indir, 'outdir': outdir})
+    _post_all([(f'http://{addr}:{port}/map', arg) for addr, port in s4.servers()])
 
 def map_to_n(indir, outdir, cmd):
     """
@@ -299,7 +264,7 @@ def map_to_n(indir, outdir, cmd):
     - outdir directories contain zero or more files output by cmd.
     - cmd runs in a tempdir which is deleted on completion.
     """
-    indir, glob = _parse_glob(indir)
+    indir, glob = s4.parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
     lines = _ls(indir, recursive=True)
@@ -328,7 +293,7 @@ def map_from_n(indir, outdir, cmd):
     - each cmd receives all keys with the same name or numeric prefix
     - output name is that name
     """
-    indir, glob = _parse_glob(indir)
+    indir, glob = s4.parse_glob(indir)
     assert indir.endswith('/'), 'indir must be a directory'
     assert outdir.endswith('/'), 'outdir must be a directory'
     lines = _ls(indir, recursive=True)

@@ -106,3 +106,21 @@ def return_stacktrace(decoratee):
             logging.exception(f'failure: {decoratee}')
             return {'code': 500, 'body': traceback.format_exc()}
     return decorated
+
+def parse_glob(indir):
+    if '*' in indir:
+        base = []
+        pattern = []
+        switch = False
+        for part in indir.split('/'):
+            if '*' in part:
+                switch = True
+            if switch:
+                pattern.append(part)
+            else:
+                base.append(part)
+        indir = '/'.join(base) + '/'
+        glob = '/'.join(pattern)
+    else:
+        glob = None
+    return indir, glob

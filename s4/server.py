@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import fnmatch
 import traceback
 import argh
 import asyncio
@@ -223,14 +224,10 @@ async def list_buckets_handler(request: web.Request) -> web.Response:
     xs = [[date, time.split('.')[0], size, os.path.basename(path)] for date, time, size, path in xs]
     return {'code': 200, 'body': json.dumps(xs)}
 
-@s4.return_stacktrace
-async def list_handler(request: web.Request) -> web.Response:
-    [prefix] = request['query']['prefix']
-    assert prefix.startswith('s4://')
+async def _list(prefix, recursive):
     token = prefix = prefix.split('s4://', 1)[-1]
     if not token.endswith('/'):
         token = os.path.dirname(token) + '/'
-    recursive = request['query'].get('recursive', [''])[0] == 'true'
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
@@ -253,6 +250,14 @@ async def list_handler(request: web.Request) -> web.Response:
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
         xs = [[date, time.split(".")[0], size, path.split(token, 1)[-1]] for date, time, size, path in files + dirs]
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
+    return xs
+
+@s4.return_stacktrace
+async def list_handler(request: web.Request) -> web.Response:
+    [prefix] = request['query']['prefix']
+    assert prefix.startswith('s4://')
+    recursive = request['query'].get('recursive', [''])[0] == 'true'
+    xs = await _list(prefix, recursive)
     return {'code': 200, 'body': json.dumps(xs)}
 
 @s4.return_stacktrace
@@ -279,13 +284,25 @@ def create_task(fn):
 @s4.return_stacktrace
 async def map_handler(request: web.Request) -> web.Response:
     data = json.loads(request['body'])
+    indir = data['indir']
+    outdir = data['outdir']
+    indir, glob = s4.parse_glob(indir)
+    assert indir.endswith('/'), 'indir must be a directory'
+    assert outdir.endswith('/'), 'outdir must be a directory'
+    proto, path = indir.split('://')
+    bucket, path = path.split('/', 1)
     cmd = data['cmd'].strip()
     if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
-    for inkey, outkey in data['args']:
-        assert s4.on_this_server(inkey)
-        assert s4.on_this_server(outkey)
+    for _, _, size, key in await _list(indir, recursive=True):
+        key = key.split(path or None, 1)[-1]
+        if size == 'PRE':
+            continue
+        if glob and not fnmatch.fnmatch(key, glob):
+            continue
+        inkey = os.path.join(indir, key)
+        outkey = os.path.join(outdir, key)
         inpath = os.path.abspath(inkey.split('s4://', 1)[-1])
         run = lambda inpath, outkey, cmd: [outkey, run_in_tempdir(f'< {inpath} {cmd} > output', env={'filename': os.path.basename(inpath)})]
         fs.append(submit_cpu(run, inpath, outkey, cmd))
