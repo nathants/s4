@@ -225,7 +225,7 @@ func Health() {
 }
 
 func Usage() {
-	panic2(fmt.Println(`usage: s4 {rm,eval,ls,cp,map,map-to-n,map-from-n,config,health}
+	panic2(fmt.Println(`usage: s4 {rm,eval,ls,cp,map,map-to-n,map-from-n,health}
 
     rm                  delete data from s4
     eval                eval a bash cmd with key data as stdin
@@ -234,7 +234,6 @@ func Usage() {
     map                 process data
     map-to-n            shuffle data
     map-from-n          merge shuffled data
-    config              list the server addresses
     health              health check every server`))
 	os.Exit(1)
 }
