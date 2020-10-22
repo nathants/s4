@@ -52,33 +52,33 @@ func List(prefix string, recursive bool, servers []lib.Server) ([][]string, erro
 	return deduped, nil
 }
 
-type urlData struct {
-	urlData string
-	Data    []byte
+type httpRequest struct {
+	url  string
+	Data []byte
 }
 
-type httpResultUrl struct {
+type httpResult struct {
 	StatusCode int
 	Body       []byte
 	Err        error
-	urlData    urlData
+	url        string
 }
 
-func postAll(urls []urlData, progress func()) error {
-	results := make(chan *httpResultUrl, len(urls))
-	for _, url := range urls {
-		go func(url urlData) {
-			result := lib.Post(url.urlData, "application/json", bytes.NewBuffer(url.Data))
-			results <- &httpResultUrl{result.StatusCode, result.Body, result.Err, url}
-		}(url)
+func postAll(requests []httpRequest, progress func()) error {
+	results := make(chan *httpResult, len(requests))
+	for _, request := range requests {
+		go func(request httpRequest) {
+			result := lib.Post(request.url, "application/json", bytes.NewBuffer(request.Data))
+			results <- &httpResult{result.StatusCode, result.Body, result.Err, request.url}
+		}(request)
 	}
-	for range urls {
+	for range requests {
 		result := <-results
 		if result.Err != nil {
 			return result.Err
 		}
 		if result.StatusCode != 200 {
-			return fmt.Errorf("fatal: %d %s\n%s", result.StatusCode, result.urlData.urlData, result.Body)
+			return fmt.Errorf("fatal: %d %s\n%s", result.StatusCode, result.url, result.Body)
 		}
 		progress()
 	}
@@ -127,16 +127,16 @@ func Map(indir string, outdir string, cmd string, servers []lib.Server, progress
 		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outkey})
 	}
-	var urls []urlData
+	var requests []httpRequest
 	for url, data := range datas {
 		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err
 		}
-		urls = append(urls, urlData{url, bytes})
+		requests = append(requests, httpRequest{url, bytes})
 	}
-	return postAll(urls, progress)
+	return postAll(requests, progress)
 }
 
 func MapToN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
@@ -180,16 +180,16 @@ func MapToN(indir string, outdir string, cmd string, servers []lib.Server, progr
 		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
 		datas[url] = append(datas[url], []string{inkey, outdir})
 	}
-	var urls []urlData
+	var requests []httpRequest
 	for url, data := range datas {
 		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err
 		}
-		urls = append(urls, urlData{url, bytes})
+		requests = append(requests, httpRequest{url, bytes})
 	}
-	return postAll(urls, progress)
+	return postAll(requests, progress)
 }
 
 func MapFromN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
@@ -242,16 +242,16 @@ func MapFromN(indir string, outdir string, cmd string, servers []lib.Server, pro
 		url := fmt.Sprintf("http://%s:%s/map_from_n?outdir=%s", server.Address, server.Port, outdir)
 		datas[url] = append(datas[url], inkeys)
 	}
-	var urls []urlData
+	var requests []httpRequest
 	for url, data := range datas {
 		d := lib.MapArgs{Cmd: cmd, Args: data}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err
 		}
-		urls = append(urls, urlData{url, bytes})
+		requests = append(requests, httpRequest{url, bytes})
 	}
-	return postAll(urls, progress)
+	return postAll(requests, progress)
 }
 
 func Rm(prefix string, recursive bool, servers []lib.Server) error {
