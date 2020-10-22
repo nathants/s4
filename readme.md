@@ -143,7 +143,6 @@ s4 --help
 | [s4 map](#s4-map) | process data |
 | [s4 map-to-n](#s4-map-to-n) | shuffle data |
 | [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
-| [s4 config](#s4-config) | list the server addresses |
 | [s4 health](#s4-health) | health check every server |
 
 ## usage
@@ -279,17 +278,6 @@ positional arguments:
   indir       -
   outdir      -
   cmd         -
-
-optional arguments:
-  -h, --help  show this help message and exit
-```
-
-### s4 config
-```
-usage: s4 config [-h]
-
-    list the server addresses
-
 
 optional arguments:
   -h, --help  show this help message and exit

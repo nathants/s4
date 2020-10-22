@@ -280,12 +280,6 @@ def map_from_n(indir, outdir, cmd):
     arg = json.dumps({'cmd': cmd, 'indir': indir, 'outdir': outdir})
     _post_all([(f'http://{addr}:{port}/map_from_n', arg) for addr, port in s4.servers()])
 
-def config():
-    """
-    list the server addresses
-    """
-    return [':'.join(x) for x in s4.servers()]
-
 def health():
     """
     health check every server
