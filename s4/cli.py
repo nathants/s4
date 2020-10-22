@@ -265,8 +265,7 @@ def map_to_n(indir, outdir, cmd):
     - cmd runs in a tempdir which is deleted on completion.
     """
     arg = json.dumps({'cmd': cmd, 'indir': indir, 'outdir': outdir})
-    urls = [(f'http://{addr}:{port}/map_to_n', arg) for addr, port in s4.servers()]
-    _post_all(urls)
+    _post_all([(f'http://{addr}:{port}/map_to_n', arg) for addr, port in s4.servers()])
 
 def map_from_n(indir, outdir, cmd):
     """
@@ -278,25 +277,8 @@ def map_from_n(indir, outdir, cmd):
     - each cmd receives all keys with the same name or numeric prefix
     - output name is that name
     """
-    indir, glob = s4.parse_glob(indir)
-    assert indir.endswith('/'), 'indir must be a directory'
-    assert outdir.endswith('/'), 'outdir must be a directory'
-    lines = _ls(indir, recursive=True)
-    buckets = collections.defaultdict(list)
-    bucket, indir = indir.split('://', 1)[-1].split('/', 1)
-    for line in lines:
-        date, time, size, key = line
-        key = key.split(indir or None, 1)[-1]
-        if glob and not fnmatch.fnmatch(key, glob):
-            continue
-        buckets[s4.key_prefix(key)].append(os.path.join(f's4://{bucket}', indir, key))
-    datas = collections.defaultdict(list)
-    for inkeys in buckets.values():
-        servers = [s4.pick_server(k) for k in inkeys]
-        assert len(set(servers)) == 1, set(servers)
-        datas[servers[0]].append(inkeys)
-    urls = [(f'http://{server}/map_from_n?outdir={outdir}', json.dumps({'cmd': cmd, 'args': inkeys})) for server, inkeys in datas.items()]
-    _post_all(urls)
+    arg = json.dumps({'cmd': cmd, 'indir': indir, 'outdir': outdir})
+    _post_all([(f'http://{addr}:{port}/map_from_n', arg) for addr, port in s4.servers()])
 
 def config():
     """

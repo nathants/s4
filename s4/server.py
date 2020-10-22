@@ -1,4 +1,5 @@
 #!/usr/bin/env pypy3
+import collections
 import fnmatch
 import traceback
 import argh
@@ -250,12 +251,12 @@ async def _list(prefix, recursive):
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
         xs = [[date, time.split(".")[0], size, path.split(token, 1)[-1]] for date, time, size, path in files + dirs]
         xs = [[date, time, size, path] for date, time, size, path in xs if path.strip()]
-    return xs
+    return sorted(xs, key=lambda x: x[-1])
 
 @s4.return_stacktrace
 async def list_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
-    assert prefix.startswith('s4://')
+    assert prefix.startswith('s4://'), 'prefix must start with s4://'
     recursive = request['query'].get('recursive', [''])[0] == 'true'
     xs = await _list(prefix, recursive)
     return {'code': 200, 'body': json.dumps(xs)}
@@ -263,7 +264,7 @@ async def list_handler(request: web.Request) -> web.Response:
 @s4.return_stacktrace
 async def delete_handler(request: web.Request) -> web.Response:
     [prefix] = request['query']['prefix']
-    assert prefix.startswith('s4://')
+    assert prefix.startswith('s4://'), 'prefix must start with s4://'
     prefix = prefix.split('s4://', 1)[-1]
     assert not prefix.startswith('/'), prefix
     assert os.path.basename(os.getcwd()) == 's4_data', os.getcwd()
@@ -396,17 +397,27 @@ def map_to_n_put(temp_path, outkey):
 
 @s4.return_stacktrace
 async def map_from_n_handler(request: web.Request) -> web.Response:
-    [outdir] = request['query']['outdir']
-    assert outdir.startswith('s4://') and outdir.endswith('/')
     data = json.loads(request['body'])
+    indir = data['indir']
+    outdir = data['outdir']
+    indir, glob = s4.parse_glob(indir)
+    assert indir.endswith('/'), 'indir must be a directory'
+    assert outdir.endswith('/'), 'outdir must be a directory'
+    assert outdir.startswith('s4://'), 'outdir must start with s4://'
     cmd = data['cmd'].strip()
     if cmd.startswith('while read'):
         cmd = f'cat | {cmd}'
     fs = []
-    for inkeys in data['args']:
-        assert all(s4.on_this_server(key) for key in inkeys)
-        outkey = os.path.join(outdir, s4.key_prefix(inkeys[0]) + s4.suffix(inkeys))
-        inpaths = [os.path.abspath(inkey.split('s4://', 1)[-1]) for inkey in inkeys]
+    lines = await _list(indir, True)
+    bucket, indir = indir.split('://', 1)[-1].split('/', 1)
+    prefixes = collections.defaultdict(list)
+    for _, _, size, key in lines:
+        key = key.split(indir or None, 1)[-1]
+        if glob and not fnmatch.fnmatch(key, glob):
+            continue
+        prefixes[s4.key_prefix(key)].append(os.path.abspath(os.path.join(bucket, indir, key)))
+    for prefix, inpaths in prefixes.items():
+        outkey = os.path.join(outdir, prefix + s4.suffix(inpaths))
         run = lambda inpaths, outkey, cmd: [outkey, run_in_tempdir(f'{cmd} > output', stdin='\n'.join(inpaths) + '\n')]
         fs.append(submit_cpu(run, inpaths, outkey, cmd))
     tempdirs = []
