@@ -13,7 +13,7 @@ export zone=${zone:-$(aws-ec2-max-spot-price $type 2>/dev/null | head -n1 | cut 
 export extra="--zone $zone"
 echo zone=$zone type=$type
 
-if ! aws-ec2-ls s4-load-testers; then
+if ! aws-ec2-ls s4-load-testers -s running; then
     num=${num_cluster:-3} bash new_cluster.sh s4-cluster & cluster=$!
     num=${num_testers:-5} bash new_cluster.sh s4-load-testers & testers=$!
     trap "kill $cluster $testers &>/dev/null" EXIT
