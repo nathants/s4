@@ -86,50 +86,10 @@ func postAll(requests []httpRequest, progress func()) error {
 }
 
 func Map(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
-	indir, glob := lib.ParseGlob(indir)
-	if !strings.HasSuffix(indir, "/") {
-		return fmt.Errorf("indir not a directory: %s", indir)
-	}
-	if !strings.HasSuffix(outdir, "/") {
-		return fmt.Errorf("outdir not a directory: %s", outdir)
-	}
-	lines, err := List(indir, true, servers)
-	if err != nil {
-		return err
-	}
-	pth := strings.SplitN(indir, "://", 2)[1]
-	pth = strings.SplitN(pth, "/", 2)[1]
-	datas := make(map[string][][]string)
-	for _, line := range lines {
-		size := line[2]
-		key := line[3]
-		if pth != "" {
-			key = strings.SplitN(key, pth, 2)[1]
-		}
-		if size == "PRE" {
-			continue
-		}
-		if glob != "" {
-			match, err := path.Match(glob, key)
-			if err != nil {
-				return err
-			}
-			if !match {
-				continue
-			}
-		}
-		inkey := lib.Join(indir, key)
-		outkey := lib.Join(outdir, key)
-		server, err := lib.PickServer(inkey, servers)
-		if err != nil {
-			return err
-		}
-		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
-		datas[url] = append(datas[url], []string{inkey, outkey})
-	}
 	var requests []httpRequest
-	for url, data := range datas {
-		d := lib.MapArgs{Cmd: cmd, Args: data}
+	for _, server := range servers {
+		url := fmt.Sprintf("http://%s:%s/map", server.Address, server.Port)
+		d := lib.MapArgs{Cmd: cmd, Indir: indir, Outdir: outdir}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err
@@ -140,49 +100,10 @@ func Map(indir string, outdir string, cmd string, servers []lib.Server, progress
 }
 
 func MapToN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
-	indir, glob := lib.ParseGlob(indir)
-	if !strings.HasSuffix(indir, "/") {
-		return fmt.Errorf("indir not a directory: %s", indir)
-	}
-	if !strings.HasSuffix(outdir, "/") {
-		return fmt.Errorf("outdir not a directory: %s", outdir)
-	}
-	lines, err := List(indir, true, servers)
-	if err != nil {
-		return err
-	}
-	pth := strings.SplitN(indir, "://", 2)[1]
-	pth = strings.SplitN(pth, "/", 2)[1]
-	datas := make(map[string][][]string)
-	for _, line := range lines {
-		size := line[2]
-		key := line[3]
-		if pth != "" {
-			key = strings.SplitN(key, pth, 2)[1]
-		}
-		if size == "PRE" {
-			return fmt.Errorf("map-to-n got a directory instead of a key: %s", key)
-		}
-		if glob != "" {
-			match, err := path.Match(glob, key)
-			if err != nil {
-				return err
-			}
-			if !match {
-				continue
-			}
-		}
-		inkey := lib.Join(indir, key)
-		server, err := lib.PickServer(inkey, servers)
-		if err != nil {
-			return err
-		}
-		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
-		datas[url] = append(datas[url], []string{inkey, outdir})
-	}
 	var requests []httpRequest
-	for url, data := range datas {
-		d := lib.MapArgs{Cmd: cmd, Args: data}
+	for _, server := range servers {
+		url := fmt.Sprintf("http://%s:%s/map_to_n", server.Address, server.Port)
+		d := lib.MapArgs{Cmd: cmd, Indir: indir, Outdir: outdir}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err
@@ -193,58 +114,10 @@ func MapToN(indir string, outdir string, cmd string, servers []lib.Server, progr
 }
 
 func MapFromN(indir string, outdir string, cmd string, servers []lib.Server, progress func()) error {
-	indir, glob := lib.ParseGlob(indir)
-	if !strings.HasSuffix(indir, "/") {
-		return fmt.Errorf("indir not a directory: %s", indir)
-	}
-	if !strings.HasSuffix(outdir, "/") {
-		return fmt.Errorf("outdir not a directory: %s", outdir)
-	}
-	lines, err := List(indir, true, servers)
-	if err != nil {
-		return err
-	}
-	pth := strings.Split(indir, "://")[1]
-	parts := strings.SplitN(pth, "/", 2)
-	bucket := parts[0]
-	indir = parts[1]
-	buckets := make(map[string][]string)
-	for _, line := range lines {
-		key := line[3]
-		if indir != "" {
-			key = strings.SplitN(key, indir, 2)[1]
-		}
-		if glob != "" {
-			match, err := path.Match(glob, key)
-			if err != nil {
-				return err
-			}
-			if !match {
-				continue
-			}
-		}
-		prefix := lib.KeyPrefix(key)
-		buckets[prefix] = append(buckets[prefix], lib.Join(fmt.Sprintf("s4://%s", bucket), indir, key))
-	}
-	datas := make(map[string][][]string)
-	for _, inkeys := range buckets {
-		servers_map, err := lib.ServersMap(inkeys, servers)
-		if err != nil {
-			return err
-		}
-		if len(servers_map) != 1 {
-			return fmt.Errorf("need exactly 1 server for all inkeys: %q", servers_map)
-		}
-		server, err := lib.PickServer(inkeys[0], servers)
-		if err != nil {
-			return err
-		}
-		url := fmt.Sprintf("http://%s:%s/map_from_n?outdir=%s", server.Address, server.Port, outdir)
-		datas[url] = append(datas[url], inkeys)
-	}
 	var requests []httpRequest
-	for url, data := range datas {
-		d := lib.MapArgs{Cmd: cmd, Args: data}
+	for _, server := range servers {
+		url := fmt.Sprintf("http://%s:%s/map_from_n", server.Address, server.Port)
+		d := lib.MapArgs{Cmd: cmd, Indir: indir, Outdir: outdir}
 		bytes, err := json.Marshal(d)
 		if err != nil {
 			return err

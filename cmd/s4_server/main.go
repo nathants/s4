@@ -214,16 +214,36 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
+	indir, glob := lib.ParseGlob(data.Indir)
+	outdir := data.Outdir
+	assert(strings.HasSuffix(indir, "/"), fmt.Sprintf("indir not a directory: %s", indir))
+	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
+	pth := strings.SplitN(indir, "://", 2)[1]
+	files, _ := list_recursive(pth, true)
+	pth = strings.SplitN(pth, "/", 2)[1]
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
-	results := make(chan MapResult, len(data.Args))
-	for _, arg := range data.Args {
-		assert(len(arg) == 2, fmt.Sprint(arg))
-		inkey := arg[0]
-		outkey := arg[1]
-		assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
-		assert(panic2(lib.OnThisServer(outkey, this, servers)).(bool), outkey)
+	results := make(chan MapResult, len(*files))
+	count := 0
+	for _, file := range *files {
+		size := file.Size
+		key := file.Path
+		if pth != "" {
+			key = strings.SplitN(key, pth, 2)[1]
+		}
+		if size == "PRE" {
+			continue
+		}
+		if glob != "" {
+			match := panic2(path.Match(glob, key)).(bool)
+			fmt.Println(match, glob, key)
+			if !match {
+				continue
+			}
+		}
+		inkey := lib.Join(indir, key)
+		outkey := lib.Join(outdir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
@@ -231,14 +251,15 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 				results <- MapResult{result, outkey}
 			})
 		}(inpath)
+		count++
 	}
 	var tempdirs []string
 	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
-	jobs := make(chan error, len(data.Args))
+	jobs := make(chan error, len(*files))
 	fail := make(chan error, 1)
 	go func() {
-		for range data.Args {
+		for i := 0; i < count; i++ {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
@@ -257,7 +278,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 			}
 		}
 	}()
-	for range data.Args {
+	for i := 0; i < count; i++ {
 		select {
 		case <-jobs:
 		case err := <-fail:
@@ -339,16 +360,33 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
+	indir, glob := lib.ParseGlob(data.Indir)
+	outdir := data.Outdir
+	assert(strings.HasSuffix(indir, "/"), fmt.Sprintf("indir not a directory: %s", indir))
+	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
+	assert(strings.HasPrefix(outdir, "s4://"), fmt.Sprintf("outdir must start with s4://, got: %s", outdir))
+	pth := strings.SplitN(indir, "://", 2)[1]
+	files, _ := list_recursive(pth, true)
+	pth = strings.SplitN(pth, "/", 2)[1]
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
-	results := make(chan MapToNResult, len(data.Args))
-	for _, arg := range data.Args {
-		assert(len(arg) == 2, fmt.Sprint(arg))
-		inkey := arg[0]
-		outdir := arg[1]
-		assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
-		assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
+	count := 0
+	results := make(chan MapToNResult, len(*files))
+	for _, file := range *files {
+		size := file.Size
+		key := file.Path
+		if pth != "" {
+			key = strings.SplitN(key, pth, 2)[1]
+		}
+		assert(size != "PRE", fmt.Sprintf("map-to-n got a directory instead of a key: %s", key))
+		if glob != "" {
+			match := panic2(path.Match(glob, key)).(bool)
+			if !match {
+				continue
+			}
+		}
+		inkey := lib.Join(indir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
 			lib.With(cpu_pool, func() {
@@ -356,6 +394,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 				results <- MapToNResult{result, inpath, outdir}
 			})
 		}(inpath)
+		count++
 	}
 	var tempdirs []string
 	defer cleanup(&tempdirs)
@@ -364,7 +403,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		for range data.Args {
+		for i := 0; i < count; i++ {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
@@ -425,24 +464,40 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey s
 }
 
 func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
-	outdir := lib.QueryParam(r, "outdir")
-	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 	var data lib.MapArgs
 	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
+	indir, glob := lib.ParseGlob(data.Indir)
+	outdir := data.Outdir
+	assert(strings.HasSuffix(indir, "/"), fmt.Sprintf("indir not a directory: %s", indir))
+	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
+	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
+	pth := strings.Split(indir, "://")[1]
+	files, _ := list_recursive(pth, true)
+	parts := strings.SplitN(pth, "/", 2)
+	bucket := parts[0]
+	indir = parts[1]
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
 	}
-	results := make(chan MapResult, len(data.Args))
-	for _, inkeys := range data.Args {
-		var inpaths []string
-		for _, inkey := range inkeys {
-			assert(panic2(lib.OnThisServer(inkey, this, servers)).(bool), inkey)
-			inpath := strings.SplitN(inkey, "s4://", 2)[1]
-			inpath = panic2(filepath.Abs(inpath)).(string)
-			inpaths = append(inpaths, inpath)
+	prefixes := make(map[string][]string)
+	for _, file := range *files {
+		key := file.Path
+		if indir != "" {
+			key = strings.SplitN(key, indir, 2)[1]
 		}
-		outkey := lib.Join(outdir, lib.KeyPrefix(inkeys[0])+lib.Suffix(inkeys))
+		if glob != "" {
+			match := panic2(path.Match(glob, key)).(bool)
+			if !match {
+				continue
+			}
+		}
+		prefix := lib.KeyPrefix(key)
+		prefixes[prefix] = append(prefixes[prefix], panic2(filepath.Abs(lib.Join(bucket, indir, key))).(string))
+	}
+	results := make(chan MapResult, len(prefixes))
+	for prefix, inpaths := range prefixes {
+		outkey := lib.Join(outdir, prefix+lib.Suffix(inpaths))
 		go func(inpaths []string) {
 			lib.With(cpu_pool, func() {
 				stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
@@ -454,10 +509,10 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 	var tempdirs []string
 	defer cleanup(&tempdirs)
 	timeout := time.After(lib.MaxTimeout)
-	jobs := make(chan error, len(data.Args))
+	jobs := make(chan error, len(prefixes))
 	fail := make(chan error, 1)
 	go func() {
-		for range data.Args {
+		for range prefixes {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
 			if result.WarnResult.Err != nil {
@@ -476,7 +531,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 			}
 		}
 	}()
-	for range data.Args {
+	for range prefixes {
 		select {
 		case <-jobs:
 		case err := <-fail:

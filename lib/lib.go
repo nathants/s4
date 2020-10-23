@@ -42,8 +42,9 @@ var (
 )
 
 type MapArgs struct {
-	Cmd  string     `json:"cmd"`
-	Args [][]string `json:"args"`
+	Cmd    string `json:"cmd"`
+	Indir  string `json:"indir"`
+	Outdir string `json:"outidr"`
 }
 
 func DefaultConfPath() string {
@@ -729,18 +730,6 @@ func QueryParamDefault(r *http.Request, name string, default_val string) string 
 	default:
 		panic(len(vals))
 	}
-}
-
-func ServersMap(inkeys []string, servers []Server) (map[string]error, error) {
-	servers_map := make(map[string]error)
-	for _, inkey := range inkeys {
-		server, err := PickServer(inkey, servers)
-		if err != nil {
-			return servers_map, err
-		}
-		servers_map[fmt.Sprintf("%s:%s", server.Address, server.Port)] = nil
-	}
-	return servers_map, nil
 }
 
 func ThisServer(port int, servers []Server) Server {
