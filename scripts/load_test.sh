@@ -29,6 +29,6 @@ fi
 
 # run the load test
 aws-ec2-ssh s4-load-testers -qyc "
-    _gen_csv ${columns:-8} ${rows:-100000} > data.csv
-    seq ${size:-1000} | xargs -t -n1 -P${workers:-32} -I{} s4 cp data.csv s4://bucket/\$(hostnamectl --static)/\$(date +%s.%N)/{}
-"
+    _gen_csv ${columns:-8} ${rows:-1000} > data.csv
+    time seq ${size:-10000} | xargs -t -n1 -P${workers:-32} -I{} s4 cp data.csv s4://bucket/\$(hostnamectl --static)/\$(date +%s.%N)/{} &>/dev/null
+" 2>/dev/null | grep real
