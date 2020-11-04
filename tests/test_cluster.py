@@ -25,7 +25,7 @@ def setup_module():
             run('aws-ec2-scp -y s4.conf :.s4.conf', *ids)
         with shell.climb_git_root():
             run('aws-ec2-rsync -y . :/mnt/s4', cluster_name)
-            run('aws-ec2-ssh -yc arch.sh', *ids)
+            run('aws-ec2-ssh -yc scripts/install_archlinux.sh', *ids)
         state['ids'] = ids
     push()
 
@@ -68,7 +68,7 @@ def test_basic():
         'key9.txt:data9',
     ]
     cmd = 'rm -f key*.txt\n'
-    cmd += 's4 cp s4://bucket/dir/ . --recursive\n'
+    cmd += 's4 cp -r s4://bucket/dir/ .\n'
     ssh(cmd, ids=ids[:1])
     assert sorted(ssh("cd dir && grep '.*' key*.txt", ids=ids[:1]).splitlines()) == [
         'key0.txt:data0',
@@ -82,19 +82,19 @@ def test_basic():
         'key8.txt:data8',
         'key9.txt:data9',
     ]
-    vals = sorted(ssh('cd s4_data && find -type f | grep -v xxh3').splitlines())
-    vals = util.iter.groupby(vals, lambda x: x.split()[1])
+    vals = sorted(ssh('cd s4_data && find -type f | grep -v xxh').splitlines())
+    vals = util.iter.groupby(vals, lambda x: x.split()[0])
     vals = {frozenset({x.split()[-1] for x in v}) for k, v in vals}
     result = {
-        frozenset({'./bucket/dir/key0.txt',
-                   './bucket/dir/key5.txt'}),
-        frozenset({'./bucket/dir/key2.txt',
-                   './bucket/dir/key3.txt'}),
         frozenset({'./bucket/dir/key1.txt',
+                   './bucket/dir/key3.txt',
+                   './bucket/dir/key5.txt'}),
+        frozenset({'./bucket/dir/key8.txt',
+                   './bucket/dir/key9.txt'}),
+        frozenset({'./bucket/dir/key0.txt',
+                   './bucket/dir/key2.txt',
                    './bucket/dir/key4.txt',
                    './bucket/dir/key6.txt',
-                   './bucket/dir/key7.txt',
-                   './bucket/dir/key8.txt',
-                   './bucket/dir/key9.txt'}),
+                   './bucket/dir/key7.txt'})
     }
     assert result == vals
