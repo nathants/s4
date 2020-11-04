@@ -63,7 +63,7 @@ def checksum_read(path):
 
 def checksum_path(path):
     assert not path.endswith('/')
-    return f'{path}.xxh3'
+    return f'{path}.xxh'
 
 def exists(path):
     return os.path.isfile(path) and os.path.isfile(checksum_path(path))
@@ -232,7 +232,7 @@ async def _list(prefix, recursive):
     if recursive:
         if not prefix.endswith('/'):
             prefix += '*'
-        result = await submit_misc(s4.run, f"find {prefix} -type f ! -name '*.xxh3' {printf}")
+        result = await submit_misc(s4.run, f"find {prefix} -type f ! -name '*.xxh' {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         xs = [x.split() for x in result['stdout'].splitlines()]
         xs = [[date, time.split('.')[0], size, '/'.join(path.split('/')[1:])] for date, time, size, path in xs]
@@ -242,10 +242,10 @@ async def _list(prefix, recursive):
             name = os.path.basename(prefix)
             name = f"-name '{name}*'"
             prefix = os.path.dirname(prefix)
-        result = await submit_misc(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh3' {name} {printf}")
+        result = await submit_misc(s4.run, f"find {prefix} -maxdepth 1 -type f ! -name '*.xxh' {name} {printf}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = result['stdout']
-        result = await submit_misc(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh3' {name}")
+        result = await submit_misc(s4.run, f"find {prefix} -mindepth 1 -maxdepth 1 -type d ! -name '*.xxh' {name}")
         assert result['exitcode'] == 0 or 'No such file or directory' in result['stderr'], result
         files = [x.split() for x in files.splitlines() if x.split()[-1].strip()]
         dirs = [('', '', 'PRE', x + '/') for x in result['stdout'].splitlines()]
