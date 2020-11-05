@@ -14,7 +14,10 @@ s4: setup
 s4-server: setup
 	go build -o bin/s4-server cmd/s4_server/main.go
 
-check: check-static check-ineff check-err check-vet
+check: check-static check-ineff check-err check-vet check-lint
+
+check-lint:
+	find -name '*.go' | grep -v _test.go | xargs -n1 golint | grep -v unexported || true
 
 check-static:
 	find -name '*.go' | grep -v _test.go | xargs -n1 staticcheck

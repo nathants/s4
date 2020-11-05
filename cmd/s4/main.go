@@ -20,7 +20,7 @@ func Rm() {
 		os.Exit(1)
 	}
 	recursive := flg.Bool("r", false, "recursive")
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -29,7 +29,7 @@ func Rm() {
 		usage()
 	}
 	prefix := flg.Arg(0)
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	panic1(s4.Rm(prefix, *recursive, servers))
 }
 
@@ -40,7 +40,7 @@ func Map() {
 		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -51,7 +51,7 @@ func Map() {
 	indir := flg.Arg(0)
 	outdir := flg.Arg(1)
 	cmd := flg.Arg(2)
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	panic1(s4.Map(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
@@ -62,7 +62,7 @@ func MapToN() {
 		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -73,7 +73,7 @@ func MapToN() {
 	indir := flg.Arg(0)
 	outdir := flg.Arg(1)
 	cmd := flg.Arg(2)
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	panic1(s4.MapToN(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
@@ -84,7 +84,7 @@ func MapFromN() {
 		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -95,7 +95,7 @@ func MapFromN() {
 	if flg.NArg() != 3 {
 		usage()
 	}
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	panic1(s4.MapFromN(indir, outdir, cmd, servers, func() { fmt.Printf("ok ") }))
 }
 
@@ -106,7 +106,7 @@ func Eval() {
 		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -116,7 +116,7 @@ func Eval() {
 	if flg.NArg() != 2 {
 		usage()
 	}
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	result, err := s4.Eval(key, cmd, servers)
 	panic1(err)
 	fmt.Println(result)
@@ -130,12 +130,12 @@ func Ls() {
 		os.Exit(1)
 	}
 	recursive := flg.Bool("r", false, "recursive")
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
 	panic1(flg.Parse(os.Args[2:]))
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	var lines [][]string
 	var err error
 	switch flg.NArg() {
@@ -175,7 +175,7 @@ func Cp() {
 		os.Exit(1)
 	}
 	recursive := flg.Bool("r", false, "recursive")
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		usage()
 	}
@@ -185,19 +185,19 @@ func Cp() {
 	}
 	src := flg.Arg(0)
 	dst := flg.Arg(1)
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	panic1(s4.Cp(src, dst, *recursive, servers))
 }
 
 func Health() {
 	flg := flag.NewFlagSet("health", flag.ExitOnError)
-	conf_path := flg.String("c", lib.DefaultConfPath(), "conf-path")
+	confPath := flg.String("c", lib.DefaultConfPath(), "conf-path")
 	if lib.Contains(os.Args, "-h") || lib.Contains(os.Args, "--help") {
 		panic2(fmt.Fprintln(os.Stderr, "usage: s4 health [-r] [-c]"))
 		flg.PrintDefaults()
 		os.Exit(1)
 	}
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	results := make(chan string, len(servers))
 	client := http.Client{Timeout: 1 * time.Second}
 	for _, server := range servers {

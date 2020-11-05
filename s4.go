@@ -16,14 +16,14 @@ import (
 )
 
 func List(prefix string, recursive bool, servers []lib.Server) ([][]string, error) {
-	recursive_param := ""
+	recursiveParam := ""
 	if recursive {
-		recursive_param = "&recursive=true"
+		recursiveParam = "&recursive=true"
 	}
-	results := make(chan *lib.HttpResult)
+	results := make(chan *lib.HTTPResult)
 	for _, server := range servers {
 		go func(server lib.Server) {
-			results <- lib.Get(fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursive_param))
+			results <- lib.Get(fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursiveParam))
 		}(server)
 	}
 	var lines [][]string
@@ -132,7 +132,7 @@ func Rm(prefix string, recursive bool, servers []lib.Server) error {
 		return fmt.Errorf("missing s4:// prefix: %s", prefix)
 	}
 	if recursive {
-		results := make(chan *lib.HttpResult)
+		results := make(chan *lib.HTTPResult)
 		for _, server := range servers {
 			go func(server lib.Server) {
 				results <- lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
@@ -184,7 +184,7 @@ func Eval(key string, cmd string, servers []lib.Server) (string, error) {
 }
 
 func ListBuckets(servers []lib.Server) ([][]string, error) {
-	results := make(chan *lib.HttpResult)
+	results := make(chan *lib.HTTPResult)
 	for _, server := range servers {
 		go func(server lib.Server) {
 			results <- lib.Get(fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port))
@@ -289,12 +289,12 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 	}
 	port := make(chan string, 1)
 	fail := make(chan error)
-	temp_path := fmt.Sprintf("%s.temp", dst)
-	defer func() { _ = os.Remove(temp_path) }()
-	var client_checksum string
+	tempPath := fmt.Sprintf("%s.temp", dst)
+	defer func() { _ = os.Remove(tempPath) }()
+	var clientChecksum string
 	go func() {
 		var err error
-		client_checksum, err = lib.RecvFile(temp_path, port)
+		clientChecksum, err = lib.RecvFile(tempPath, port)
 		fail <- err
 	}()
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
@@ -310,7 +310,7 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 	if err != nil {
 		return err
 	}
-	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, clientChecksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.StatusCode != 200 {
 		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
@@ -324,7 +324,7 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 	} else if dst == "." {
 		dst = path.Base(src)
 	}
-	err = os.Rename(temp_path, dst)
+	err = os.Rename(tempPath, dst)
 	if err != nil {
 		return err
 	}
@@ -338,10 +338,10 @@ func GetWriter(src string, dst io.Writer, servers []lib.Server) error {
 	}
 	port := make(chan string, 1)
 	fail := make(chan error)
-	var client_checksum string
+	var clientChecksum string
 	go func() {
 		var err error
-		client_checksum, err = lib.Recv(os.Stdout, port)
+		clientChecksum, err = lib.Recv(os.Stdout, port)
 		fail <- err
 	}()
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
@@ -357,7 +357,7 @@ func GetWriter(src string, dst io.Writer, servers []lib.Server) error {
 	if err != nil {
 		return err
 	}
-	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	url = fmt.Sprintf("http://%s:%s/confirm_get?uuid=%s&checksum=%s", server.Address, server.Port, uid, clientChecksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.StatusCode != 200 {
 		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
@@ -392,11 +392,11 @@ func PutFile(src string, dst string, servers []lib.Server) error {
 	}
 	uid := vals[0]
 	port := vals[1]
-	client_checksum, err := lib.SendFile(src, server.Address, port)
+	clientChecksum, err := lib.SendFile(src, server.Address, port)
 	if err != nil {
 		return err
 	}
-	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, clientChecksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.Err != nil {
 		return result.Err
@@ -429,11 +429,11 @@ func PutReader(src io.Reader, dst string, servers []lib.Server) error {
 	}
 	uid := vals[0]
 	port := vals[1]
-	client_checksum, err := lib.Send(os.Stdin, server.Address, port)
+	clientChecksum, err := lib.Send(os.Stdin, server.Address, port)
 	if err != nil {
 		return err
 	}
-	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, client_checksum)
+	url = fmt.Sprintf("http://%s:%s/confirm_put?uuid=%s&checksum=%s", server.Address, server.Port, uid, clientChecksum)
 	result = lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
 	if result.Err != nil {
 		return result.Err
@@ -462,21 +462,18 @@ func Cp(src string, dst string, recursive bool, servers []lib.Server) error {
 			return getRecursive(src, dst, servers)
 		} else if strings.HasPrefix(dst, "s4://") {
 			return putRecursive(src, dst, servers)
-		} else {
-			return fmt.Errorf("fatal: src or dst needs s4://")
 		}
+		return fmt.Errorf("fatal: src or dst needs s4://")
 	} else if strings.HasPrefix(src, "s4://") {
 		if dst == "-" {
 			return GetWriter(src, os.Stdout, servers)
-		} else {
-			return GetFile(src, dst, servers)
 		}
+		return GetFile(src, dst, servers)
 	} else if strings.HasPrefix(dst, "s4://") {
 		if src == "-" {
 			return PutReader(os.Stdin, dst, servers)
-		} else {
-			return PutFile(src, dst, servers)
 		}
+		return PutFile(src, dst, servers)
 	} else {
 		return fmt.Errorf("fatal: src or dst needs s4://")
 	}

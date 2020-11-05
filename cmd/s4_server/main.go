@@ -22,19 +22,19 @@ import (
 )
 
 var (
-	io_jobs      = &sync.Map{}
-	io_send_pool *semaphore.Weighted
-	io_recv_pool *semaphore.Weighted
-	cpu_pool     *semaphore.Weighted
-	misc_pool    *semaphore.Weighted
-	solo_pool    *semaphore.Weighted
+	ioJobs      = &sync.Map{}
+	ioSendPool *semaphore.Weighted
+	ioRecvPool *semaphore.Weighted
+	cpuPool     *semaphore.Weighted
+	miscPool    *semaphore.Weighted
+	soloPool    *semaphore.Weighted
 )
 
 type GetJob struct {
 	start           time.Time
-	server_checksum chan string
+	serverChecksum chan string
 	fail            chan error
-	disk_checksum   string
+	diskChecksum   string
 }
 
 func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
@@ -47,7 +47,7 @@ func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	}
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
-	lib.With(solo_pool, func() {
+	lib.With(soloPool, func() {
 		exists = panic2(lib.Exists(path)).(bool)
 	})
 	if !exists {
@@ -57,31 +57,31 @@ func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	uid := uuid.NewV4().String()
 	started := make(chan bool, 1)
 	fail := make(chan error, 1)
-	server_checksum := make(chan string, 1)
-	go lib.With(io_send_pool, func() {
+	serverChecksum := make(chan string, 1)
+	go lib.With(ioSendPool, func() {
 		started <- true
 		chk, err := lib.SendFile(path, remote, port)
 		if err != nil {
 			lib.Logger.Println("send error:", err)
 		}
 		fail <- err
-		server_checksum <- chk
+		serverChecksum <- chk
 	})
-	var disk_checksum string
-	lib.With(solo_pool, func() {
-		disk_checksum = panic2(lib.ChecksumRead(path)).(string)
+	var diskChecksum string
+	lib.With(soloPool, func() {
+		diskChecksum = panic2(lib.ChecksumRead(path)).(string)
 	})
 	job := &GetJob{
 		time.Now(),
-		server_checksum,
+		serverChecksum,
 		fail,
-		disk_checksum,
+		diskChecksum,
 	}
-	_, loaded := io_jobs.LoadOrStore(uid, job)
+	_, loaded := ioJobs.LoadOrStore(uid, job)
 	assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
-		io_jobs.Delete(uid)
+		ioJobs.Delete(uid)
 		w.WriteHeader(429)
 	case <-started:
 		panic2(w.Write([]byte(uid)))
@@ -90,23 +90,23 @@ func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 
 func confirmGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	uid := lib.QueryParam(r, "uuid")
-	client_checksum := lib.QueryParam(r, "checksum")
-	v, ok := io_jobs.LoadAndDelete(uid)
+	clientChecksum := lib.QueryParam(r, "checksum")
+	v, ok := ioJobs.LoadAndDelete(uid)
 	assert(ok, uid)
 	job := v.(*GetJob)
 	panic1(<-job.fail)
-	server_checksum := <-job.server_checksum
-	disk_checksum := job.disk_checksum
-	assert(client_checksum == server_checksum && server_checksum == disk_checksum, "checksum mismatch: %s %s %s\n", client_checksum, server_checksum, disk_checksum)
+	serverChecksum := <-job.serverChecksum
+	diskChecksum := job.diskChecksum
+	assert(clientChecksum == serverChecksum && serverChecksum == diskChecksum, "checksum mismatch: %s %s %s\n", clientChecksum, serverChecksum, diskChecksum)
 	w.WriteHeader(200)
 }
 
 type PutJob struct {
 	start           time.Time
-	server_checksum chan string
+	serverChecksum chan string
 	fail            chan error
 	path            string
-	temp_path       string
+	tempPath       string
 }
 
 func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
@@ -116,10 +116,10 @@ func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	path := strings.SplitN(key, "s4://", 2)[1]
 	assert(!strings.HasPrefix(path, "_"), path)
 	var exists bool
-	var temp_path string
-	lib.With(solo_pool, func() {
+	var tempPath string
+	lib.With(soloPool, func() {
 		exists = panic2(lib.Exists(path)).(bool)
-		temp_path = lib.NewTempPath("_tempfiles")
+		tempPath = lib.NewTempPath("_tempfiles")
 	})
 	if exists {
 		w.WriteHeader(409)
@@ -128,21 +128,21 @@ func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	uid := uuid.NewV4().String()
 	port := make(chan string, 1)
 	fail := make(chan error, 1)
-	server_checksum := make(chan string, 1)
-	go lib.With(io_recv_pool, func() {
-		chk, err := lib.RecvFile(temp_path, port)
+	serverChecksum := make(chan string, 1)
+	go lib.With(ioRecvPool, func() {
+		chk, err := lib.RecvFile(tempPath, port)
 		if err != nil {
 			lib.Logger.Println("recv error:", err)
 		}
 		fail <- err
-		server_checksum <- chk
+		serverChecksum <- chk
 	})
-	job := &PutJob{time.Now(), server_checksum, fail, path, temp_path}
-	_, loaded := io_jobs.LoadOrStore(uid, job)
+	job := &PutJob{time.Now(), serverChecksum, fail, path, tempPath}
+	_, loaded := ioJobs.LoadOrStore(uid, job)
 	assert(!loaded, uid)
 	select {
 	case <-time.After(lib.Timeout):
-		io_jobs.Delete(uid)
+		ioJobs.Delete(uid)
 		_ = os.Remove(path)
 		_ = os.Remove(panic2(lib.ChecksumPath(path)).(string))
 		w.WriteHeader(429)
@@ -154,21 +154,21 @@ func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 
 func confirmPutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	uid := lib.QueryParam(r, "uuid")
-	client_checksum := lib.QueryParam(r, "checksum")
-	v, ok := io_jobs.LoadAndDelete(uid)
+	clientChecksum := lib.QueryParam(r, "checksum")
+	v, ok := ioJobs.LoadAndDelete(uid)
 	assert(ok, "no such job: %s", uid)
 	job := v.(*PutJob)
 	panic1(<-job.fail)
-	server_checksum := <-job.server_checksum
-	assert(client_checksum == server_checksum, "checksum mismatch: %s %s\n", client_checksum, server_checksum)
+	serverChecksum := <-job.serverChecksum
+	assert(clientChecksum == serverChecksum, "checksum mismatch: %s %s\n", clientChecksum, serverChecksum)
 	exists := false
-	lib.With(solo_pool, func() {
+	lib.With(soloPool, func() {
 		panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
 		exists = panic2(lib.Exists(job.path)).(bool)
 		if !exists {
-			panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(server_checksum), 0o444))
-			panic1(os.Chmod(job.temp_path, 0o444))
-			panic1(os.Rename(job.temp_path, job.path))
+			panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(serverChecksum), 0o444))
+			panic1(os.Chmod(job.tempPath, 0o444))
+			panic1(os.Rename(job.tempPath, job.path))
 		}
 	})
 	if exists {
@@ -185,9 +185,9 @@ func deleteHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	cwd := path.Base(panic2(os.Getwd()).(string))
 	assert(cwd == "s4_data", cwd)
-	lib.With(solo_pool, func() {
+	lib.With(soloPool, func() {
 		if recursive {
-			files, dirs := list_recursive(prefix, false)
+			files, dirs := listRecursive(prefix, false)
 			for _, info := range *files {
 				assert(!strings.HasPrefix(info.Path, "/"), info.Path)
 				panic1(os.Remove(info.Path))
@@ -219,7 +219,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 	assert(strings.HasSuffix(indir, "/"), fmt.Sprintf("indir not a directory: %s", indir))
 	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
 	pth := strings.SplitN(indir, "://", 2)[1]
-	files, _ := list_recursive(pth, true)
+	files, _ := listRecursive(pth, true)
 	pth = strings.SplitN(pth, "/", 2)[1]
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
@@ -246,7 +246,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 		outkey := lib.Join(outdir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
-			lib.With(cpu_pool, func() {
+			lib.With(cpuPool, func() {
 				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd))
 				results <- MapResult{result, outkey}
 			})
@@ -267,8 +267,8 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 				break
 			} else {
 				go func(result MapResult) {
-					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
-					err := localPut(temp_path, result.Outkey, this, servers)
+					tempPath := lib.Join(result.WarnResult.Tempdir, "output")
+					err := localPut(tempPath, result.Outkey, this, servers)
 					if err != nil {
 						fail <- err
 					} else {
@@ -293,15 +293,15 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 	w.WriteHeader(200)
 }
 
-func localPut(temp_path string, key string, this lib.Server, servers []lib.Server) error {
+func localPut(tempPath string, key string, this lib.Server, servers []lib.Server) error {
 	if strings.Contains(key, " ") {
 		return fmt.Errorf("key contains space: %s", key)
 	}
-	on_this_server, err := lib.OnThisServer(key, this, servers)
+	onThisServer, err := lib.OnThisServer(key, this, servers)
 	if err != nil {
 		return err
 	}
-	if !on_this_server {
+	if !onThisServer {
 		return fmt.Errorf("wrong server for key: %s", key)
 	}
 	path := strings.SplitN(key, "s4://", 2)[1]
@@ -309,19 +309,19 @@ func localPut(temp_path string, key string, this lib.Server, servers []lib.Serve
 		return fmt.Errorf("path cannot start with underscore: %s", path)
 	}
 	var checksum string
-	lib.With(misc_pool, func() {
-		checksum, err = lib.Checksum(temp_path)
+	lib.With(miscPool, func() {
+		checksum, err = lib.Checksum(tempPath)
 	})
 	if err != nil {
 		return err
 	}
-	lib.With(solo_pool, func() {
-		err = confirmLocalPut(temp_path, path, checksum)
+	lib.With(soloPool, func() {
+		err = confirmLocalPut(tempPath, path, checksum)
 	})
 	return err
 }
 
-func confirmLocalPut(temp_path string, path string, checksum string) error {
+func confirmLocalPut(tempPath string, path string, checksum string) error {
 	err := os.MkdirAll(lib.Dir(path), os.ModePerm)
 	if err != nil {
 		return err
@@ -333,11 +333,11 @@ func confirmLocalPut(temp_path string, path string, checksum string) error {
 	if exists {
 		return fmt.Errorf("fatal: key already exists s4://%s", path)
 	}
-	err = os.Chmod(temp_path, 0o444)
+	err = os.Chmod(tempPath, 0o444)
 	if err != nil {
 		return err
 	}
-	err = os.Rename(temp_path, path)
+	err = os.Rename(tempPath, path)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
 	assert(strings.HasPrefix(outdir, "s4://"), fmt.Sprintf("outdir must start with s4://, got: %s", outdir))
 	pth := strings.SplitN(indir, "://", 2)[1]
-	files, _ := list_recursive(pth, true)
+	files, _ := listRecursive(pth, true)
 	pth = strings.SplitN(pth, "/", 2)[1]
 	if strings.HasPrefix(data.Cmd, "while read") {
 		data.Cmd = fmt.Sprintf("cat | %s", data.Cmd)
@@ -389,7 +389,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 		inkey := lib.Join(indir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
-			lib.With(cpu_pool, func() {
+			lib.With(cpuPool, func() {
 				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd))
 				results <- MapToNResult{result, inpath, outdir}
 			})
@@ -410,12 +410,12 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 				fail <- fmt.Errorf(result.WarnResult.Stdout + "\n" + result.WarnResult.Stderr)
 				break
 			} else {
-				for _, temp_path := range strings.Split(result.WarnResult.Stdout, "\n") {
-					if temp_path != "" {
+				for _, tempPath := range strings.Split(result.WarnResult.Stdout, "\n") {
+					if tempPath != "" {
 						wg.Add(1)
-						temp_path = lib.Join(result.WarnResult.Tempdir, temp_path)
-						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(temp_path))
-						go mapToNPut(&wg, fail, temp_path, outkey, this, servers)
+						tempPath = lib.Join(result.WarnResult.Tempdir, tempPath)
+						outkey := lib.Join(result.Outdir, path.Base(result.Inpath), path.Base(tempPath))
+						go mapToNPut(&wg, fail, tempPath, outkey, this, servers)
 					}
 				}
 			}
@@ -433,23 +433,23 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	}
 }
 
-func mapToNPut(wg *sync.WaitGroup, fail chan<- error, temp_path string, outkey string, this lib.Server, servers []lib.Server) {
+func mapToNPut(wg *sync.WaitGroup, fail chan<- error, tempPath string, outkey string, this lib.Server, servers []lib.Server) {
 	defer wg.Done()
-	on_this_server, err := lib.OnThisServer(outkey, this, servers)
+	onThisServer, err := lib.OnThisServer(outkey, this, servers)
 	if err != nil {
 		fail <- err
 		return
 	}
-	if on_this_server {
-		err := localPut(temp_path, outkey, this, servers)
+	if onThisServer {
+		err := localPut(tempPath, outkey, this, servers)
 		if err != nil {
 			fail <- err
 		}
 	} else {
 		err := lib.Retry(func() error {
 			var err error
-			lib.With(io_send_pool, func() {
-				err = s4.PutFile(temp_path, outkey, servers)
+			lib.With(ioSendPool, func() {
+				err = s4.PutFile(tempPath, outkey, servers)
 			})
 			if errors.Is(err, s4.Err409) {
 				fail <- err
@@ -473,7 +473,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 	assert(strings.HasSuffix(outdir, "/"), fmt.Sprintf("outdir not a directory: %s", outdir))
 	assert(strings.HasPrefix(outdir, "s4://") && strings.HasSuffix(outdir, "/"), outdir)
 	pth := strings.Split(indir, "://")[1]
-	files, _ := list_recursive(pth, true)
+	files, _ := listRecursive(pth, true)
 	parts := strings.SplitN(pth, "/", 2)
 	bucket := parts[0]
 	indir = parts[1]
@@ -499,7 +499,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 	for prefix, inpaths := range prefixes {
 		outkey := lib.Join(outdir, prefix+lib.Suffix(inpaths))
 		go func(inpaths []string) {
-			lib.With(cpu_pool, func() {
+			lib.With(cpuPool, func() {
 				stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
 				result := lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd))
 				results <- MapResult{result, outkey}
@@ -520,8 +520,8 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 				break
 			} else {
 				go func(result MapResult) {
-					temp_path := lib.Join(result.WarnResult.Tempdir, "output")
-					err := localPut(temp_path, result.Outkey, this, servers)
+					tempPath := lib.Join(result.WarnResult.Tempdir, "output")
+					err := localPut(tempPath, result.Outkey, this, servers)
 					if err != nil {
 						fail <- err
 					} else {
@@ -551,13 +551,13 @@ func evalHandler(w http.ResponseWriter, r *http.Request, this lib.Server, server
 	cmd := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
-	lib.With(solo_pool, func() {
+	lib.With(soloPool, func() {
 		exists = panic2(lib.Exists(path)).(bool)
 	})
 	if !exists {
 		w.WriteHeader(404)
 	} else {
-		lib.With(cpu_pool, func() {
+		lib.With(cpuPool, func() {
 			res := lib.Warn("< %s %s", path, cmd)
 			if res.Err != nil {
 				w.WriteHeader(500)
@@ -576,7 +576,7 @@ type File struct {
 	Path    string
 }
 
-func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
+func listRecursive(prefix string, stripBucket bool) (*[]*File, *[]*File) {
 	root := prefix
 	if !strings.HasSuffix(prefix, "/") && strings.Count(prefix, "/") > 0 {
 		root = lib.Dir(prefix)
@@ -588,10 +588,10 @@ func list_recursive(prefix string, strip_bucket bool) (*[]*File, *[]*File) {
 		panic1(filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
 			panic1(err)
 			matched := strings.HasPrefix(fullpath, prefix)
-			is_checksum := lib.IsChecksum(fullpath)
-			if matched && !is_checksum {
+			isChecksum := lib.IsChecksum(fullpath)
+			if matched && !isChecksum {
 				path := fullpath
-				if strip_bucket {
+				if stripBucket {
 					path = strings.Join(strings.Split(fullpath, "/")[1:], "/")
 				}
 				if info.IsDir() {
@@ -617,8 +617,8 @@ func list(prefix string) *[]*File {
 		for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
 			name := info.Name()
 			matched := strings.HasPrefix(lib.Join(root, name), prefix)
-			is_checksum := lib.IsChecksum(name)
-			if matched && !is_checksum {
+			isChecksum := lib.IsChecksum(name)
+			if matched && !isChecksum {
 				if info.IsDir() {
 					res = append(res, &File{info.ModTime(), "PRE", name + "/"})
 				} else {
@@ -636,9 +636,9 @@ func listHandler(w http.ResponseWriter, r *http.Request, this lib.Server, server
 	prefix = strings.Split(prefix, "s4://")[1]
 	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	var res *[]*File
-	lib.With(misc_pool, func() {
+	lib.With(miscPool, func() {
 		if recursive {
-			res, _ = list_recursive(prefix, true)
+			res, _ = listRecursive(prefix, true)
 		} else {
 			res = list(prefix)
 		}
@@ -680,31 +680,31 @@ func notFoundHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 }
 
 func expireJobs() {
-	io_jobs.Range(func(k, v interface{}) bool {
+	ioJobs.Range(func(k, v interface{}) bool {
 		var start time.Time
 		var path string
-		var temp_path string
+		var tempPath string
 		switch v := v.(type) {
 		case *PutJob:
 			start = v.start
 			path = v.path
-			temp_path = v.temp_path
+			tempPath = v.tempPath
 		case *GetJob:
 			start = v.start
 		}
 		if time.Since(start) > lib.MaxTimeout {
-			lib.Logger.Printf("gc expired job: %s %s %s\n", k, path, temp_path)
+			lib.Logger.Printf("gc expired job: %s %s %s\n", k, path, tempPath)
 			go func() {
-				lib.With(misc_pool, func() {
+				lib.With(miscPool, func() {
 					if path != "" {
 						_ = os.Remove(path)
 					}
-					if temp_path != "" {
-						_ = os.Remove(temp_path)
+					if tempPath != "" {
+						_ = os.Remove(tempPath)
 					}
 				})
 			}()
-			io_jobs.Delete(k)
+			ioJobs.Delete(k)
 		}
 		return true
 	})
@@ -741,12 +741,12 @@ func expiredDataDeleter() {
 	}
 }
 
-func initPools(max_io_jobs int, max_cpu_jobs int) {
-	io_send_pool = semaphore.NewWeighted(int64(max_io_jobs))
-	io_recv_pool = semaphore.NewWeighted(int64(max_io_jobs))
-	cpu_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
-	misc_pool = semaphore.NewWeighted(int64(max_cpu_jobs))
-	solo_pool = semaphore.NewWeighted(int64(1))
+func initPools(maxIOJobs int, maxCPUJobs int) {
+	ioSendPool = semaphore.NewWeighted(int64(maxIOJobs))
+	ioRecvPool = semaphore.NewWeighted(int64(maxIOJobs))
+	cpuPool = semaphore.NewWeighted(int64(maxCPUJobs))
+	miscPool = semaphore.NewWeighted(int64(maxCPUJobs))
+	soloPool = semaphore.NewWeighted(int64(1))
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
@@ -795,23 +795,23 @@ func main() {
 	panic1(os.MkdirAll("s4_data/_tempfiles", os.ModePerm))
 	panic1(os.MkdirAll("s4_data/_tempdirs", os.ModePerm))
 	panic1(os.Chdir("s4_data"))
-	num_cpus := runtime.GOMAXPROCS(0)
+	numCpus := runtime.GOMAXPROCS(0)
 	port := flag.Int("port", 0, "specify port instead of matching a single conf entry by ipv4")
-	max_io_jobs := flag.Int("max-io-jobs", num_cpus*4, "specify max-io-jobs to use instead of cpus*4")
-	max_cpu_jobs := flag.Int("max-cpu-jobs", num_cpus+2, "specify max-cpu-jobs to use instead of cpus+2")
-	conf_path := flag.String("conf", lib.DefaultConfPath(), "specify conf path to use instead of ~/.s4.conf")
+	maxIOJobs := flag.Int("max-io-jobs", numCpus*4, "specify max-io-jobs to use instead of cpus*4")
+	maxCPUJobs := flag.Int("max-cpu-jobs", numCpus+2, "specify max-cpu-jobs to use instead of cpus+2")
+	confPath := flag.String("conf", lib.DefaultConfPath(), "specify conf path to use instead of ~/.s4.conf")
 	flag.Parse()
-	initPools(*max_io_jobs, *max_cpu_jobs)
-	servers := panic2(lib.GetServers(*conf_path)).([]lib.Server)
+	initPools(*maxIOJobs, *maxCPUJobs)
+	servers := panic2(lib.GetServers(*confPath)).([]lib.Server)
 	this := lib.ThisServer(*port, servers)
-	port_str := fmt.Sprintf(":%s", this.Port)
-	lib.Logger.Println("s4-server", port_str)
+	portStr := fmt.Sprintf(":%s", this.Port)
+	lib.Logger.Println("s4-server", portStr)
 	go expiredDataDeleter()
 	server := &http.Server{
 		ReadTimeout:  lib.MaxTimeout,
 		WriteTimeout: lib.MaxTimeout,
 		IdleTimeout:  lib.MaxTimeout,
-		Addr:         port_str,
+		Addr:         portStr,
 		Handler: &lib.RootHandler{
 			Handler: rootHandler,
 			This:    this,

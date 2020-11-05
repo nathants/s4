@@ -51,10 +51,9 @@ func DefaultConfPath() string {
 	env := os.Getenv("S4_CONF_PATH")
 	if env != "" {
 		return env
-	} else {
-		usr := panic2(user.Current()).(*user.User)
-		return Join(usr.HomeDir, ".s4.conf")
 	}
+	usr := panic2(user.Current()).(*user.User)
+	return Join(usr.HomeDir, ".s4.conf")
 }
 
 type WarnResult struct {
@@ -174,14 +173,14 @@ type Server struct {
 	Port    string
 }
 
-func GetServers(conf_path string) ([]Server, error) {
+func GetServers(confPath string) ([]Server, error) {
 	var servers []Server
-	bytes, err := ioutil.ReadFile(conf_path)
+	bytes, err := ioutil.ReadFile(confPath)
 	if err != nil {
 		return []Server{}, err
 	}
 	lines := strings.Split(string(bytes), "\n")
-	local_addresses, err := localAddresses()
+	localAddresses, err := localAddresses()
 	if err != nil {
 		return []Server{}, err
 	}
@@ -194,7 +193,7 @@ func GetServers(conf_path string) ([]Server, error) {
 			return []Server{}, fmt.Errorf("bad config line: %s", line)
 		}
 		server := Server{parts[0], parts[1]}
-		for _, address := range local_addresses {
+		for _, address := range localAddresses {
 			if server.Address == address {
 				server.Address = "0.0.0.0"
 				break
@@ -226,39 +225,36 @@ func localAddresses() ([]string, error) {
 	return vals, nil
 }
 
-type HttpResult struct {
+type HTTPResult struct {
 	StatusCode int
 	Body       []byte
 	Err        error
 }
 
-func Post(url, contentType string, body io.Reader) *HttpResult {
+func Post(url, contentType string, body io.Reader) *HTTPResult {
 	resp, err := client.Post(url, contentType, body)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
-			return &HttpResult{-1, []byte{}, err}
+			return &HTTPResult{-1, []byte{}, err}
 		}
-
-		return &HttpResult{resp.StatusCode, body, nil}
-	} else {
-		return &HttpResult{-1, []byte{}, err}
+		return &HTTPResult{resp.StatusCode, body, nil}
 	}
+	return &HTTPResult{-1, []byte{}, err}
 }
 
-func Get(url string) *HttpResult {
+func Get(url string) *HTTPResult {
 	resp, err := client.Get(url)
 	if err == nil {
 		body, err := ioutil.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
-			return &HttpResult{-1, []byte{}, err}
+			return &HTTPResult{-1, []byte{}, err}
 		}
-		return &HttpResult{resp.StatusCode, body, nil}
-	} else {
-		return &HttpResult{-1, []byte{}, err}
+		return &HTTPResult{resp.StatusCode, body, nil}
 	}
+	return &HTTPResult{-1, []byte{}, err}
 }
 
 type rwcCallback struct {
@@ -341,9 +337,8 @@ func keySuffix(key string) (string, bool) {
 	parts := strings.SplitN(part, "_", 2)
 	if len(parts) == 2 {
 		return parts[1], true
-	} else {
-		return "", false
 	}
+	return "", false
 }
 
 func Suffix(keys []string) string {
@@ -369,31 +364,31 @@ func Suffix(keys []string) string {
 func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
 		uid := uuid.NewV4().String()
-		temp_path := panic2(filepath.Abs(Join(dir, uid))).(string)
-		_, err := os.Stat(temp_path)
+		tempPath := panic2(filepath.Abs(Join(dir, uid))).(string)
+		_, err := os.Stat(tempPath)
 		if err != nil {
-			f := panic2(os.Create(temp_path)).(*os.File)
+			f := panic2(os.Create(tempPath)).(*os.File)
 			panic1(f.Close())
-			return temp_path
+			return tempPath
 		}
 	}
 	panic("failure")
 }
 
 func ChecksumWrite(path string, checksum string) error {
-	checksum_path, err := ChecksumPath(path)
+	checksumPath, err := ChecksumPath(path)
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(checksum_path, []byte(checksum), 0o444)
+	return ioutil.WriteFile(checksumPath, []byte(checksum), 0o444)
 }
 
 func ChecksumRead(path string) (string, error) {
-	checksum_path, err := ChecksumPath(path)
+	checksumPath, err := ChecksumPath(path)
 	if err != nil {
 		return "", err
 	}
-	bytes, err := ioutil.ReadFile(checksum_path)
+	bytes, err := ioutil.ReadFile(checksumPath)
 	if err != nil {
 		return "", err
 	}
@@ -465,10 +460,10 @@ func resetableTimeout(duration time.Duration) (func(), <-chan error) {
 			}
 		}
 	}()
-	reset_fn := func() {
+	resetFn := func() {
 		reset <- nil
 	}
-	return reset_fn, timeout
+	return resetFn, timeout
 }
 
 func Recv(w io.Writer, port chan<- string) (string, error) {
@@ -649,14 +644,13 @@ func Exists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err != nil {
 		return false, nil
-	} else {
-		checksum_path, err := ChecksumPath(path)
-		if err != nil {
-			return false, err
-		}
-		_, err = os.Stat(checksum_path)
-		return err == nil, nil
 	}
+	checksumPath, err := ChecksumPath(path)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(checksumPath)
+	return err == nil, nil
 }
 
 func Contains(parts []string, part string) bool {
@@ -720,11 +714,11 @@ func QueryParam(r *http.Request, name string) string {
 	return vals[0]
 }
 
-func QueryParamDefault(r *http.Request, name string, default_val string) string {
+func QueryParamDefault(r *http.Request, name string, defaultVal string) string {
 	vals := r.URL.Query()[name]
 	switch len(vals) {
 	case 0:
-		return default_val
+		return defaultVal
 	case 1:
 		return vals[0]
 	default:
@@ -739,7 +733,7 @@ func ThisServer(port int, servers []Server) Server {
 		for _, server := range servers {
 			if server.Address == "0.0.0.0" {
 				this = server
-				count += 1
+				count++
 			}
 		}
 		assert(count == 1, "unless -port is specified, conf should have exactly one entry per server address")
@@ -748,7 +742,7 @@ func ThisServer(port int, servers []Server) Server {
 		for _, server := range servers {
 			if server.Address == "0.0.0.0" && server.Port == fmt.Sprint(port) {
 				this = server
-				count += 1
+				count++
 			}
 		}
 		assert(count == 1, "when -port is specified, conf should have exactly one entry per server (address, port)")
