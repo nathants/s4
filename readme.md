@@ -66,7 +66,10 @@ updates and bugfixes are applied to both.
 git clone https://github.com/nathants/s4
 cd s4
 git checkout python
-python3 -m pip install -r requirements.txt .
+python3 -m pip install -r requirements.txt
+pypy3   -m pip install -r requirements.txt
+python setup.py develop
+pypy3  setup.py develop
 ```
 
 ## automatic deployment
