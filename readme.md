@@ -82,6 +82,12 @@ make -j
 sudo mv -fv bin/s4 bin/s4-server /usr/local/bin/
 ```
 
+## test
+
+```bash
+>> tox
+```
+
 ## automatic deployment
 
 ```bash
