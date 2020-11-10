@@ -131,14 +131,14 @@ def test_send_timeout():
 
 def test_basic():
     with servers():
-        run('echo 123 > file.txt')
-        run('s4 cp file.txt s4://bucket/basic/dir/file.txt')
+        run('echo 123 | s4 cp - s4://bucket/basic/dir/file.txt')
         run('echo 345 > file2.txt')
         run('s4 cp file2.txt s4://bucket/basic/dir/')
         assert run("s4 ls -r s4://bucket/ | awk '{print $NF}'").splitlines() == [
             'basic/dir/file.txt',
             'basic/dir/file2.txt',
         ]
+        assert '123' == run('s4 cp s4://bucket/basic/dir/file.txt -')
         run('s4 cp s4://bucket/basic/dir/file.txt out.txt')
         assert run('cat out.txt') == "123"
         run('s4 cp s4://bucket/basic/dir/file2.txt', 'out2.txt')
