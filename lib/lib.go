@@ -232,27 +232,34 @@ type HTTPResult struct {
 }
 
 func Post(url, contentType string, body io.Reader) *HTTPResult {
-	resp, err := client.Post(url, contentType, body)
+	var err error
+	var resp *http.Response
+	var respBody []byte
+	resp, err = client.Post(url, contentType, body)
 	if err == nil {
-		body, err := ioutil.ReadAll(resp.Body)
+
+		respBody, err = ioutil.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
 			return &HTTPResult{-1, []byte{}, err}
 		}
-		return &HTTPResult{resp.StatusCode, body, nil}
+		return &HTTPResult{resp.StatusCode, respBody, nil}
 	}
 	return &HTTPResult{-1, []byte{}, err}
 }
 
 func Get(url string) *HTTPResult {
-	resp, err := client.Get(url)
+	var err error
+	var resp *http.Response
+	var respBody []byte
+	resp, err = client.Get(url)
 	if err == nil {
-		body, err := ioutil.ReadAll(resp.Body)
+		respBody, err = ioutil.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
 			return &HTTPResult{-1, []byte{}, err}
 		}
-		return &HTTPResult{resp.StatusCode, body, nil}
+		return &HTTPResult{resp.StatusCode, respBody, nil}
 	}
 	return &HTTPResult{-1, []byte{}, err}
 }

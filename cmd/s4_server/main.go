@@ -22,18 +22,18 @@ import (
 )
 
 var (
-	ioJobs      = &sync.Map{}
+	ioJobs     = &sync.Map{}
 	ioSendPool *semaphore.Weighted
 	ioRecvPool *semaphore.Weighted
-	cpuPool     *semaphore.Weighted
-	miscPool    *semaphore.Weighted
-	soloPool    *semaphore.Weighted
+	cpuPool    *semaphore.Weighted
+	miscPool   *semaphore.Weighted
+	soloPool   *semaphore.Weighted
 )
 
 type GetJob struct {
-	start           time.Time
+	start          time.Time
 	serverChecksum chan string
-	fail            chan error
+	fail           chan error
 	diskChecksum   string
 }
 
@@ -88,7 +88,7 @@ func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	}
 }
 
-func confirmGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func confirmGetHandler(w http.ResponseWriter, r *http.Request) {
 	uid := lib.QueryParam(r, "uuid")
 	clientChecksum := lib.QueryParam(r, "checksum")
 	v, ok := ioJobs.LoadAndDelete(uid)
@@ -102,10 +102,10 @@ func confirmGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 }
 
 type PutJob struct {
-	start           time.Time
+	start          time.Time
 	serverChecksum chan string
-	fail            chan error
-	path            string
+	fail           chan error
+	path           string
 	tempPath       string
 }
 
@@ -152,7 +152,7 @@ func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	}
 }
 
-func confirmPutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func confirmPutHandler(w http.ResponseWriter, r *http.Request) {
 	uid := lib.QueryParam(r, "uuid")
 	clientChecksum := lib.QueryParam(r, "checksum")
 	v, ok := ioJobs.LoadAndDelete(uid)
@@ -178,11 +178,14 @@ func confirmPutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 	}
 }
 
-func deleteHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func deleteHandler(r *http.Request, this lib.Server, servers []lib.Server) {
 	prefix := lib.QueryParam(r, "prefix")
+	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
+	if !recursive {
+		assert(panic2(lib.OnThisServer(prefix, this, servers)).(bool), "wrong server for request")
+	}
 	prefix = strings.SplitN(prefix, "s4://", 2)[1]
 	assert(!strings.HasPrefix(prefix, "/"), prefix)
-	recursive := lib.QueryParamDefault(r, "recursive", "false") == "true"
 	cwd := path.Base(panic2(os.Getwd()).(string))
 	assert(cwd == "s4_data", cwd)
 	lib.With(soloPool, func() {
@@ -548,6 +551,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 
 func evalHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	key := lib.QueryParam(r, "key")
+	assert(panic2(lib.OnThisServer(key, this, servers)).(bool), "wrong server for request")
 	cmd := panic2(ioutil.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
@@ -630,7 +634,7 @@ func list(prefix string) *[]*File {
 	return &res
 }
 
-func listHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func listHandler(w http.ResponseWriter, r *http.Request) {
 	prefix := lib.QueryParam(r, "prefix")
 	assert(strings.HasPrefix(prefix, "s4://"), prefix)
 	prefix = strings.Split(prefix, "s4://")[1]
@@ -656,7 +660,7 @@ func listHandler(w http.ResponseWriter, r *http.Request, this lib.Server, server
 	panic2(w.Write(bytes.([]byte)))
 }
 
-func listBucketsHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func listBucketsHandler(w http.ResponseWriter) {
 	var res [][]string
 	for _, info := range panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
 		name := info.Name()
@@ -670,11 +674,11 @@ func listBucketsHandler(w http.ResponseWriter, r *http.Request, this lib.Server,
 	panic2(w.Write(bytes.([]byte)))
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func healthHandler(w http.ResponseWriter) {
 	panic2(fmt.Fprintf(w, "healthy\n"))
 }
 
-func notFoundHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
+func notFoundHandler(w http.ResponseWriter) {
 	w.WriteHeader(404)
 	panic2(fmt.Fprintf(w, "404\n"))
 }
@@ -754,26 +758,26 @@ func rootHandler(w http.ResponseWriter, r *http.Request, this lib.Server, server
 	case "GET":
 		switch r.URL.Path {
 		case "/list":
-			listHandler(w, r, this, servers)
+			listHandler(w, r)
 		case "/list_buckets":
-			listBucketsHandler(w, r, this, servers)
+			listBucketsHandler(w)
 		case "/health":
-			healthHandler(w, r, this, servers)
+			healthHandler(w)
 		default:
-			notFoundHandler(w, r, this, servers)
+			notFoundHandler(w)
 		}
 	case "POST":
 		switch r.URL.Path {
 		case "/prepare_put":
 			preparePutHandler(w, r, this, servers)
 		case "/confirm_put":
-			confirmPutHandler(w, r, this, servers)
+			confirmPutHandler(w, r)
 		case "/prepare_get":
 			prepareGetHandler(w, r, this, servers)
 		case "/confirm_get":
-			confirmGetHandler(w, r, this, servers)
+			confirmGetHandler(w, r)
 		case "/delete":
-			deleteHandler(w, r, this, servers)
+			deleteHandler(r, this, servers)
 		case "/map":
 			mapHandler(w, r, this, servers)
 		case "/map_to_n":
@@ -783,10 +787,10 @@ func rootHandler(w http.ResponseWriter, r *http.Request, this lib.Server, server
 		case "/eval":
 			evalHandler(w, r, this, servers)
 		default:
-			notFoundHandler(w, r, this, servers)
+			notFoundHandler(w)
 		}
 	default:
-		notFoundHandler(w, r, this, servers)
+		notFoundHandler(w)
 	}
 }
 

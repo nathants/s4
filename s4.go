@@ -293,9 +293,9 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 	defer func() { _ = os.Remove(tempPath) }()
 	var clientChecksum string
 	go func() {
-		var err error
-		clientChecksum, err = lib.RecvFile(tempPath, port)
-		fail <- err
+		var _err error
+		clientChecksum, _err = lib.RecvFile(tempPath, port)
+		fail <- _err
 	}()
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
 	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
@@ -316,7 +316,7 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 		return fmt.Errorf("%d %s", result.StatusCode, result.Body)
 	}
 	if strings.HasSuffix(dst, "/") {
-		err := os.MkdirAll(dst, os.ModePerm)
+		err = os.MkdirAll(dst, os.ModePerm)
 		if err != nil {
 			return err
 		}
@@ -340,9 +340,9 @@ func GetWriter(src string, dst io.Writer, servers []lib.Server) error {
 	fail := make(chan error)
 	var clientChecksum string
 	go func() {
-		var err error
-		clientChecksum, err = lib.Recv(os.Stdout, port)
-		fail <- err
+		var _err error
+		clientChecksum, _err = lib.Recv(dst, port)
+		fail <- _err
 	}()
 	url := fmt.Sprintf("http://%s:%s/prepare_get?key=%s&port=%s", server.Address, server.Port, src, <-port)
 	result := lib.Post(url, "application/text", bytes.NewBuffer([]byte{}))
@@ -429,7 +429,7 @@ func PutReader(src io.Reader, dst string, servers []lib.Server) error {
 	}
 	uid := vals[0]
 	port := vals[1]
-	clientChecksum, err := lib.Send(os.Stdin, server.Address, port)
+	clientChecksum, err := lib.Send(src, server.Address, port)
 	if err != nil {
 		return err
 	}

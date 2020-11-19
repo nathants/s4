@@ -204,6 +204,9 @@ func Health() {
 		go func(server lib.Server) {
 			url := fmt.Sprintf("http://%s:%s/health", server.Address, server.Port)
 			resp, err := client.Get(url)
+			if err != nil {
+				panic1(resp.Body.Close())
+			}
 			if err != nil || resp.StatusCode != 200 {
 				results <- fmt.Sprintf("unhealthy: %s:%s", server.Address, server.Port)
 			} else {
