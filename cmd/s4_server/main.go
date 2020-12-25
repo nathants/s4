@@ -17,7 +17,7 @@ import (
 
 	"github.com/nathants/s4"
 	"github.com/nathants/s4/lib"
-	uuid "github.com/satori/go.uuid"
+	"github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
 )
 

@@ -24,7 +24,7 @@ import (
 
 	"github.com/avast/retry-go"
 	"github.com/cespare/xxhash"
-	uuid "github.com/satori/go.uuid"
+	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/blake2s"
 	"golang.org/x/sync/semaphore"
 )
