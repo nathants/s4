@@ -1,4 +1,4 @@
-.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-lib check-bodyclose check-nargs check-fmt check-shadow
+.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-lib check-bodyclose check-nargs check-fmt check-hasdefault
 
 all: s4 s4-server
 
@@ -14,7 +14,7 @@ s4: setup
 s4-server: setup
 	go build -o bin/s4-server cmd/s4_server/main.go
 
-check: check-deps check-static check-ineff check-err check-vet check-lint check-bodyclose check-nargs check-fmt check-shadow
+check: check-deps check-static check-ineff check-err check-vet check-lint check-bodyclose check-nargs check-fmt check-hasdefault
 
 check-deps:
 	@which staticcheck >/dev/null || (cd ~ && go get -u github.com/dominikh/go-tools/cmd/staticcheck)
@@ -23,13 +23,13 @@ check-deps:
 	@which errcheck    >/dev/null || (cd ~ && go get -u github.com/kisielk/errcheck)
 	@which bodyclose   >/dev/null || (cd ~ && go get -u github.com/timakin/bodyclose)
 	@which nargs       >/dev/null || (cd ~ && go get -u github.com/alexkohler/nargs/cmd/nargs)
-	@which shadow      >/dev/null || (cd ~ && go get -u golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow)
+	@which go-hasdefault >/dev/null || (cd ~ && go get -u github.com/nathants/go-hasdefault)
 
-check-shadow: check-deps
-	@go vet -vettool=$(shell which shadow) ./...
+check-hasdefault: check-deps
+	@go-hasdefault $(shell find -type f -name "*.go") || true
 
 check-fmt: check-deps
-	@go fmt ./...
+	@go fmt ./... >/dev/null
 
 check-nargs: check-deps
 	@nargs ./...
