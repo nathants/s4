@@ -9,10 +9,10 @@ setup:
 	mkdir -p bin
 
 s4: setup
-	go build -o bin/s4 cmd/s4/main.go
+	CGO_ENABLED=0 go build -ldflags='-s -w' -tags 'netgo osusergo' -o bin/s4 cmd/s4/main.go
 
 s4-server: setup
-	go build -o bin/s4-server cmd/s4_server/main.go
+	CGO_ENABLED=0 go build -ldflags='-s -w' -tags 'netgo osusergo' -o bin/s4-server cmd/s4_server/main.go
 
 check: check-deps check-static check-ineff check-err check-vet check-lint check-bodyclose check-nargs check-fmt check-hasdefault
 
