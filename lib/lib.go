@@ -24,7 +24,7 @@ import (
 
 	"github.com/avast/retry-go"
 	"github.com/cespare/xxhash"
-	"github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 	"golang.org/x/crypto/blake2s"
 	"golang.org/x/sync/semaphore"
 )
@@ -370,7 +370,7 @@ func Suffix(keys []string) string {
 
 func NewTempPath(dir string) string {
 	for i := 0; i < 5; i++ {
-		uid := uuid.NewV4().String()
+		uid := uuid.Must(uuid.NewV4()).String()
 		tempPath := panic2(filepath.Abs(Join(dir, uid))).(string)
 		_, err := os.Stat(tempPath)
 		if err != nil {

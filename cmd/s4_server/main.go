@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/nathants/s4"
 	"github.com/nathants/s4/lib"
-	"github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -54,7 +54,7 @@ func prepareGetHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 		w.WriteHeader(404)
 		return
 	}
-	uid := uuid.NewV4().String()
+	uid := uuid.Must(uuid.NewV4()).String()
 	started := make(chan bool, 1)
 	fail := make(chan error, 1)
 	serverChecksum := make(chan string, 1)
@@ -125,7 +125,7 @@ func preparePutHandler(w http.ResponseWriter, r *http.Request, this lib.Server, 
 		w.WriteHeader(409)
 		return
 	}
-	uid := uuid.NewV4().String()
+	uid := uuid.Must(uuid.NewV4()).String()
 	port := make(chan string, 1)
 	fail := make(chan error, 1)
 	serverChecksum := make(chan string, 1)
