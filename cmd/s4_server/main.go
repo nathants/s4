@@ -249,6 +249,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 		outkey := lib.Join(outdir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
+			// defer func() {}()
 			lib.With(cpuPool, func() {
 				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s > output", path.Base(inpath), inpath, data.Cmd))
 				results <- MapResult{result, outkey}
@@ -262,6 +263,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 	jobs := make(chan error, len(*files))
 	fail := make(chan error, 1)
 	go func() {
+		// defer func() {}()
 		for i := 0; i < count; i++ {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
@@ -270,6 +272,7 @@ func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers
 				break
 			} else {
 				go func(result MapResult) {
+					// defer func() {}()
 					tempPath := lib.Join(result.WarnResult.Tempdir, "output")
 					err := localPut(tempPath, result.Outkey, this, servers)
 					if err != nil {
@@ -392,6 +395,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 		inkey := lib.Join(indir, key)
 		inpath := panic2(filepath.Abs(strings.SplitN(inkey, "s4://", 2)[1])).(string)
 		go func(inpath string) {
+			// defer func() {}()
 			lib.With(cpuPool, func() {
 				result := lib.WarnTempdir(fmt.Sprintf("export filename=%s; < %s %s", path.Base(inpath), inpath, data.Cmd))
 				results <- MapToNResult{result, inpath, outdir}
@@ -406,6 +410,7 @@ func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, serv
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		// defer func() {}()
 		for i := 0; i < count; i++ {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
@@ -502,6 +507,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 	for prefix, inpaths := range prefixes {
 		outkey := lib.Join(outdir, prefix+lib.Suffix(inpaths))
 		go func(inpaths []string) {
+			// defer func() {}()
 			lib.With(cpuPool, func() {
 				stdin := strings.NewReader(strings.Join(inpaths, "\n") + "\n")
 				result := lib.WarnTempdirStreamIn(stdin, fmt.Sprintf("%s > output", data.Cmd))
@@ -515,6 +521,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 	jobs := make(chan error, len(prefixes))
 	fail := make(chan error, 1)
 	go func() {
+		// defer func() {}()
 		for range prefixes {
 			result := <-results
 			tempdirs = append(tempdirs, result.WarnResult.Tempdir)
@@ -523,6 +530,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 				break
 			} else {
 				go func(result MapResult) {
+					// defer func() {}()
 					tempPath := lib.Join(result.WarnResult.Tempdir, "output")
 					err := localPut(tempPath, result.Outkey, this, servers)
 					if err != nil {
@@ -699,6 +707,7 @@ func expireJobs() {
 		if time.Since(start) > lib.MaxTimeout {
 			lib.Logger.Printf("gc expired job: %s %s %s\n", k, path, tempPath)
 			go func() {
+				// defer func() {}()
 				lib.With(miscPool, func() {
 					if path != "" {
 						_ = os.Remove(path)
@@ -737,6 +746,7 @@ func expireDirs() {
 }
 
 func expiredDataDeleter() {
+	// defer func() {}()
 	for {
 		expireJobs()
 		expireFiles()

@@ -202,6 +202,7 @@ func Health() {
 	client := http.Client{Timeout: 1 * time.Second}
 	for _, server := range servers {
 		go func(server lib.Server) {
+			// defer func() {}()
 			url := fmt.Sprintf("http://%s:%s/health", server.Address, server.Port)
 			resp, err := client.Get(url)
 			if err != nil {

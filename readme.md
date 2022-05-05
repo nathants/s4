@@ -52,16 +52,6 @@ cluster resizing. clusters should be short lived and data ephemeral. instead of 
 
 pagination of list results. data layout and partitioning must be considered.
 
-## implementations
-
-there are two implementations in [python](https://github.com/nathants/s4/tree/python) and [go](https://github.com/nathants/s4/tree/go). they share a test suite and both are production ready.
-
-if you need fine granularity performance, prefer the [go](https://github.com/nathants/s4/tree/go) implementation as it has less overhead per put/get operation.
-
-operations and interface are identical.
-
-updates and bugfixes are applied to both.
-
 ## install
 
 go get:

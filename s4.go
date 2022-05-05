@@ -23,6 +23,7 @@ func List(prefix string, recursive bool, servers []lib.Server) ([][]string, erro
 	results := make(chan *lib.HTTPResult)
 	for _, server := range servers {
 		go func(server lib.Server) {
+			// defer func() {}()
 			results <- lib.Get(fmt.Sprintf("http://%s:%s/list?prefix=%s%s", server.Address, server.Port, prefix, recursiveParam))
 		}(server)
 	}
@@ -68,6 +69,7 @@ func postAll(requests []httpRequest, progress func()) error {
 	results := make(chan *httpResult, len(requests))
 	for _, request := range requests {
 		go func(request httpRequest) {
+			// defer func() {}()
 			result := lib.Post(request.url, "application/json", bytes.NewBuffer(request.Data))
 			results <- &httpResult{result.StatusCode, result.Body, result.Err, request.url}
 		}(request)
@@ -135,6 +137,7 @@ func Rm(prefix string, recursive bool, servers []lib.Server) error {
 		results := make(chan *lib.HTTPResult)
 		for _, server := range servers {
 			go func(server lib.Server) {
+				// defer func() {}()
 				results <- lib.Post(fmt.Sprintf("http://%s:%s/delete?prefix=%s&recursive=true", server.Address, server.Port, prefix), "application/text", bytes.NewBuffer([]byte{}))
 			}(server)
 		}
@@ -187,6 +190,7 @@ func ListBuckets(servers []lib.Server) ([][]string, error) {
 	results := make(chan *lib.HTTPResult)
 	for _, server := range servers {
 		go func(server lib.Server) {
+			// defer func() {}()
 			results <- lib.Get(fmt.Sprintf("http://%s:%s/list_buckets", server.Address, server.Port))
 		}(server)
 	}
@@ -293,6 +297,7 @@ func GetFile(src string, dst string, servers []lib.Server) error {
 	defer func() { _ = os.Remove(tempPath) }()
 	var clientChecksum string
 	go func() {
+		// defer func() {}()
 		var _err error
 		clientChecksum, _err = lib.RecvFile(tempPath, port)
 		fail <- _err
@@ -340,6 +345,7 @@ func GetWriter(src string, dst io.Writer, servers []lib.Server) error {
 	fail := make(chan error)
 	var clientChecksum string
 	go func() {
+		// defer func() {}()
 		var _err error
 		clientChecksum, _err = lib.Recv(dst, port)
 		fail <- _err

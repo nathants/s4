@@ -72,6 +72,7 @@ func Warn(format string, args ...interface{}) *WarnResult {
 	cmd.Stderr = &stderr
 	result := make(chan *WarnResult)
 	go func() {
+		// defer func() {}()
 		err := cmd.Run()
 		result <- &WarnResult{
 			strings.TrimRight(stdout.String(), "\n"),
@@ -110,6 +111,7 @@ func WarnTempdir(format string, args ...interface{}) *WarnResultTempdir {
 	cmd.Stderr = &stderr
 	result := make(chan *WarnResultTempdir)
 	go func() {
+		// defer func() {}()
 		err := cmd.Run()
 		result <- &WarnResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
@@ -145,6 +147,7 @@ func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *W
 	cmd.Stderr = &stderr
 	result := make(chan *WarnResultTempdir)
 	go func() {
+		// defer func() {}()
 		err := cmd.Run()
 		result <- &WarnResultTempdir{
 			strings.TrimRight(stdout.String(), "\n"),
@@ -271,19 +274,28 @@ type rwcCallback struct {
 
 func (rwc rwcCallback) Read(p []byte) (int, error) {
 	n, err := rwc.rwc.Read(p)
-	go rwc.cb()
+	go func() {
+		// defer func() {}()
+		rwc.cb()
+	}()
 	return n, err
 }
 
 func (rwc rwcCallback) Write(p []byte) (int, error) {
 	n, err := rwc.rwc.Write(p)
-	go rwc.cb()
+	go func() {
+		// defer func() {}()
+		rwc.cb()
+	}()
 	return n, err
 }
 
 func (rwc rwcCallback) Close() error {
 	err := rwc.rwc.Close()
-	go rwc.cb()
+	go func() {
+		// defer func() {}()
+		rwc.cb()
+	}()
 	return err
 }
 
@@ -457,6 +469,7 @@ func resetableTimeout(duration time.Duration) (func(), <-chan error) {
 	timeout := make(chan error, 1)
 	start := time.Now()
 	go func() {
+		// defer func() {}()
 		for {
 			select {
 			case <-reset:
@@ -478,6 +491,7 @@ func Recv(w io.Writer, port chan<- string) (string, error) {
 	checksum := make(chan string)
 	reset, timeout := resetableTimeout(ioTimeout)
 	go func() {
+		// defer func() {}()
 		h := xxhash.New()
 		var li net.Listener
 		var err error
@@ -546,6 +560,7 @@ func Send(r io.Reader, addr string, port string) (string, error) {
 	fail := make(chan error)
 	checksum := make(chan string)
 	go func() {
+		// defer func() {}()
 		h := xxhash.New()
 		dst := fmt.Sprintf("%s:%s", addr, port)
 		var conn net.Conn
@@ -672,6 +687,7 @@ func Contains(parts []string, part string) bool {
 func Await(wg *sync.WaitGroup) <-chan error {
 	done := make(chan error)
 	go func() {
+		// defer func() {}()
 		wg.Wait()
 		done <- nil
 	}()
@@ -710,6 +726,7 @@ func ParseGlob(indir string) (string, string) {
 }
 
 func With(pool *semaphore.Weighted, fn func()) {
+	defer func() {}() // linter
 	panic1(pool.Acquire(context.Background(), 1))
 	defer func() { pool.Release(1) }()
 	fn()
