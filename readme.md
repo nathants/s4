@@ -54,12 +54,11 @@ pagination of list results. data layout and partitioning must be considered.
 
 ## install
 
-go get:
+go install:
 
 ```bash
-export GO111MODULE=on
-go get github.com/nathants/s4/cmd/s4
-go get github.com/nathants/s4/cmd/s4_server
+go install github.com/nathants/s4/cmd/s4@latest
+go install github.com/nathants/s4/cmd/s4_server@latest
 sudo mv -f $(go env GOPATH)/bin/s4 /usr/local/bin/s4
 sudo mv -f $(go env GOPATH)/bin/s4_server /usr/local/bin/s4-server
 ```
