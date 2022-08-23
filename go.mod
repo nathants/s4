@@ -1,13 +1,13 @@
 module github.com/nathants/s4
 
-go 1.17
+go 1.19
 
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/cespare/xxhash v1.1.0
 	github.com/gofrs/uuid v4.2.0+incompatible
-	golang.org/x/crypto v0.0.0-20220331220935-ae2d96664a29
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/crypto v0.0.0-20220817201139-bc19a97f63c8
+	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde
 )
 
 require (
