@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -166,7 +166,7 @@ func confirmPutHandler(w http.ResponseWriter, r *http.Request) {
 		panic1(os.MkdirAll(lib.Dir(job.path), os.ModePerm))
 		exists = panic2(lib.Exists(job.path)).(bool)
 		if !exists {
-			panic1(ioutil.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(serverChecksum), 0o444))
+			panic1(os.WriteFile(panic2(lib.ChecksumPath(job.path)).(string), []byte(serverChecksum), 0o444))
 			panic1(os.Chmod(job.tempPath, 0o444))
 			panic1(os.Rename(job.tempPath, job.path))
 		}
@@ -215,7 +215,7 @@ type MapResult struct {
 
 func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
-	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
 	outdir := data.Outdir
@@ -364,7 +364,7 @@ func cleanup(tempdirs *[]string) {
 
 func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
-	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
 	outdir := data.Outdir
@@ -473,7 +473,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, tempPath string, outkey st
 
 func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
-	bytes := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
 	outdir := data.Outdir
@@ -560,7 +560,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 func evalHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	key := lib.QueryParam(r, "key")
 	assert(panic2(lib.OnThisServer(key, this, servers)).(bool), "wrong server for request")
-	cmd := panic2(ioutil.ReadAll(r.Body)).([]byte)
+	cmd := panic2(io.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
 	lib.With(soloPool, func() {
@@ -626,7 +626,7 @@ func list(prefix string) *[]*File {
 	var res []*File
 	_, err := os.Stat(root)
 	if err == nil {
-		for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+		for _, info := range panic2(os.ReadDir(root)).([]os.FileInfo) {
 			name := info.Name()
 			matched := strings.HasPrefix(lib.Join(root, name), prefix)
 			isChecksum := lib.IsChecksum(name)
@@ -670,7 +670,7 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 
 func listBucketsHandler(w http.ResponseWriter) {
 	var res [][]string
-	for _, info := range panic2(ioutil.ReadDir(".")).([]os.FileInfo) {
+	for _, info := range panic2(os.ReadDir(".")).([]os.FileInfo) {
 		name := info.Name()
 		if info.IsDir() && !strings.HasPrefix(name, "_") {
 			parts := strings.SplitN(info.ModTime().Format(time.RFC3339), "T", 2)
@@ -725,7 +725,7 @@ func expireJobs() {
 
 func expireFiles() {
 	root := "_tempfiles"
-	for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+	for _, info := range panic2(os.ReadDir(root)).([]os.FileInfo) {
 		if time.Since(info.ModTime()) > lib.MaxTimeout {
 			path := lib.Join(root, info.Name())
 			lib.Logger.Printf("gc expired tempfile: %s\n", path)
@@ -736,7 +736,7 @@ func expireFiles() {
 
 func expireDirs() {
 	root := "_tempdirs"
-	for _, info := range panic2(ioutil.ReadDir(root)).([]os.FileInfo) {
+	for _, info := range panic2(os.ReadDir(root)).([]os.FileInfo) {
 		if time.Since(info.ModTime()) > lib.MaxTimeout {
 			path := lib.Join(root, info.Name())
 			lib.Logger.Printf("gc expired tempdir: %s\n", path)

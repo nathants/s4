@@ -1,4 +1,4 @@
-.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-lib check-bodyclose check-nargs check-fmt check-hasdefault check-hasdefer
+.PHONY: all clean test s4 s4-server check check-static check-ineff check-err check-vet test-lib check-bodyclose check-nargs check-fmt check-hasdefault check-hasdefer check-govulncheck
 
 all: s4 s4-server
 
@@ -14,7 +14,7 @@ s4: setup
 s4-server: setup
 	CGO_ENABLED=0 go build -ldflags='-s -w' -tags 'netgo osusergo' -o bin/s4-server cmd/s4_server/main.go
 
-check: check-deps check-static check-ineff check-err check-vet check-lint check-bodyclose check-nargs check-fmt check-hasdefault check-hasdefer
+check: check-deps check-static check-ineff check-err check-vet check-lint check-bodyclose check-nargs check-fmt check-hasdefault check-hasdefer check-govulncheck
 
 check-deps:
 	@which staticcheck >/dev/null   || (cd ~ && go install honnef.co/go/tools/cmd/staticcheck@latest)
@@ -25,6 +25,10 @@ check-deps:
 	@which nargs       >/dev/null   || (cd ~ && go install github.com/alexkohler/nargs/cmd/nargs@latest)
 	@which go-hasdefault >/dev/null || (cd ~ && go install github.com/nathants/go-hasdefault@latest)
 	@which go-hasdefer >/dev/null   || (cd ~ && go install github.com/nathants/go-hasdefer@latest)
+	@which govulncheck >/dev/null   || (cd ~ && go install golang.org/x/vuln/cmd/govulncheck@latest)
+
+check-govulncheck: check-deps
+	@govulncheck ./...
 
 check-hasdefer: check-deps
 	@go-hasdefer $(shell find -type f -name "*.go") || true

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -101,7 +100,7 @@ type WarnResultTempdir struct {
 }
 
 func WarnTempdir(format string, args ...interface{}) *WarnResultTempdir {
-	tempdir := panic2(ioutil.TempDir("_tempdirs", "")).(string)
+	tempdir := panic2(os.MkdirTemp("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
 	cmd := exec.Command("bash", "-c", str)
@@ -136,7 +135,7 @@ func WarnTempdir(format string, args ...interface{}) *WarnResultTempdir {
 }
 
 func WarnTempdirStreamIn(stdin io.Reader, format string, args ...interface{}) *WarnResultTempdir {
-	tempdir := panic2(ioutil.TempDir("_tempdirs", "")).(string)
+	tempdir := panic2(os.MkdirTemp("_tempdirs", "")).(string)
 	str := fmt.Sprintf(format, args...)
 	str = fmt.Sprintf("set -eou pipefail; cd %s; %s", tempdir, str)
 	cmd := exec.Command("bash", "-c", str)
@@ -178,7 +177,7 @@ type Server struct {
 
 func GetServers(confPath string) ([]Server, error) {
 	var servers []Server
-	bytes, err := ioutil.ReadFile(confPath)
+	bytes, err := os.ReadFile(confPath)
 	if err != nil {
 		return []Server{}, err
 	}
@@ -241,7 +240,7 @@ func Post(url, contentType string, body io.Reader) *HTTPResult {
 	resp, err = client.Post(url, contentType, body)
 	if err == nil {
 
-		respBody, err = ioutil.ReadAll(resp.Body)
+		respBody, err = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
 			return &HTTPResult{-1, []byte{}, err}
@@ -257,7 +256,7 @@ func Get(url string) *HTTPResult {
 	var respBody []byte
 	resp, err = client.Get(url)
 	if err == nil {
-		respBody, err = ioutil.ReadAll(resp.Body)
+		respBody, err = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
 			return &HTTPResult{-1, []byte{}, err}
@@ -399,7 +398,7 @@ func ChecksumWrite(path string, checksum string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(checksumPath, []byte(checksum), 0o444)
+	return os.WriteFile(checksumPath, []byte(checksum), 0o444)
 }
 
 func ChecksumRead(path string) (string, error) {
@@ -407,7 +406,7 @@ func ChecksumRead(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bytes, err := ioutil.ReadFile(checksumPath)
+	bytes, err := os.ReadFile(checksumPath)
 	if err != nil {
 		return "", err
 	}
