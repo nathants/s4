@@ -608,10 +608,6 @@ type responseObserver struct {
 	Status int
 }
 
-func (o *responseObserver) Write(p []byte) (int, error) {
-	return o.ResponseWriter.Write(p)
-}
-
 func (o *responseObserver) WriteHeader(code int) {
 	o.ResponseWriter.WriteHeader(code)
 	o.Status = code
