@@ -215,6 +215,7 @@ type MapResult struct {
 
 func mapHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
+	defer func() { _ = r.Body.Close() }()
 	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
@@ -364,6 +365,7 @@ func cleanup(tempdirs *[]string) {
 
 func mapToNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
+	defer func() { _ = r.Body.Close() }()
 	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
@@ -473,6 +475,7 @@ func mapToNPut(wg *sync.WaitGroup, fail chan<- error, tempPath string, outkey st
 
 func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	var data lib.MapArgs
+	defer func() { _ = r.Body.Close() }()
 	bytes := panic2(io.ReadAll(r.Body)).([]byte)
 	panic1(json.Unmarshal(bytes, &data))
 	indir, glob := lib.ParseGlob(data.Indir)
@@ -560,6 +563,7 @@ func mapFromNHandler(w http.ResponseWriter, r *http.Request, this lib.Server, se
 func evalHandler(w http.ResponseWriter, r *http.Request, this lib.Server, servers []lib.Server) {
 	key := lib.QueryParam(r, "key")
 	assert(panic2(lib.OnThisServer(key, this, servers)).(bool), "wrong server for request")
+	defer func() { _ = r.Body.Close() }()
 	cmd := panic2(io.ReadAll(r.Body)).([]byte)
 	path := strings.SplitN(key, "s4://", 2)[1]
 	var exists bool
