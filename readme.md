@@ -1,60 +1,60 @@
-# s4
+# S4
 
-## why
+## Why
 
-s3 is awesome, but can be expensive, slow, and doesn't expose data local compute or efficient shuffle.
+S3 is awesome, but can be expensive, slow, and doesn't expose data local compute or efficient shuffle.
 
-## what
+## What
 
-an s3 cli compatible storage cluster that is cheap and fast, with data local compute and efficient shuffle.
+An S3 CLI compatible storage cluster that is cheap and fast, with data local compute and efficient shuffle.
 
-data local compute maps arbitrary commands over immutable keys in 1:1, n:1 and 1:n operations.
+Data local compute maps arbitrary commands over immutable keys in 1:1, n:1 and 1:n operations.
 
-data shuffle is implicit in 1:n mappings.
+Data shuffle is implicit in 1:n mappings.
 
-server placement is based on the hash of basename or a numeric prefix.
+Server placement is based on the hash of basename or a numeric prefix.
 
-| key | method | placement |
+| Key | Method | Placement |
 | -- | -- | -- |
 | s4://bucket/dir/name.txt | int(hash("name.txt")) | ? |
 | s4://bucket/dir/000_bucket0.txt | int("000") | 0 |
 | s4://bucket/dir/000 | int("000") | 0 |
 
-keys are strongly consistent and cannot be updated unless first deleted.
+Keys are strongly consistent and cannot be updated unless first deleted.
 
-## when
+## When
 
-use this for efficiently processing ephemeral data.
+Use this for efficiently processing ephemeral data.
 
-keep durable inputs, outputs, and checkpoints in s3.
+Keep durable inputs, outputs, and checkpoints in S3.
 
-## how
+## How
 
-a ring of servers store files on disk.
+A ring of servers store files on disk.
 
-a metadata controller on each server orchestrates out of process operations for data transfer and local compute.
+A metadata controller on each server orchestrates out of process operations for data transfer and local compute.
 
-a cli client coordinates cluster activity.
+A CLI client coordinates cluster activity.
 
-## non goals
+## Non Goals
 
-high availability. every key lives on one and only one server.
+High availability. Every key lives on one and only one server.
 
-high durability. data lives on a single disk, and is as durable as that disk.
+High durability. Data lives on a single disk, and is as durable as that disk.
 
-security. data transfers are checked for integrity, but not encrypted. service access is unauthenticated. secure the network with [wireguard](https://www.wireguard.com/) if needed.
+Security. Data transfers are checked for integrity, but not encrypted. Service access is unauthenticated. Secure the network with [WireGuard](https://www.wireguard.com/) if needed.
 
-fine granularity. data should be medium to coarse granularity.
+Fine granularity. Data should be medium to coarse granularity.
 
-safety for all inputs. service access should be considered to be at the level of root ssh. any user input should be escaped for shell.
+Safety for all inputs. Service access should be considered to be at the level of root SSH. Any user input should be escaped for shell.
 
-cluster resizing. clusters should be short lived and data ephemeral. instead of resizing create a new cluster.
+Cluster resizing. Clusters should be short lived and data ephemeral. Instead of resizing create a new cluster.
 
-pagination of list results. data layout and partitioning must be considered.
+Pagination of list results. Data layout and partitioning must be considered.
 
-## install
+## Install
 
-go install:
+Go install:
 
 ```bash
 go install github.com/nathants/s4/cmd/s4@latest
@@ -63,7 +63,7 @@ sudo mv -f $(go env GOPATH)/bin/s4 /usr/local/bin/s4
 sudo mv -f $(go env GOPATH)/bin/s4_server /usr/local/bin/s4-server
 ```
 
-git clone:
+Git clone:
 
 ```bash
 git clone https://github.com/nathants/s4
@@ -73,13 +73,13 @@ make -j
 sudo mv -fv bin/s4 bin/s4-server /usr/local/bin/
 ```
 
-## test
+## Test
 
 ```bash
 >> tox
 ```
 
-## automatic deployment
+## Automatic Deployment
 
 ```bash
 cd s4
@@ -87,15 +87,15 @@ name=s4-cluster
 bash scripts/new_cluster.sh $name
 ```
 
-## manual deployment
+## Manual Deployment
 
-deploy
+Deploy
 ```bash
 ssh $server1 "curl -s https://raw.githubusercontent.com/nathants/s4/go/scripts/install_archlinux.sh | bash"
 ssh $server2 "curl -s https://raw.githubusercontent.com/nathants/s4/go/scripts/install_archlinux.sh | bash"
 ```
 
-configure
+Configure
 ```bash
 echo $server1:8080 >  ~/.s4.conf
 echo $server2:8080 >> ~/.s4.conf
@@ -103,13 +103,13 @@ scp ~/.s4.conf $server1:
 scp ~/.s4.conf $server2:
 ```
 
-start
+Start
 ```bash
 ssh $server1 s4-server
 ssh $server2 s4-server
 ```
 
-## usage
+## Usage
 
 ```bash
 echo hello world | s4 cp - s4://bucket/data.txt
@@ -118,47 +118,47 @@ s4 ls s4://bucket --recursive
 s4 --help
 ```
 
-## examples
+## Examples
 
-[structured analysis of nyc taxi data with bsv and hive](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_bsv)
+[Structured analysis of NYC taxi data with BSV and Hive](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_bsv)
 
-[adhoc exploration of nyc taxi data with python](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_python)
+[Adhoc exploration of NYC taxi data with Python](https://github.com/nathants/s4/blob/go/examples/nyc_taxi_python)
 
-## related projects
+## Related Projects
 
-[bsv](https://github.com/nathants/bsv) - a simple and efficient data format for easily manipulating chunks of rows of columns while minimizing allocations and copies.
+[BSV](https://github.com/nathants/bsv) - A simple and efficient data format for easily manipulating chunks of rows of columns while minimizing allocations and copies.
 
-## related posts
+## Related Posts
 
-[optimizing a bsv data processing pipeline](https://nathants.com/posts/optimizing-a-bsv-data-processing-pipeline)
+[Optimizing a BSV data processing pipeline](https://nathants.com/posts/optimizing-a-bsv-data-processing-pipeline)
 
-[performant batch processing with bsv, s4, and presto](https://nathants.com/posts/performant-batch-processing-with-bsv-s4-and-presto)
+[Performant batch processing with BSV, S4, and Presto](https://nathants.com/posts/performant-batch-processing-with-bsv-s4-and-presto)
 
-[discovering a baseline for data processing performance](https://nathants.com/posts/discovering-a-baseline-for-data-processing-performance)
+[Discovering a baseline for data processing performance](https://nathants.com/posts/discovering-a-baseline-for-data-processing-performance)
 
-[refactoring common distributed data patterns into s4](https://nathants.com/posts/refactoring-common-distributed-data-patterns-into-s4)
+[Refactoring common distributed data patterns into S4](https://nathants.com/posts/refactoring-common-distributed-data-patterns-into-s4)
 
-[scaling python data processing horizontally](https://nathants.com/posts/scaling-python-data-processing-horizontally)
+[Scaling Python data processing horizontally](https://nathants.com/posts/scaling-python-data-processing-horizontally)
 
-[scaling python data processing vertically](https://nathants.com/posts/scaling-python-data-processing-vertically)
+[Scaling Python data processing vertically](https://nathants.com/posts/scaling-python-data-processing-vertically)
 
-## api
+## API
 
-| name | description |
+| Name | Description |
 | -- | -- |
-| [s4 rm](#s4-rm) | delete data from s4 |
-| [s4 eval](#s4-eval) | eval a bash cmd with key data as stdin |
-| [s4 ls](#s4-ls) | list keys |
-| [s4 cp](#s4-cp) | copy data to or from s4 |
-| [s4 map](#s4-map) | process data |
-| [s4 map-to-n](#s4-map-to-n) | shuffle data |
-| [s4 map-from-n](#s4-map-from-n) | merge shuffled data |
-| [s4 config](#s4-config) | list the server addresses |
-| [s4 health](#s4-health) | health check every server |
+| [S4 rm](#s4-rm) | Delete data from S4 |
+| [S4 eval](#s4-eval) | Eval a Bash cmd with key data as stdin |
+| [S4 ls](#s4-ls) | List keys |
+| [S4 cp](#s4-cp) | Copy data to or from S4 |
+| [S4 map](#s4-map) | Process data |
+| [S4 map-to-n](#s4-map-to-n) | Shuffle data |
+| [S4 map-from-n](#s4-map-from-n) | Merge shuffled data |
+| [S4 config](#s4-config) | List the server addresses |
+| [S4 health](#s4-health) | Health check every server |
 
-## usage
+## Usage
 
-### s4 rm
+### S4 rm
 ```
 usage: s4 rm [-h] [-r] prefix
 
@@ -175,7 +175,7 @@ optional arguments:
   -r       False
 ```
 
-### s4 eval
+### S4 eval
 ```
 usage: s4 eval [-h] key cmd
 
@@ -190,7 +190,7 @@ optional arguments:
   -h  show this help message and exit
 ```
 
-### s4 ls
+### S4 ls
 ```
 usage: s4 ls [-h] [-r] [prefix]
 
@@ -205,7 +205,7 @@ optional arguments:
   -r, --recursive  False
 ```
 
-### s4 cp
+### S4 cp
 ```
 usage: s4 cp [-h] [-r] src dst
 
@@ -229,7 +229,7 @@ optional arguments:
   -r       False
 ```
 
-### s4 map
+### S4 map
 ```
 usage: s4 map [-h] indir outdir cmd
 
@@ -250,7 +250,7 @@ optional arguments:
   -h  show this help message and exit
 ```
 
-### s4 map-to-n
+### S4 map-to-n
 ```
 usage: s4 map-to-n [-h] indir outdir cmd
 
@@ -272,7 +272,7 @@ optional arguments:
   -h  show this help message and exit
 ```
 
-### s4 map-from-n
+### S4 map-from-n
 ```
 usage: s4 map-from-n [-h] indir outdir cmd
 
@@ -294,7 +294,7 @@ optional arguments:
   -h  show this help message and exit
 ```
 
-### s4 config
+### S4 config
 ```
 usage: s4 config [-h]
 
@@ -305,7 +305,7 @@ optional arguments:
   -h  show this help message and exit
 ```
 
-### s4 health
+### S4 health
 ```
 usage: s4 health [-h]
 
